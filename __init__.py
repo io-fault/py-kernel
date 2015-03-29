@@ -1,7 +1,4 @@
 """
-about
------
-
-hyper is a nucleus library for working with common internet protocols.
+I/O management framework for fault.scheduling driven processes.
 """
 __pkg_bottom__ = True
