@@ -5,6 +5,7 @@ import array
 import weakref
 import collections
 import functools
+import queue
 
 from ..fork import libhazmat
 
@@ -36,6 +37,13 @@ def get_location(self):
 def set_location(self, path):
 	self.location_path = path
 
+class Port(int):
+	"""
+	A reference to a system port; usually a file description.
+	"""
+	__slots__ = ()
+	type = 'file descriptor'
+
 class Resource(object):
 	"""
 	Base class for objects managed by a LogicalProcess.
@@ -47,7 +55,7 @@ class Resource(object):
 	controller = property(
 		fget = dereference_controller,
 		fset = set_controller_reference,
-		doc = "controller property for process objects"
+		doc = "controller property for process resources"
 	)
 
 	location = property(
@@ -106,6 +114,19 @@ class Join(Transformer):
 	"""
 	A Transformer that explicitly relies on side-effects in order to emit events.
 	"""
+
+class Thread(Join):
+	"""
+	A dedicated thread for a Transformer.
+	"""
+	def install(self, function, *parameters):
+		self.function = function
+		self.parameters = parameters
+		self.queue = queue.Queue()
+		self.context.execute(self, function, *((self, self.queue) + parameters))
+
+	def process(self, event):
+		self.queue.put(event)
 
 class Processor(Join):
 	"""
@@ -186,7 +207,7 @@ class References(Join):
 		'python:dict': dict,
 	}
 
-	def __init__(self, identifier = None, Mechanism = dict):
+	def __init__(self, Mechanism = dict):
 		self.port = None
 		self.storage = Mechanism()
 		self.index = Mechanism()
@@ -215,6 +236,30 @@ class References(Join):
 		"""
 		key = self.storage.pop(obj, None)
 		self.index.pop(key, None)
+
+class Latches(Join):
+	"""
+	A collection of latches managing the disposal of a resource.
+	Often, a file descriptor.
+	"""
+	def __init__(self, Mechanism = dict):
+		self.storage = Mechanism()
+
+	def weak(self, obj):
+		self.process(obj)
+		weakref.Ref(obj)
+
+	def unlatch(self, obj):
+		self.process(obj)
+		self.storage[obj] -= 2
+		if self.storage[obj] <= 0:
+			pass
+
+	def process(self, obj):
+		if obj not in self.storage:
+			self.storage[obj] = collections.Counter()
+
+		self.storage[obj] += 1
 
 class Link(Join):
 	"""
@@ -340,9 +385,6 @@ class Stream(Connection):
 	"""
 	def __init__(self):
 		self.flow = Flow()
-		self.protocol = None
-		self.identifiers = list()
-		# XXX: hard coding the allocation
 		self.source = Memory(self.flow, mtype = 'int')
 
 	def process(self, event):
@@ -408,9 +450,6 @@ class Flow(Resource):
 
 	def __init__(self):
 		self.sequence = () # transformers
-
-	def attach(self, context):
-		self.context = context
 
 	@property
 	def obstructed(self):
