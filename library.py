@@ -9,6 +9,7 @@ import contextlib
 import inspect
 import weakref
 import queue
+import traceback
 
 from . import core
 from . import traffic
@@ -28,6 +29,7 @@ def profile(hostname = None):
 	import platform
 	import sys
 	import resource
+	import getpass
 	from ..chronometry import library as timelib
 
 	boot = timelib.unix(psutil.boot_time())
@@ -69,12 +71,17 @@ def profile(hostname = None):
 		'system' : os,
 		'substrate': {
 			'python': python,
+		},
+		'user': {
+			'depth': int(os.environ.get('SHLVL', 0)) - 1,
+			'user': getpass.getuser(),
+			'home': os.path.expanduser('~'),
 		}
 	}
 
 class Port(int):
 	"""
-	System port[file descriptor] indicator. System endpoint address.
+	System Port Indicator (file descriptor).
 
 	Ports can be associated with arbitrary endpoints.
 	"""
@@ -85,7 +92,7 @@ class Port(int):
 
 class Endpoint(tuple):
 	"""
-	A process-local endpoint. These objects are pointers to [logical] process objects.
+	A process-local endpoint. These objects are pointers to [logical] process resources.
 	"""
 	__slots__ = ()
 	protocol = 'ps' # Process[or Program] Space
@@ -374,6 +381,9 @@ class Context(object):
 		fenqueue = self.process.fabric.enqueue
 		fenqueue(controller, task)
 
+	def execute(self, controller, function, *parameters):
+		return self.process.fabric.execute(controller, function, *parameters)
+
 	def environ(self, identifier):
 		"""
 		Access.
@@ -643,7 +653,7 @@ class LogicalProcess(object):
 		if not core.__process_index__:
 			if exit is None:
 				# no exit provided, so use our own exit code
-				interject(SystemExit(250).raised)
+				forklib.interject(forklib.SystemExit(250).raised)
 			else:
 				self.invocation.exit(exit)
 
@@ -664,12 +674,16 @@ class LogicalProcess(object):
 		self._init_exit()
 		self._init_fabric()
 		self._init_taskq()
+		self._init_system_events()
 		# XXX: does not handle term/void cases.
 		self._init_traffic()
 
 	def _init_exit(self):
 		self._exit_stack = contextlib.ExitStack()
 		self._exit_stack.__enter__()
+
+	def _init_system_events(self):
+		self.system_event_connections = {}
 
 	def _init_fabric(self):
 		self.fabric = Fabric(self)
@@ -704,6 +718,7 @@ class LogicalProcess(object):
 		self._init_exit()
 		self._init_fabric()
 		self._init_taskq()
+		self._init_system_events()
 		self.kernel.void()
 		self.interchange.void()
 
@@ -735,7 +750,7 @@ class LogicalProcess(object):
 
 	def schedule(context, measure, task):
 		"""
-		Schedule the task for execution after the period of time @measure elapses.
+		Schedule the task for execution after the period of time &measure elapses.
 		"""
 		scheduler = libharm.Harmony()
 
@@ -767,8 +782,9 @@ class LogicalProcess(object):
 		error.__traceback__ = error.__traceback__.tb_next
 
 		# exception reporting facility
-		self.log("[Exception from %s: %r]\n" %(title, context,))
-		sys.excepthook(error.__class__, error, error.__traceback__)
+		formatting = traceback.format_exception(error.__class__, error, error.__traceback__)
+		formatting = ''.join(formatting)
+		self.log("[Exception from %s: %r]\n%s" %(title, context, formatting))
 
 	def maintenance(self):
 		# tasks to run after every cycle
@@ -830,28 +846,39 @@ class LogicalProcess(object):
 						events = self.kernel.wait(0)
 
 				# process signals and child exit events
+				sec = self.system_event_connections
 				for event in events:
-					print(event)
 					if event[0] == 'process':
-						y = (pid, termd, status, cored) = libhazmat.process_delta(event[1])
-						if termd is None:
-							print('process:', y)
-					elif event[0] == 'signal':
-						control = event[1]
-						if control == 'terminal.query':
-							self._enqueue(functools.partial(self.report, self.log))
-					elif event[0] == 'alarm':
-						pass
-					elif event[0] == 'recur':
-						pass
-					elif event[0] == 'file':
-						pass
+						args = (libhazmat.process_delta(event[1]),)
 					else:
-						# XXX: hazard
-						raise RuntimeError(event) # unknown event type
+						args = ()
+
+					if event in sec:
+						callback = sec[event][1]
+						self._enqueue(functools.partial(callback, *args))
+					else:
+						# note unhandled system events
+						pass
+
 				# for event
-			# if-else
+			# else
 		# while
+
+	def system_event_connect(self, event, resource, callback):
+		"""
+		Connect the given callback to system event, &event.
+		"""
+		self.system_event_connections[event] = (resource, callback)
+
+	def system_event_disconnect(self, event):
+		"""
+		Disconnect the given callback from the system event.
+		"""
+		if event not in self.system_event_connections:
+			return False
+
+		del self.system_event_connections[event]
+		return True
 
 	def _enqueue(self, *tasks):
 		self._tq[self._tq_state[1]].extend(tasks)
@@ -874,9 +901,10 @@ class LogicalProcess(object):
 
 def execute(**programs):
 	"""
-	Spawn a logical process to represent the invocation from the [operating] system.
+	Initialize a working directory and spawn a logical process to represent the
+	invocation from the [operating] system.
 
-	This is the appropriate way to invoke an IO process from an executable module.
+	This is the appropriate way to invoke an fault.io process from an executable module.
 
 		io.library.execute(program_name = (initialize_program,))
 	"""
