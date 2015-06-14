@@ -49,6 +49,12 @@ def test_segments_sequence_features(test):
 
 	test/seqs[0][1000:1200] == seqs[1][1000:1200]
 
+def test_select(test):
+	seg = library.Segments(list(range(439)))
+	print(library.address(seg.sequences, 400, 445))
+	print(list(seg.select(400, 445)), list(range(400, 440)))
+	test/list(seg.select(400, 445)) == list(range(400, 439))
+
 def test_sequence(test):
 	return
 	s = library.Sequence()
@@ -124,6 +130,7 @@ class Class():
 """
 
 def test_block(test):
+	return
 	lines = [library.Sequence(library.parse(line)) for line in doc.split('\n')]
 
 	# contiguous

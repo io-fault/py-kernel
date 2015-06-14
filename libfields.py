@@ -5,6 +5,7 @@ import abc
 import operator
 import keyword
 import itertools
+from ..terminal import symbols
 
 class Field(metaclass = abc.ABCMeta):
 	"""
@@ -41,7 +42,7 @@ class Field(metaclass = abc.ABCMeta):
 	def subfields(self):
 		"""
 		The absolute sequence of fields contained within the Field.
-		Nested fields must be unnested by including the Field context. 
+		Nested fields must be unnested by including the Field context.
 
 		Returns an iterator producing a triple:
 		
@@ -113,7 +114,7 @@ def address(seq, start, stop, len = len, range = range):
 			break
 	else:
 		# stop offset exceeds total length
-		stop_index_offset = position # total string length
+		stop_index_offset = position - ilen # total string length
 		stop_index = sl - 1 # end of sequence
 
 	stop_roffset = stop - stop_index_offset
@@ -135,15 +136,15 @@ def delete(seq, start, stop, empty = "", len = len, range = range):
 		# removing a substring
 		s = seq[start_index]
 		# overwrite the index
-		seq[start_index] = s[:start_roffset] + s[stop_roffset:]
+		seq[start_index] = s.__class__(s[:start_roffset] + s[stop_roffset:])
 	else:
 		s = seq[start_index]
-		seq[start_index] = s[:start_roffset]
+		seq[start_index] = s.__class__(s[:start_roffset])
 
 		if stop_index < sl:
 			# assign stop as well given its inside the seq
 			s = seq[stop_index]
-			seq[stop_index] = s[stop_roffset:]
+			seq[stop_index] = s.__class__(s[stop_roffset:])
 
 		# clear everything between start+1 and stop
 		for i in range(start_index+1, stop_index):
@@ -224,7 +225,7 @@ class Segments(object):
 	Manage a series of sequences as if it were one sequence.
 	Primarily used to control maximum memory moves for each insertion.
 	"""
-	__slots__ = ('sequences','length')
+	__slots__ = ('sequences', '_length')
 	Type = list
 	segment_size = 64
 
@@ -233,7 +234,7 @@ class Segments(object):
 			self.partition(iterable)
 		else:
 			self.sequences = self.Type()
-			self.length = 0
+			self._length = 0
 
 	def __getitem__(self, item):
 		if isinstance(item, slice):
@@ -266,10 +267,12 @@ class Segments(object):
 		self.delete(start, stop)
 
 	def __len__(self):
-		return sum(map(len, self.sequences))
+		return self._length
 
 	def __iadd__(self, sequence):
+		seqlen = len(sequence)
 		append(self.sequences, sequence)
+		self._length += seqlen
 
 	def select(self, start, stop, whole = slice(None)):
 		"""
@@ -302,12 +305,13 @@ class Segments(object):
 		Truncate the entire sequence.
 		"""
 		self.__init__()
+		self._length = 0
 
-	def partition(self, iterable = None):
+	def partition(self, iterable = None, len = len):
 		"""
 		Organize the segments so that they have appropriate sizes.
 		"""
-		sequences = list()
+		sequences = self.Type()
 		segment = None
 
 		if iterable is None:
@@ -315,24 +319,38 @@ class Segments(object):
 		else:
 			this = iter(iterable)
 
+		islice = itertools.islice
+		add = sequences.append
+		newlen = 0
 		while True:
-			buf = self.Type(itertools.islice(this, self.segment_size))
-			sequences.append(buf)
-			if len(buf) < self.segment_size:
+			buf = self.Type(islice(this, self.segment_size))
+			buflen = len(buf)
+			add(buf)
+			newlen += buflen
+			if buflen < self.segment_size:
+				# islice found the end of the iterator
 				break
+
 		self.sequences = sequences
+		self._length = newlen
 
 	def prepend(self, sequence):
+		seqlen = len(sequence)
 		self.sequences = prepend(self.sequences, sequence)
+		self._length += seqlen
 
 	def append(self, sequence):
 		offset = len(self)
 		newlen = len(sequence)
+
 		self.sequences.append(sequence)
-		return ('delete', (offset, offset+newlen))
+
+		self._length += newlen
 
 	def insert(self, offset, sequence):
+		seqlen = len(sequence)
 		self.sequences = insert(self.sequences, offset, sequence)
+		self._length += seqlen
 
 	def delete(self, start, stop):
 		# normalize and restrict slice size as needed.
@@ -349,14 +367,7 @@ class Segments(object):
 			stop = l
 
 		delete(self.sequences, start, stop)
-
-	def replace(self, start, stop, sequence):
-		"""
-		Replace the range with the given sequence.
-		"""
-		self.sequences = replace(self.sequences, start, stop, sequence)
-		seq = delete(self.sequences, start, stop)
-		self.sequences = seq.insert(start, sequence)
+		self._length -= (stop - start)
 
 @Field.register
 class String(str):
@@ -364,6 +375,7 @@ class String(str):
 	A simple string field. The contents are immutable and it identifies itself as full.
 	"""
 	__slots__ = ()
+	merge = True
 
 	def __getitem__(self, args):
 		return self.__class__(super().__getitem__(args))
@@ -380,22 +392,23 @@ class String(str):
 		return None
 
 	def delete(self, start, stop):
-		return 0
+		pass
 
 	def insert(self, position, string):
-		return None
+		pass
 
 	def value(self):
-		return self
+		return str(self)
 
-	def length(self):
+	def length(self, len = len):
 		return len(self)
-
-	def divide(self, offset):
-		return (self.__class__(self[:offset]), self.__class__(self[offset:]))
+	characters = str.__len__
 
 class Constant(String):
-	pass
+	merge = False
+
+class Delimiter(String):
+	merge = False
 
 @Field.register
 class Text(object):
@@ -405,8 +418,8 @@ class Text(object):
 	"""
 	__slots__ = ('sequences',)
 	empty_entry = String("")
-	segment_size = 128 # normalized  string size in checkpoint
-	delimiters = ()
+	constants = ()
+	classifications = ()
 
 	@property
 	def empty(self):
@@ -442,18 +455,57 @@ class Text(object):
 		Set the field characters. Used loading fields.
 		Destroys the log (delta sequence).
 		"""
+		inverse = (self.set, (self.sequences,))
 		self.sequences = characters
+		return inverse
 
 	def clear(self):
 		"""
 		Set the text to an empty string.
 		"""
-		self.set([self.empty_entry])
+		return self.set([self.empty_entry])
 
-	def insert(self, offset, string, op = insert):
+	def insert(self, offset, string, op = insert, len = len):
+		strlen = len(string)
 		self.sequences = op(self.sequences, offset, string, empty = self.empty_entry)
-		#address(self.sequences, offset)
-		return ('delete', (offset, offset + len(string)))
+		end = offset + strlen
+
+		# consolidate the insert into the former or the latter field
+		if not isinstance(string, Field):
+			self.reformat()
+		elif string.merge:
+			seq = self.sequences
+			seqlen = len(seq)
+			Class = string.__class__
+
+			start, stop = address(seq, offset, end)
+
+			start_index, start_roffset = start
+			if len(seq[start_index]) == start_roffset:
+				start_index += 1
+				start_roffset = 0
+
+			jstart = start_index
+			jstop = start_index + 1
+
+			for jstart in range(start_index, -1, -1):
+				item = seq[jstart]
+				if item.merge == False:
+					jstart += 1
+					break
+
+			for jstop in range(start_index, seqlen):
+				item = seq[jstop]
+				if item.merge == False:
+					break
+			else:
+				jstop = seqlen
+
+			replace = Class("".join(seq[jstart:jstop]))
+			del seq[jstart:jstop]
+			seq.insert(jstart, replace)
+
+		return (self.delete, (offset, end))
 
 	def delete(self, start, stop):
 		# normalize and restrict slice size as needed.
@@ -469,18 +521,16 @@ class Text(object):
 			start = stop
 			stop = l
 
-		section = str(self)[start:stop] # TODO: keep exact changes
+		section = str(self)[start:stop]
 
 		self.sequences = delete(self.sequences, start, stop, empty = self.empty_entry)
-		return ('insert', (start, section))
+
+		return (self.insert, (start, section))
 
 	def replace(self, start, stop, string):
 		di = self.delete(start, stop)
 		ii = self.insert(start, string)
 		return [di, ii]
-
-	def __iadd__(self, string):
-		self.mutate(('append', string))
 
 	def __len__(self):
 		return sum(map(len, self.sequences))
@@ -496,21 +546,28 @@ class Text(object):
 		return zip(((self, i) for i in range(len(self.sequences))), self.sequences)
 
 	def __str__(self):
-		return self.value()
+		return ''.join(map(str, self.sequences))
 
 	def __repr__(self):
 		return repr(self.sequences)
 
 class Line(Text):
-	pass
+	"""
+	Text object representing a single line.
+	Implies the special handling of control characters.
+	"""
+	__slots__ = Text.__slots__
 
-class FieldSeparator(Constant):
+class FieldSeparator(Delimiter):
 	"""
 	A space-like character used to delimit fields for commands.
 
 	Primarily used by Prompts to distinguish between spaces and field separation.
 	"""
-	pass
+	__slots__ = Delimiter.__slots__
+	classifications = ()
+	merge = False
+field_separator = FieldSeparator(symbols.whitespace['space'])
 
 @Field.register
 class Formatting(int):
@@ -550,10 +607,11 @@ class Formatting(int):
 		return self.size * self
 
 	def value(self):
-		return (self.identity, self)
+		return self.character * self
 
 	def length(self):
 		return self * self.size
+	characters = length
 
 class Spacing(Formatting):
 	"""
@@ -636,13 +694,14 @@ class Sequence(list):
 		return inverse
 
 	def __str__(self):
-		return ''.join(str(x[0]) for x in self.value())
+		return ''.join(map(str, self.value()))
 
-	def length(self, len = operator.methodcaller('length')):
+	def length(self, lenmethod = operator.methodcaller('length')):
 		"""
 		The sum of the *display* length of the contained fields.
 		"""
-		return sum(map(len, self))
+		return sum(map(lenmethod, self))
+	characters = length
 
 	def subfields(self, path = (), range = range, len = len, isinstance = isinstance):
 		"""
@@ -661,7 +720,10 @@ class Sequence(list):
 				yield from x.subfields(path + ((self, i),))
 			else:
 				yield (path + ((self, i),), x)
-	value = subfields
+
+	def value(self):
+		for path, x in self.subfields():
+			yield x.value()
 
 	def offset(self, path, field):
 		"""
@@ -683,8 +745,7 @@ class Sequence(list):
 		"""
 		Find the field at the relative offset.
 
-		If the offset is beyond the end of the sequence,
-		the last item will be returned.
+		If the offset is beyond the end of the sequence, &None.
 		If the offset is less than zero, the first.
 		"""
 		if self.empty:
@@ -706,122 +767,13 @@ class Sequence(list):
 			if offset - l < current:
 				return (path, field, (current, l, i))
 			current += l
+		else:
+			current -= l
 
 		# offset is beyond edge, so select last
-		return None
+		return (path, field, (current, l, i))
 
-space = Constant(" ")
-translation_set = (
-	'terminators',
-	'routers',
-	'delimiters',
-	'operators',
-	'groupings',
-	'quotations',
-)
-
-# cover python
-python = {
-	'keywords': {
-		x: Constant(x) for x in keyword.kwlist
-	},
-	'cores': {
-		x: Constant(x) for x in __builtins__.keys()
-	},
-
-	'terminators': {
-		x: Constant(x) for x in ":;"
-	},
-	'routers': {
-		x: Constant(x) for x in "."
-	},
-	'delimiters': {
-		x: Constant(x) for x in ","
-	},
-	'operators': {
-		x: Constant(x) for x in "@!&^*%+=-|\\/<>?~"
-	},
-	'groupings': {
-		x: Constant(x) for x in "()[]{}"
-	},
-	'quotations': {
-		x: Constant(x) for x in (
-			"'",
-			'"',
-		)
-	},
-}
-
-def table(language):
-	for x in translation_set:
-		yield from python[x].keys()
-
-def aggregate(language):
-	for x in translation_set:
-		yield from python[x].items()
-
-pd = {x:' ' for x in table(python)}
-pd['\n'] = None # implied with display
-
-python['table'] = str.maketrans(pd)
-del pd
-python['constants'] = dict(aggregate(python))
-python['classify'] = {}
-
-def parse(line, context = None, language = python, Indentation = Indentation):
-	"""
-	Parse a line of Python text into Fields.
-	"""
-	kws = language['keywords']
-	cores = language['cores']
-
-	# Calculate indentation
-	xline = line.lstrip('\t')
-	l = len(xline)
-	indent = len(line) - l
-	yield Indentation(indent)
-
-	primaries = xline.rstrip('\n').split(' ')
-	spaces = len(primaries) - 1
-
-	# converts to spaces which are then split
-	offset = 0
-	for x in primaries:
-		if x in kws:
-			# constant keyword
-			yield kws[x]
-			offset += len(x)
-		elif x in cores:
-			yield cores[x]
-			offset += len(x)
-		else:
-			# split delimiters
-			*t, edge = x.translate(language['table']).split(' ')
-			for y in t:
-				if y:
-					if y in kws:
-						# constant keyword
-						yield kws[y]
-					elif x in cores:
-						yield cores[y]
-					else:
-						yield y
-
-				# handle following delimiter
-				offset += len(y)
-				yield language['constants'][xline[offset]]
-				offset += 1
-
-			# last field; no delimiter
-			if edge:
-				yield edge
-			offset += len(edge)
-		offset += 1 # space
-
-		if offset < l:
-			yield space
-	# include line terminator
-	#yield Terminator(1)
+space = Delimiter(" ")
 
 def indentation(seq):
 	'Return the indentation level or zero if none.'
@@ -849,20 +801,24 @@ def block(sequence, index, minimum, maximum, condition_constructor, *parameters)
 	l = []
 	start, pos, stop = index # position is reference point
 
-	ranges = ((-1, minimum, range(start, minimum-1, -1)), (1, maximum, range(stop, maximum)))
+	ranges = ((-1, minimum, range(start, minimum-1, -1)), (1, maximum, range(stop, maximum+1)))
 
 	for direction, default, r in ranges:
 		condition = condition_constructor(direction, sequence[pos], *parameters)
-		r = iter(r)
-
-		for i in r:
-			offset = condition(sequence[i])
-			if offset is not None:
-				l.append(i - (offset * direction))
-				break
-		else:
+		if condition is None:
+			# all
 			l.append(default)
-			continue
+		else:
+			r = iter(r)
+
+			for i in r:
+				offset = condition(sequence[i])
+				if offset is not None:
+					l.append(i - (offset * direction))
+					break
+			else:
+				l.append(default)
+				continue
 
 	return tuple(l)
 
@@ -870,40 +826,35 @@ def indentation_block(direction, initial, level = None, level_adjustment = 0):
 	"""
 	Detect indentation blocks.
 	"""
-
 	# if there's no indentation and it's not empty, check contiguous lines
-	# if there is indentation or
 	if level is None:
 		il = indentation(initial)
-
-		if initial is None:
-			def true(*args):
-				return 0
-			return true
 	else:
 		il = level
+	
+	if il == 0:
+		# document-level; that is all units
+		return None
 
-	if il:
-		ilevel = il + level_adjustment
+	ilevel = il + level_adjustment
 
-		def indentation_condition(item, ilevel=ilevel, cstate=list((0,))):
-			iil = indentation(item)
+	def indentation_condition(item, ilevel=ilevel, cstate=list((0,None))):
+		iil = indentation(item)
 
-			if iil < ilevel and has_content(item):
+		if iil < ilevel:
+			if has_content(item):
 				# non-empty decrease in indentation
-				return 1
+				return 1 + cstate[0]
+			else:
+				# track empty line
+				cstate[0] += 1
+		else:
+			if cstate[0]:
+				cstate[0] = 0
 
-			return None
+		return None
 
-		return indentation_condition
-	else:
-		# zero indentation level, scan contiguous
-		def contiguous_condition(item):
-			if indentation(item) == 0 and has_content(item):
-				return None
-			return 0
-
-		return contiguous_condition
+	return indentation_condition
 
 def contiguous_block(direction, initial, level = None, level_adjustment = 0):
 	"""

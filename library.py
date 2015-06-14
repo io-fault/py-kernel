@@ -494,20 +494,23 @@ class Fabric(object):
 		tid = gettid()
 
 		try:
-			if controller is None:
-				self.gpt[tid] = None
-			else:
-				self.dpt[tid] = parameters
+			try:
+				if controller is None:
+					self.gpt[tid] = None
+				else:
+					self.dpt[tid] = parameters
 
-			thread_call, thread_args = thread_root
-			del thread_root
+				thread_call, thread_args = thread_root
+				del thread_root
 
-			return thread_call(*thread_args)
-		finally:
-			if controller is None:
-				del self.gpt[tid]
-			else:
-				del self.dpt[tid]
+				return thread_call(*thread_args)
+			finally:
+				if controller is None:
+					del self.gpt[tid]
+				else:
+					del self.dpt[tid]
+		except BaseException as exception:
+			self.process.exception(controller, exception, "Thread")
 
 	def loop(self, *parameters, gettid = libhazmat.identify_thread):
 		"""
