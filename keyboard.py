@@ -32,10 +32,11 @@ class Mapping(object):
 
 shift = libterminal.Modifiers.construct(shift=True)
 meta = libterminal.Modifiers.construct(meta=True)
+controlmod = libterminal.Modifiers.construct(control=True)
 shiftmeta = libterminal.Modifiers.construct(meta=True, shift=True)
 literal = lambda x: ('literal', x, 0)
 caps = lambda x: ('literal', x, shift)
-controlk = lambda x: ('control', x, 1)
+controlk = lambda x: ('control', x, controlmod)
 shiftcontrolk = lambda x: ('control', x, shift)
 nav = lambda x: ('navigation', x, 0)
 shiftnav = lambda x: ('navigation', x, shift)
@@ -62,7 +63,7 @@ control.assign(caps('y'), 'projection', ('delta', 'map'))
 
 # control
 control.assign(controlk('c'), 'projection', ('interrupt',))
-control.assign(controlk('v'), 'projection', ('print', 'unit',))
+control.assign(('escaped', 'c', 0), 'projection', ('copy',))
 
 #control.assign(('control', 'escape', 0), 'projection', ('transition', 'exit'))
 control.assign(('control', 'space', 0), 'projection', ('control', 'space'))
@@ -80,6 +81,7 @@ control.assign(caps('s'), 'projection', ('select', 'series', 'backward')) # spar
 
 control.assign(literal('e'), 'projection', ('navigation', 'vertical', 'sections'))
 control.assign(caps('e'), 'projection', ('navigation', 'vertical', 'paging'))
+control.assign(controlk('e'), 'projection', ('print', 'unit'))
 
 # temporary
 control.assign(literal('w'), 'projection', ('window', 'vertical', 'forward'))
@@ -95,7 +97,7 @@ control.assign(controlk('k'), 'projection', ('navigation', 'void', 'backward'))
 
 control.assign(caps('o'), 'projection', ('open', 'behind',))
 control.assign(literal('o'), 'projection', ('open', 'ahead'))
-control.assign(controlk('o'), 'projection', ('',)) # spare
+control.assign(controlk('o'), 'projection', ('open', 'into'))
 
 control.assign(literal('q'), 'projection', ('navigation', 'range', 'enqueue'))
 control.assign(caps('q'), 'projection', ('navigation', 'range', 'dequeue'))
@@ -116,23 +118,24 @@ control.assign(controlk('z'), 'projection', ('place', 'expand'))
 # [undo] log
 control.assign(literal('u'), 'projection', ('delta', 'undo',))
 control.assign(caps('u'), 'projection', ('delta', 'redo',))
+control.assign(controlk('u'), 'projection', ('redo',))
 
-control.assign(literal('a'), 'projection', ('select', 'adjacent'))
+control.assign(literal('a'), 'projection', ('select', 'adjacent', 'local'))
 control.assign(caps('a'), 'projection', ('select', 'adjacent'))
 
 control.assign(literal('b'), 'projection', ('select', 'block'))
 control.assign(caps('b'), 'projection', ('select', 'outerblock'))
 
-control.assign(literal('n'), 'projection', ('',))
-control.assign(caps('n'), 'projection', ('',))
+control.assign(literal('n'), 'projection', ('delta', 'split',))
+control.assign(caps('n'), 'projection', ('delta', 'join',))
 control.assign(controlk('n'), 'projection', ('',))
 
 control.assign(literal('p'), 'projection', ('paste', 'after'))
 control.assign(caps('p'), 'projection', ('paste', 'before',))
 control.assign(controlk('p'), 'projection', ('paste', 'into',))
 
-control.assign(literal('l'), 'projection', ('select', 'line'))
-control.assign(caps('l'), 'projection', ('select', 'line', 'end'))
+control.assign(literal('l'), 'projection', ('select', 'horizontal', 'line'))
+control.assign(caps('l'), 'projection', ('select', 'vertical', 'line'))
 control.assign(controlk('l'), 'projection', ('console', 'seek', 'line'))
 
 for i in range(10):
@@ -151,11 +154,11 @@ control.assign(literal('i'), 'projection', ('transition', 'edit'),)
 control.assign(caps('i'), 'projection', ('delta', 'split'),) # split field
 
 control.assign(literal('c'), 'projection', ('delta', 'substitute'),)
-control.assign(caps('c'), 'projection', ('delta', 'substitute', 'series'),) # remap this
+control.assign(caps('c'), 'projection', ('delta', 'substitute', 'previous'),) # remap this
 
-control.assign(literal('x'), 'projection', ('cut', 'forward'),)
-control.assign(caps('x'), 'projection', ('cut', 'backward'),)
-control.assign(controlk('x'), 'selection', ('cut', 'selection')) # cut line
+control.assign(literal('x'), 'projection', ('delta', 'delete', 'forward'),)
+control.assign(caps('x'), 'projection', ('delta', 'delete', 'backward'),)
+control.assign(controlk('x'), 'selection', ('remove', 'selection')) # cut line
 
 control.assign(literal('r'), 'projection', ('delta', 'replace', 'character'),)
 control.assign(caps('r'), 'projection', ('delta', 'replace'),)
