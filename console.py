@@ -94,11 +94,6 @@ actions = dict(
 	),
 )
 
-class Query(object):
-	"""
-	Range queries for managing range operations.
-	"""
-
 class Projection(iolib.core.Resource):
 	"""
 	A projection of a source onto a connected area of the display.
@@ -166,6 +161,7 @@ class Projection(iolib.core.Resource):
 
 		self.keyboard = self.create_keyboard_mapping() # per-projection to maintain state
 		self.keyboard.set(self.default_keyboard_mapping)
+		self.distributing = False
 
 	@staticmethod
 	@functools.lru_cache(16)
@@ -189,11 +185,26 @@ class Projection(iolib.core.Resource):
 			return ()
 
 		mapping, (target_id, event_selection, params) = routing
-
 		method_name = self.event_method(target_id, event_selection)
 		method = getattr(self, method_name)
 
-		return method(event, *params)
+		if self.distributing and event_selection[0] == 'delta':
+			self.clear_horizontal_indicators()
+			v = self.vertical
+			v.move(0, 1)
+			for i in range(v.magnitude):
+				self.update_unit()
+				method(event, *params)
+				v.move(1)
+			rob = None
+			self.update_vertical_state()
+		else:
+			rob = method(event, *params)
+		self.update_horizontal_indicators()
+		return rob
+
+	def event_distribute_one(self, event):
+		self.distributing = not self.distributing
 
 	def adjust(self, point, dimensions):
 		"""
@@ -353,7 +364,7 @@ class IRange(tuple):
 
 class RMapping(object):
 	"""
-	Range mapping. Mapping of ranges 
+	Range mapping. Mapping of ranges
 	"""
 	from bisect import bisect
 
@@ -492,7 +503,6 @@ class Fields(Projection):
 		v.move(v.get() - line)
 
 		h.configure(uo, field.length(), 0)
-		self.update_horizontal_indicators()
 
 	def constrain_horizontal_range(self):
 		"Apply the limits of the vertical index to the vector's horizontal range."
@@ -615,7 +625,6 @@ class Fields(Projection):
 
 		v.reposition()
 		self.controller.emit(self.refresh())
-		self.update_horizontal_indicators()
 
 	def __init__(self):
 		super().__init__()
@@ -1454,7 +1463,6 @@ class Fields(Projection):
 				self.movement = True
 				self.clear_horizontal_indicators()
 				self.display(*ir.exclusive())
-				self.update_horizontal_indicators()
 			else:
 				s1_text = str(s1_unit[1])[s1_range[0]:s1_range[1]]
 				inverse = s1_unit[1].delete(s1_range[0], s1_range[1])
@@ -1478,7 +1486,6 @@ class Fields(Projection):
 				self.clear_horizontal_indicators()
 				self.display(*s1_changelines.exclusive())
 				self.display(*s2_changelines.exclusive())
-				self.update_horizontal_indicators()
 		else:
 			pass
 
@@ -1514,7 +1521,6 @@ class Fields(Projection):
 
 		self.checkpoint()
 		self.update_unit()
-		self.update_horizontal_indicators()
 
 	def event_select_horizontal_line(self, event, quantity=1):
 		"""
@@ -1538,8 +1544,6 @@ class Fields(Projection):
 			h.offset = h.magnitude
 		else:
 			h.move(abs - h.datum)
-
-		self.update_horizontal_indicators()
 
 	def event_select_vertical_line(self, event, quantity=1):
 		"""
@@ -1596,7 +1600,6 @@ class Fields(Projection):
 		h = self.vector_last_axis = self.horizontal
 
 		h.restore((start, offset, stop))
-		self.update_horizontal_indicators()
 
 	def event_select_block(self, event, quantity=1):
 		self.vertical_query = 'indentation'
@@ -1616,8 +1619,6 @@ class Fields(Projection):
 		a.restore((o, o, m))
 
 		self.movement = True
-		if self.last_axis == 'horizontal':
-			self.update_horizontal_indicators()
 
 	def event_place_stop(self, event):
 		a = self.axis
@@ -1625,8 +1626,6 @@ class Fields(Projection):
 		a.restore((d, o, o))
 
 		self.movement = True
-		if self.last_axis == 'horizontal':
-			self.update_horizontal_indicators()
 
 	def seek(self, vertical_index):
 		"""
@@ -1638,7 +1637,6 @@ class Fields(Projection):
 		v.restore((d, vertical_index, m))
 		self.update_vertical_state()
 		self.movement = True
-		self.update_horizontal_indicators()
 
 	# line [history] forward/backward
 	def event_navigation_vertical_forward(self, event, quantity = 1):
@@ -1648,7 +1646,6 @@ class Fields(Projection):
 		self.vector_last_axis = v
 		self.update_vertical_state()
 		self.movement = True
-		self.update_horizontal_indicators()
 
 	def event_navigation_vertical_backward(self, event, quantity = 1):
 		v = self.vertical
@@ -1657,7 +1654,6 @@ class Fields(Projection):
 		self.vector_last_axis = v
 		self.update_vertical_state()
 		self.movement = True
-		self.update_horizontal_indicators()
 
 	def event_navigation_vertical_paging(self, event, quantity = 1):
 		v = self.vector.vertical
@@ -1686,14 +1682,12 @@ class Fields(Projection):
 		self.window.vertical.move(quantity)
 		self.movement = True
 		self.scrolled()
-		self.update_horizontal_indicators()
 
 	def event_window_vertical_backward(self, event, quantity = 1):
 		self.clear_horizontal_indicators()
 		self.window.vertical.move(-quantity)
 		self.movement = True
 		self.scrolled()
-		self.update_horizontal_indicators()
 
 	def vertical_query_previous(self):
 		v = self.vertical
@@ -1744,7 +1738,6 @@ class Fields(Projection):
 
 		self.update_vertical_state()
 		self.constrain_horizontal_range()
-		self.update_horizontal_indicators()
 
 	def vertical_query_next(self):
 		v = self.vertical
@@ -1794,7 +1787,6 @@ class Fields(Projection):
 
 		self.update_vertical_state()
 		self.constrain_horizontal_range()
-		self.update_horizontal_indicators()
 		self.movement = True
 
 	# horizontal
@@ -1806,7 +1798,6 @@ class Fields(Projection):
 		h = self.horizontal
 		self.vector_last_axis = h
 		self.rotate(h, self.unit, self.unit.subfields(), quantity)
-		self.update_horizontal_indicators()
 
 	def event_navigation_horizontal_backward(self, event, quantity = 1):
 		"""
@@ -1815,7 +1806,6 @@ class Fields(Projection):
 		h = self.horizontal
 		self.vector_last_axis = h
 		self.rotate(h, self.unit, reversed(list(self.unit.subfields())), quantity)
-		self.update_horizontal_indicators()
 
 	def event_navigation_horizontal_start(self, event):
 		h = self.horizontal
@@ -1835,8 +1825,6 @@ class Fields(Projection):
 			h.offset = 0
 		else:
 			h.offset = 0
-
-		self.update_horizontal_indicators()
 
 	def event_navigation_horizontal_stop(self, event):
 		h = self.horizontal
@@ -1858,15 +1846,12 @@ class Fields(Projection):
 		else:
 			h.offset = h.magnitude
 
-		self.update_horizontal_indicators()
-
 	def event_navigation_forward_character(self, event, quantity = 1):
 		h = self.horizontal
 		self.vector_last_axis = h
 
 		h.move(quantity)
 		h.limit(0, self.unit.characters())
-		self.update_horizontal_indicators()
 	event_control_space = event_navigation_forward_character
 
 	def event_navigation_backward_character(self, event, quantity = 1):
@@ -1875,7 +1860,6 @@ class Fields(Projection):
 
 		h.move(-quantity)
 		h.limit(self.get_indentation_level().length(), self.unit.characters())
-		self.update_horizontal_indicators()
 	event_control_backspace = event_navigation_forward_character
 
 	def indentation_adjustments(self, unit):
@@ -1901,7 +1885,6 @@ class Fields(Projection):
 
 		if offset > -1:
 			h.set(offset + il)
-			self.update_horizontal_indicators()
 
 	def select_void(self, linerange, ind = libfields.indentation):
 		v = self.vector.vertical
@@ -1915,7 +1898,6 @@ class Fields(Projection):
 				self.horizontal.configure(0, 0, 0)
 				self.update_vertical_state()
 				self.constrain_horizontal_range()
-				self.update_horizontal_indicators()
 				self.movement = True
 				break
 		else:
@@ -1958,7 +1940,6 @@ class Fields(Projection):
 			self.vertical.set(dominate)
 			self.horizontal.restore((range[0], self.horizontal.get(), range[1]+1))
 			self.update_vertical_state()
-			self.update_horizontal_indicators()
 		elif axis == 'vertical':
 			# no move is performed, so indicators don't need to be updaed.
 			self.vertical.restore((range[0], self.vertical.get(), range[1]+1))
@@ -2029,14 +2010,12 @@ class Fields(Projection):
 		self.log(*inverse)
 		self.keyboard.set('edit')
 		self.movement = True
-		self.update_horizontal_indicators()
 
 	def event_open_ahead(self, event, quantity = 1):
 		inverse = self.open_vertical(self.get_indentation_level(), 1, quantity)
 		self.log(*inverse)
 		self.keyboard.set('edit')
 		self.movement = True
-		self.update_horizontal_indicators()
 
 	def event_open_into(self, event):
 		h = self.horizontal
@@ -2062,14 +2041,12 @@ class Fields(Projection):
 		new.reformat()
 
 		self.display(self.vertical_index-1, None)
-		self.update_horizontal_indicators()
 		self.movement = True
 
 	def event_edit_return(self, event, quantity = 1):
 		inverse = self.open_vertical(self.get_indentation_level(), 1, quantity)
 		self.log(*inverse)
 		self.movement = True
-		self.update_horizontal_indicators()
 
 	def event_open_temporary(self, event, quantity = 1):
 		pass
@@ -2111,7 +2088,6 @@ class Fields(Projection):
 
 		self.horizontal.configure(start+adjustments, len(le))
 		self.display(*self.current_vertical.exclusive())
-		self.update_horizontal_indicators()
 
 	def empty(self, unit):
 		"""
@@ -2154,7 +2130,6 @@ class Fields(Projection):
 
 		self.clear_horizontal_indicators()
 		self.display(*r.exclusive())
-		self.update_horizontal_indicators()
 
 	def delete_characters(self, quantity):
 		v = self.vector.vertical
@@ -2182,9 +2157,8 @@ class Fields(Projection):
 
 		self.clear_horizontal_indicators()
 		self.display(*r.exclusive())
-		self.update_horizontal_indicators()
 
-	def event_insert_character(self, event):
+	def event_delta_insert_character(self, event):
 		"""
 		Insert a character at the current cursor position.
 		"""
@@ -2216,8 +2190,6 @@ class Fields(Projection):
 
 		self.clear_horizontal_indicators()
 		self.keyboard.set(mode)
-		if self.focused:
-			self.update_horizontal_indicators()
 
 	def event_transition_control(self, event):
 		self.transition_keyboard('control')
@@ -2292,9 +2264,10 @@ class Fields(Projection):
 			h.datum = 0
 		h.constrain()
 
-		self.update_horizontal_indicators()
+	def event_delta_indent_increment(self, event, quantity = 1):
+		if self.distributing and not libfields.has_content(self.unit):
+			return
 
-	def event_indent_increment(self, event, quantity = 1):
 		self.clear_horizontal_indicators()
 		self.indent(self.unit, quantity)
 
@@ -2304,7 +2277,10 @@ class Fields(Projection):
 		self.display(*r.exclusive())
 		self.constrain_horizontal_range()
 
-	def event_indent_decrement(self, event, quantity = 1):
+	def event_delta_indent_decrement(self, event, quantity = 1):
+		if self.distributing and not libfields.has_content(self.unit):
+			return
+
 		self.clear_horizontal_indicators()
 		self.indent(self.unit, -quantity)
 
@@ -2314,8 +2290,8 @@ class Fields(Projection):
 		self.display(*r.exclusive())
 		self.constrain_horizontal_range()
 
-	event_edit_tab = event_indent_increment
-	event_edit_shift_tab = event_indent_decrement
+	event_edit_tab = event_delta_indent_increment
+	event_edit_shift_tab = event_delta_indent_decrement
 
 	def print_unit(self):
 		self.controller.transcript.write(repr(self.unit)+'\n')
@@ -2362,7 +2338,6 @@ class Fields(Projection):
 		new.reformat()
 
 		self.display(self.vertical_index-1, None)
-		self.update_horizontal_indicators()
 		self.movement = True
 
 	def event_delta_join(self, event):
@@ -2379,7 +2354,6 @@ class Fields(Projection):
 
 		self.display(self.vertical_index, None)
 		h = self.horizontal.set(ulen)
-		self.update_horizontal_indicators()
 		self.movement = True
 
 	def unit_class(self, index, len = len):

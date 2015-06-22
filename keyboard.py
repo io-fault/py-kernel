@@ -58,8 +58,8 @@ trap.assign(('escaped', 'o', 0), 'console', ('prepare', 'open'))
 control = Mapping(('projection', ('navigation', 'jump', 'character'), ()))
 
 # map
-control.assign(literal('y'), 'projection', ('delta', 'map', 'one'))
-control.assign(caps('y'), 'projection', ('delta', 'map'))
+control.assign(literal('y'), 'projection', ('distribute', 'one'))
+control.assign(caps('y'), 'projection', ('distribute', 'sequence'))
 
 # control
 control.assign(controlk('c'), 'projection', ('interrupt',))
@@ -163,8 +163,8 @@ control.assign(controlk('x'), 'selection', ('remove', 'selection')) # cut line
 control.assign(literal('r'), 'projection', ('delta', 'replace', 'character'),)
 control.assign(caps('r'), 'projection', ('delta', 'replace'),)
 
-control.assign(('control', 'tab', 0), 'projection', ('indent', 'increment'))
-control.assign(('control', 'tab', shift), 'projection', ('indent', 'decrement'))
+control.assign(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
+control.assign(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
 
 control.assign(nav('up'), 'container', ('navigation', 'forward'))
 control.assign(nav('down'), 'container', ('navigation', 'backward'))
@@ -172,7 +172,7 @@ control.assign(nav('down'), 'container', ('navigation', 'backward'))
 control.assign(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
 
 # insert mode
-edit = Mapping(default = ('projection', ('insert', 'character'), ())) # insert
+edit = Mapping(default = ('projection', ('delta', 'insert', 'character'), ())) # insert
 edit.assign(('control', 'nul', 0), 'projection', ('delta', 'insert', 'space')) # literal space
 
 edit.assign(controlk('c'), 'projection', ('edit', 'abort'))

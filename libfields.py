@@ -5,6 +5,7 @@ import abc
 import operator
 import keyword
 import itertools
+import functools
 from ..terminal import symbols
 
 class Field(metaclass = abc.ABCMeta):
@@ -566,8 +567,7 @@ class FieldSeparator(Delimiter):
 	"""
 	__slots__ = Delimiter.__slots__
 	classifications = ()
-	merge = False
-field_separator = FieldSeparator(symbols.whitespace['space'])
+field_separator = FieldSeparator(':')
 
 @Field.register
 class Formatting(int):
@@ -631,6 +631,11 @@ class Indentation(Formatting):
 	identity = 'tab'
 	size = 4
 
+	@classmethod
+	@functools.lru_cache(16)
+	def acquire(Class, level):
+		return Class(level)
+
 class Terminator(Formatting):
 	"""
 	A field that represents a newline.
@@ -643,6 +648,28 @@ class Terminator(Formatting):
 @Field.register
 class Sequence(list):
 	__slots__ = ()
+
+	# Surrounding field content for disambiguating
+	# field selection.
+	field_usage_indicators = {
+		'key': ("<", ">"),
+		'': ("(", ")"),
+		'value': ("[", "]"),
+		'item': ("<", ">"),
+		'expression': ("{", "}"),
+		'default': ("[", "]"),
+	}
+
+	# dict:
+	#		<key> [value]
+	#		<key> [value]
+	#		<key> [value]
+	# matrix:
+	#		|item| |item| |item|
+	#		|item| |item| |item|
+	#		|item| |item| |item|
+	# list:
+	#		[item] [item]
 
 	@property
 	def empty(self):
