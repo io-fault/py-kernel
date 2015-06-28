@@ -1784,7 +1784,7 @@ class Fields(Projection):
 				units = zip(self.units.select(vi,l), itertools.count(vi))
 
 				for u, i in units:
-					index = str(u[1]).find(self.pattern)
+					index = str(u[1]).lstrip().find(self.pattern)
 					if index > -1:
 						break
 				else:
@@ -2295,6 +2295,7 @@ class Fields(Projection):
 
 	def event_delta_indent_increment(self, event, quantity = 1):
 		if self.distributing and not libfields.has_content(self.unit):
+			# ignore indent if the line is empty and deltas are being distributed
 			return
 
 		self.clear_horizontal_indicators()
@@ -2308,6 +2309,7 @@ class Fields(Projection):
 
 	def event_delta_indent_decrement(self, event, quantity = 1):
 		if self.distributing and not libfields.has_content(self.unit):
+			# ignore indent if the line is empty and deltas are being distributed
 			return
 
 		self.clear_horizontal_indicators()
