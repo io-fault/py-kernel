@@ -198,13 +198,21 @@ class Projection(iolib.core.Resource):
 				v.move(1)
 			rob = None
 			self.update_vertical_state()
+			if self.distribute_once == True:
+				self.distributing = not self.distributing
+				self.distribute_once = None
 		else:
 			rob = method(event, *params)
 		self.update_horizontal_indicators()
 		return rob
 
+	def event_distribute_sequence(self, event):
+		self.distributing = not self.distributing
+		self.distribute_once = False
+
 	def event_distribute_one(self, event):
 		self.distributing = not self.distributing
+		self.distribute_once = True
 
 	def adjust(self, point, dimensions):
 		"""
@@ -514,9 +522,11 @@ class Fields(Projection):
 		"""
 		Unconditionally update the vertical index and unit without scrolling.
 		"""
+
 		v = self.vertical
 		nl = v.get()
 		nunits = len(self.units)
+
 		if nl < 0:
 			nl = 0
 			v.set(nl)
@@ -536,6 +546,7 @@ class Fields(Projection):
 		"""
 		Update the cache of the position based on the vector.
 		"""
+
 		v = self.vector.vertical
 		w = self.window.vertical
 
@@ -650,7 +661,7 @@ class Fields(Projection):
 
 	def log(self, *inverse):
 		"""
-		Log a change.
+		Log a change for undo-operations.
 		"""
 		if not self.past:
 			self.past.append([])
@@ -750,6 +761,11 @@ class Fields(Projection):
 		"""
 		self.distribution = 'vertical'
 
+	def offsets(self, unit, *indexes):
+		'Calculate the cell offsets of the given unit.'
+		u = self.draw(unit)
+		libterminal.offsets(u, indexes)
+
 	@staticmethod
 	@functools.lru_cache(16)
 	def tab(v, size = 4):
@@ -777,17 +793,20 @@ class Fields(Projection):
 	def draw(self, unit,
 		Indent=libfields.Indentation,
 		Constant=libfields.Constant,
-		isinstance=isinstance,
-		len=len,
 		has_content=libfields.has_content,
-		iter=iter, next=next):
+		isinstance=isinstance,
+		len=len, hasattr=hasattr, iter=iter, next=next
+	):
 		'Draw an individual unit for rendering.'
+
 		fs = 0
 
 		if len(unit) > 1:
-			classify = unit[1].classifications
+			uline = unit[1]
+			classify = uline.classifications
 		else:
 			classify = ()
+			uline = None
 
 		i = iter(unit.subfields())
 		path, x = next(i)
@@ -805,7 +824,7 @@ class Fields(Projection):
 			if x.empty:
 				continue
 
-			val = x.value()
+			val = str(x)
 
 			if x == " ":
 				# space
@@ -818,7 +837,7 @@ class Fields(Projection):
 			if x == "#":
 				yield from self.comment(x, i)
 				continue
-			elif x in unit[1].quotations:
+			elif x in uline.quotations:
 				yield from self.quotation(x, i)
 				continue
 			elif val.isdigit() or (val.startswith('0x') and val[2:].isdigit()):
@@ -835,15 +854,14 @@ class Fields(Projection):
 					color = 0x005fd7
 				elif cc == 'core':
 					color = 0x875fff
+				elif cc == 'exoword':
+					color = libterminal.pastels['orange']
 				else:
 					color = 0xAAAAAA
 			else:
 				color = 0xAAAAAA
 
-			if hasattr(x, 'value'):
-				yield (x.value(), (), color)
-			else:
-				yield (x, (), color)
+			yield (x, (), color)
 		else:
 			# trailing spaces
 			if spaces:
@@ -960,13 +978,17 @@ class Fields(Projection):
 
 		return ((astart, astop, hrange), prefix, suffix)
 
-	def collect_horizontal_positions(self, line, positions, len = len):
+	def collect_horizontal_positions(self, line, positions,
+		len=len, list=list, set=set,
+		iter=iter, range=range, tuple=tuple,
+	):
 		"""
 		Collect the style information and characters at the requested positions
 		of the rendered unit.
 
 		Used to draw range boundaries and the cursor.
 		"""
+
 		hr = list(set(positions)) # list of positions and size
 		hr.sort(key = lambda x: x[0])
 
@@ -1008,9 +1030,10 @@ class Fields(Projection):
 
 			areas[x] = (x, size, text[roffset:roffset+size], style)
 
-		return [areas[k[0]] for k in positions]
+		slices = [areas[k[0]] for k in positions]
+		return slices
 
-	def clear_horizontal_indicators(self, starmap = itertools.starmap):
+	def clear_horizontal_indicators(self, starmap=itertools.starmap, cells=libterminal.cells):
 		"""
 		Called to clear the horizontal indicators for line switches.
 		"""
@@ -1030,17 +1053,18 @@ class Fields(Projection):
 		append = events.append
 
 		# cursor
-		for k, old in self.horizontal_positions.items():
+		for k, v in self.horizontal_positions.items():
+			offset, old = v
 			# don't bother if it's inside the range.
-			append(shr(old[0]))
+			append(shr(offset))
 			oldtext = old[2] or ' '
 			oldstyle = old[3]
 			append(astyle(oldtext, *oldstyle))
-			append(shr(-(old[0]+len(oldtext))))
+			append(shr(-(offset+cells(oldtext))))
 
 		# horizontal selection
 		if self.horizontal_range is not None:
-			rstart, rstop, text = self.horizontal_range
+			rstart, rstop, (starti, stopi, text) = self.horizontal_range
 
 			append(shr(rstart))
 			append(b''.join(starmap(astyle, text)))
@@ -1051,16 +1075,19 @@ class Fields(Projection):
 
 		self.controller.emit(events)
 
-	def render_horizontal_indicators(self,
-		unit, horizontal,
+	def render_horizontal_indicators(
+		self, unit, horizontal,
 		names = ('start', 'position', 'stop',),
 		#range_color = 0x262626,
-		range_color = None,
-		starmap = itertools.starmap,
+		range_color=None,
+		starmap=itertools.starmap,
+		cells=libterminal.cells,
+		offsets=libterminal.offsets,
 	):
 		"""
 		Changes the horizontal indicators.
 		"""
+
 		window = self.window.horizontal
 		area = self.view.area
 		shr = area.seek_horizontal_relative
@@ -1077,7 +1104,7 @@ class Fields(Projection):
 
 		if self.horizontal_range != hr:
 			if self.horizontal_range is not None:
-				rstart, rstop, text = self.horizontal_range
+				rstart, rstop, (starti, stopi, text) = self.horizontal_range
 
 				clear_range = [
 					shr(rstart),
@@ -1087,15 +1114,16 @@ class Fields(Projection):
 			else:
 				clear_range = []
 
-			self.horizontal_range = hr
-
 			rstart, rstop, text = hr
+			rstarto, rstopo = offsets(line, rstart, rstop)
 			range_part = [x[:1] + (x[1] + range_style, (x[2] or 0xAAAAAA) + 0x222222, range_color,) for x in text]
 
+			self.horizontal_range = (rstarto, rstopo, hr)
+
 			set_range = [
-				shr(rstart),
+				shr(rstarto),
 				b''.join(starmap(astyle, range_part)),
-				shr(-((rstop - rstart) + rstart)),
+				shr(-((rstopo - rstarto) + rstarto)),
 			]
 		else:
 			range_part = [x[:1] + (x[1] + range_style, (x[2] or 0xAAAAAA) + 0x222222, range_color,) for x in hr[2]]
@@ -1110,33 +1138,33 @@ class Fields(Projection):
 		hp = self.collect_horizontal_positions(rline, offset_and_size)
 
 		# map the positions to names for the dictionary state
-		new_hp = [(names[i], x) for i, x in zip(range(3), hp)]
+		new_hp = [(names[i], (tuple(offsets(line, x[0]))[0], x,)) for i, x in zip(range(3), hp)]
 		# put position at the end
 		new_hp.append(new_hp[1])
 		del new_hp[1]
 
 		clear_positions = []
 		set_positions = []
-		for k, v in new_hp:
+		for k, (offset, v) in new_hp:
 
 			# clear old posiition if different
-			old = self.horizontal_positions.get(k, None)
+			oldoffset, old = self.horizontal_positions.get(k, (None, None))
 			if old is not None and old != v:
 				if old[:2] != v[:2]:
 					# completely new position, clear
-					clear_positions.append(shr(old[0]))
+					clear_positions.append(shr(oldoffset))
 					oldtext = old[2] or ' '
 					oldstyle = old[3]
 					clear_positions.append(astyle(oldtext, *oldstyle))
-					clear_positions.append(shr(-(old[0]+len(oldtext))))
+					clear_positions.append(shr(-(oldoffset+cells(oldtext))))
 
 			# new indicator
-			offset, size, text, style = v
+			index, size, text, style = v
 			s = self.horizontal_transforms[k](self, text.ljust(size, ' '), style, hs)
 
 			set_positions.append(shr(offset))
 			set_positions.append(astyle(*s))
-			set_positions.append(shr(-(offset+len(s[0]))))
+			set_positions.append(shr(-(offset+cells(s[0]))))
 
 		self.horizontal_positions.update(new_hp)
 
@@ -1174,7 +1202,7 @@ class Fields(Projection):
 		self.vertical.move(index, 1)
 		self.update_vertical_state()
 
-	def render(self, start, stop):
+	def render(self, start, stop, max = max, min = min, list = list):
 		'Render the given line range to the view.'
 		origin, top, bottom = self.window.vertical.snapshot()
 		ub = len(self.units)
@@ -1192,6 +1220,7 @@ class Fields(Projection):
 		r = range(start, stop)
 		seq = self.view.sequence
 
+		# Draw the unit into the Line in the view.
 		for i in r:
 			seq[i-top].update(list(self.draw(self.units[i])))
 
@@ -1277,7 +1306,7 @@ class Fields(Projection):
 	def event_console_save(self, event):
 		console = self.controller
 		console.prompt.prepare(libfields.String("write"), libfields.String(self.source))
-		console.event_toggle_prompt(None)
+		console.focus_prompt()
 
 	def event_console_seek_line(self, event):
 		console = self.controller
@@ -1286,7 +1315,7 @@ class Fields(Projection):
 		prompt.event_select_horizontal_line(None)
 		prompt.horizontal.move(1, -1)
 		prompt.keyboard.set('edit')
-		console.event_toggle_prompt(None)
+		console.focus_prompt()
 
 	def event_field_cut(self, event):
 		self.rotate(self.horizontal, sel, self.unit.subfields(), 1)
@@ -2616,7 +2645,7 @@ class Prompt(Lines):
 		with open(target, 'w+b') as f:
 			p = console.visible[console.pane]
 			size = p.serialize(f.write)
-			self.controller.transcript.write('%d\n' %(size,))
+			self.controller.transcript.write('Wrote %d bytes to "%s"\n' %(size, target,))
 			f.truncate(size)
 			f.flush()
 
@@ -2744,11 +2773,6 @@ class Transcript(Projection):
 
 		return self.view.draw()
 
-class Empty(Projection):
-	"""
-	An empty, immutable sequence.
-	"""
-
 def output(transformer, queue, tty):
 	"""
 	Thread transformer function receiving display transactions and writing to the terminal.
@@ -2838,6 +2862,9 @@ class Cache(object):
 class Console(core.Join):
 	"""
 	The application that responds to keyboard input in order to make display changes.
+
+	Console is a complex Transformer that consists of a set of &Projection's. The
+	projections are associated with panes that make up the total screen.
 	"""
 	def __init__(self):
 		self.tty = None
@@ -3193,6 +3220,16 @@ class Console(core.Join):
 
 		libterminal.device.set_raw(self.tty.fileno())
 		self.emit(initialize)
+
+		initial = \
+			("fault.io system console\n\n") + \
+			("Terminal must support meta-key in order for console to function properly.\n") + \
+			("Terminal.app: Preferences -> Profile -> Keyboard -> Use option as Meta Key\n") + \
+			("iTerm2: Preferences -> Profiles -> Keys -> +Esc Radio Buttons\n") + \
+			("\nImmediate Exit: Shift-Meta-` (~); Toggle Command Line: Meta-`\n\n") + \
+			("This projection is the console's Transcript; the in-memory log of the process.\n")
+
+		self.transcript.write(initial)
 		self.panes[1].focus()
 
 	def event_process_exit(self, event):
@@ -3239,7 +3276,7 @@ class Console(core.Join):
 		prompt.event_select_horizontal_line(None)
 		prompt.horizontal.move(1, -1)
 		prompt.keyboard.set('edit')
-		self.event_toggle_prompt(None)
+		self.focus_prompt()
 
 	def event_pane_rotate_projection(self, event, direction = 1):
 		"""

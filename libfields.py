@@ -30,7 +30,13 @@ class Field(metaclass = abc.ABCMeta):
 	@abc.abstractmethod
 	def characters(self):
 		"""
-		Number of characters [cells] used for *display*.
+		Number of characters in the field.
+		"""
+
+	@abc.abstractmethod
+	def cells(self):
+		"""
+		Number of cells used by the display of the field.
 		"""
 
 	@abc.abstractmethod
@@ -46,7 +52,7 @@ class Field(metaclass = abc.ABCMeta):
 		Nested fields must be unnested by including the Field context.
 
 		Returns an iterator producing a triple:
-		
+
 			(path, relative_offset, field)
 
 		Where path is a tuple containing the sequence of containing fields
@@ -404,6 +410,7 @@ class String(str):
 	def length(self, len = len):
 		return len(self)
 	characters = str.__len__
+	cells = characters
 
 class Constant(String):
 	merge = False
@@ -590,6 +597,7 @@ class Formatting(int):
 
 	def characters(self):
 		return self * self.size
+	cells = characters
 
 	def count(self):
 		return None
@@ -661,15 +669,15 @@ class Sequence(list):
 	}
 
 	# dict:
-	#		<key> [value]
-	#		<key> [value]
-	#		<key> [value]
+	# <key> [value]
+	# <key> [value]
+	# <key> [value]
 	# matrix:
-	#		|item| |item| |item|
-	#		|item| |item| |item|
-	#		|item| |item| |item|
+	#  |item| |item| |item|
+	#  |item| |item| |item|
+	#  |item| |item| |item|
 	# list:
-	#		[item] [item]
+	#  [item] [item]
 
 	@property
 	def empty(self):
@@ -721,6 +729,7 @@ class Sequence(list):
 		return inverse
 
 	def __str__(self):
+		'Display string of the sequence of fields.'
 		return ''.join(map(str, self.value()))
 
 	def length(self, lenmethod = operator.methodcaller('length')):
@@ -729,6 +738,12 @@ class Sequence(list):
 		"""
 		return sum(map(lenmethod, self))
 	characters = length
+
+	def cells(self, lenmethod = operator.methodcaller('cells')):
+		"""
+		Sum of &cells of all the subfields.
+		"""
+		return sum(map(lenmethod, self))
 
 	def subfields(self, path = (), range = range, len = len, isinstance = isinstance):
 		"""
