@@ -1,0 +1,133 @@
+"""
+Java language profile.
+"""
+from .. import libfields
+
+keyword_list = [
+	'abstract',
+	'continue',
+	'for',
+	'new',
+	'switch',
+	'assert',
+	'default',
+	'goto',
+	'package',
+	'synchronized',
+	'boolean',
+	'do',
+	'if',
+	'private',
+	'this',
+	'break',
+	'double',
+	'implements',
+	'protected',
+	'throw',
+	'byte',
+	'else',
+	'import',
+	'public',
+	'throws',
+	'case',
+	'enum',
+	'instanceof',
+	'return',
+	'transient',
+	'catch',
+	'extends',
+	'int',
+	'short',
+	'try',
+	'char',
+	'final',
+	'interface',
+	'static',
+	'void',
+	'class',
+	'finally',
+	'long',
+	'strictfp',
+	'volatile',
+	'const',
+	'float',
+	'native',
+	'super',
+	'while',
+]
+
+core_list = [
+	# java.io
+	'Console',
+	'File',
+	'FileReader',
+	'FileWriter',
+	'StringReader',
+	'StringWriter',
+	'Serializable',
+	'Closeable',
+	'Flushable',
+
+	'BufferedInputStream',
+	'BufferedOutputStream',
+	'BufferedReader',
+	'BufferedWriter',
+
+	# java.lang
+	'DoubleAccumulator',
+	'DoubleAdder',
+	'LongAccumulator',
+	'LongAdder',
+
+	'AtomicInteger',
+	'AtomicLong',
+	'BigDecimal',
+	'BigInteger',
+	'Boolean',
+	'Byte',
+	'Character',
+	'Character.Subset',
+	'Character.UnicodeBlock',
+	'Class',
+	'ClassLoader',
+	'ClassValue',
+	'Compiler',
+	'Double',
+	'Enum',
+	'Float',
+	'InheritableThreadLocal',
+	'Integer',
+	'Long',
+	'Math',
+	'Number',
+	'Object',
+	'Package',
+	'Process',
+	'ProcessBuilder',
+	'ProcessBuilder.Redirect',
+	'Runtime',
+	'RuntimePermission',
+	'SecurityManager',
+	'Short',
+	'StackTraceElement',
+	'StrictMath',
+	'String',
+	'StringBuffer',
+	'StringBuilder',
+	'System',
+	'Thread',
+	'ThreadGroup',
+	'ThreadLocal',
+	'Throwable',
+	'Void',
+]
+
+keywords = {y: y for y in map(libfields.String, keyword_list)}
+cores = {y: y for y in map(libfields.String, core_list)}
+
+terminators = {y: y for y in map(libfields.Constant, ";")}
+separators = {y: y for y in map(libfields.Constant, ",")}
+routers = {y: y for y in map(libfields.Constant, (".",))}
+operators = {y: y for y in map(libfields.Constant, "@!&^*%+=-|\\/<>?~:")}
+groupings = {y: y for y in map(libfields.Constant, "()[]{}")}
+quotations = {y: y for y in map(libfields.Constant, ("'", '"',))}
