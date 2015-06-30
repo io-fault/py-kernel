@@ -6,7 +6,7 @@ import operator
 import keyword
 import itertools
 import functools
-from ..terminal import symbols
+from ...terminal import symbols
 
 class Field(metaclass = abc.ABCMeta):
 	"""

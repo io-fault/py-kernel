@@ -1,7 +1,7 @@
 """
 Provides common mappings for keyboard based navigation and control.
 """
-from ..terminal import library as libterminal
+from ...terminal import library as libterminal
 
 class Mapping(object):
 	"""
@@ -166,8 +166,8 @@ control.assign(caps('r'), 'projection', ('delta', 'replace'),)
 control.assign(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
 control.assign(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
 
-control.assign(nav('up'), 'container', ('navigation', 'forward'))
-control.assign(nav('down'), 'container', ('navigation', 'backward'))
+control.assign(nav('down'), 'container', ('navigation', 'vertical', 'forward'))
+control.assign(nav('up'), 'container', ('navigation', 'vertical', 'backward'))
 
 control.assign(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
 
@@ -194,6 +194,15 @@ edit.assign(('navigation', 'left', 0), 'projection', ('navigation', 'backward', 
 edit.assign(('navigation', 'right', 0), 'projection', ('navigation', 'forward', 'character'))
 edit.assign(('navigation', 'up', 0), 'projection', ('navigation', 'beginning'))
 edit.assign(('navigation', 'down', 0), 'projection', ('navigation', 'end'))
+
+edit.assign(controlk('u'), 'projection', ('delta', 'delete', 'tobol'))
+edit.assign(controlk('k'), 'projection', ('delta', 'delete', 'toeol'))
+
+edit.assign(controlk('w'), 'projection', ('delta', 'delete', 'backward', 'adjacent', 'class'))
+edit.assign(controlk('t'), 'projection', ('delta', 'delete', 'forward', 'adjacent', 'class'))
+
+edit.assign(controlk('a'), 'projection', ('navigation', 'move', 'bol'))
+edit.assign(controlk('e'), 'projection', ('navigation', 'move', 'eol'))
 
 # capture keystroke
 capture = Mapping(default = ('projection', ('capture',), ()))

@@ -9,15 +9,17 @@ import keyword
 import operator
 import itertools
 
-from ..terminal import library as libterminal
-from ..status import library as libstatus
-from . import libfields
-from . import lines as lineslib
-from . import library as iolib
-from . import core
-from . import keyboard
+from ...terminal import library as libterminal
+from ...terminal import symbols
+from ...status import library as libstatus
 
-from ..terminal import symbols
+from .. import library as iolib
+from .. import core
+
+from . import libtext
+from . import lines as lineslib
+from . import libfields
+from . import keyboard
 
 range_color_palette = {
 	'start-inclusive': 0x00CC00,
@@ -1667,6 +1669,16 @@ class Fields(Projection):
 		self.update_vertical_state()
 		self.movement = True
 
+	def event_navigation_move_bol(self, event):
+		self.clear_horizontal_indicators()
+		offset = self.indentation_adjustments(self.unit)
+		self.horizontal.move((-self.horizontal.datum)+offset, 1)
+
+	def event_navigation_move_eol(self, event):
+		self.clear_horizontal_indicators()
+		offset = self.indentation_adjustments(self.unit)
+		self.horizontal.move(offset + self.unit[1].characters(), 0)
+
 	# line [history] forward/backward
 	def event_navigation_vertical_forward(self, event, quantity = 1):
 		v = self.vertical
@@ -1985,9 +1997,7 @@ class Fields(Projection):
 		return Sequence((indentation, Class(String(""))))
 
 	def open_vertical(self, il, position, quantity, temporary = False, len = len):
-		"""
-		Create a quantity of new lines at the cursor position.
-		"""
+		"Create a quantity of new lines at the cursor position."
 		vi = self.vertical_index
 		nunits = len(self.units)
 		new = min(vi + position, nunits)
@@ -2005,7 +2015,6 @@ class Fields(Projection):
 		v = self.vertical
 		v.expand(new - v.get(), quantity)
 		v.set(start)
-		#v.configure(start, quantity, 0)
 		self.vector_last_axis = v
 
 		self.horizontal.configure(il.length(), 0)
@@ -2031,22 +2040,25 @@ class Fields(Projection):
 		self.update_vertical_state()
 
 	def get_indentation_level(self):
-		'Get the indentation level of the line at the current vertical position.'
+		"Get the indentation level of the line at the current vertical position."
 		return libfields.indentation(self.unit)
 
 	def event_open_behind(self, event, quantity = 1):
+		"Open a new vertical behind the current vertical position."
 		inverse = self.open_vertical(self.get_indentation_level(), 0, quantity)
 		self.log(*inverse)
 		self.keyboard.set('edit')
 		self.movement = True
 
 	def event_open_ahead(self, event, quantity = 1):
+		"Open a new vertical ahead of the current vertical position."
 		inverse = self.open_vertical(self.get_indentation_level(), 1, quantity)
 		self.log(*inverse)
 		self.keyboard.set('edit')
 		self.movement = True
 
 	def event_open_into(self, event):
+		"Open a newline between the line at the current position with greater indentation."
 		h = self.horizontal
 		hs = h.snapshot()
 		self.clear_horizontal_indicators()
@@ -2073,12 +2085,10 @@ class Fields(Projection):
 		self.movement = True
 
 	def event_edit_return(self, event, quantity = 1):
+		"Open a newline while in edit mode."
 		inverse = self.open_vertical(self.get_indentation_level(), 1, quantity)
 		self.log(*inverse)
 		self.movement = True
-
-	def event_open_temporary(self, event, quantity = 1):
-		pass
 
 	def event_delta_substitute(self, event):
 		"""
@@ -2129,7 +2139,9 @@ class Fields(Projection):
 			return ul < 2
 		return False
 
-	def insert_characters(self, characters):
+	def insert_characters(self, characters,
+		isinstance=isinstance, StringField=libfields.String
+	):
 		"""
 		Insert characters into the focus.
 		"""
@@ -2138,17 +2150,16 @@ class Fields(Projection):
 
 		text = self.unit[1]
 
-		if isinstance(characters, libfields.String):
+		if isinstance(characters, StringField):
 			chars = characters
 		else:
 			if characters in text.constants:
 				chars = text.constants[characters]
 			else:
-				chars = libfields.String(characters)
+				chars = StringField(characters)
 
-		adjustments = self.unit[0].length()
-
-		offset = h.get() - adjustments
+		adjustments = self.indentation_adjustments(self.unit)
+		offset = h.get() - adjustments # absolute offset
 
 		u = v.get()
 		inverse = text.insert(offset, chars)
@@ -2164,7 +2175,8 @@ class Fields(Projection):
 		v = self.vector.vertical
 		h = self.vector.horizontal
 
-		offset = h.get() - self.unit[0].length()
+		adjustments = self.indentation_adjustments(self.unit)
+		offset = h.get() - adjustments
 
 		if quantity < 0:
 			start = offset + quantity
@@ -2211,6 +2223,47 @@ class Fields(Projection):
 		self.event_capture = self.transition_insert_character
 		self.previous_keyboard_mode = self.keyboard.current[0]
 		self.transition_keyboard('capture')
+
+	def event_delta_delete_tobol(self, event):
+		'Delete all characters between the current position and the begining of the line.'
+		u = self.unit[1]
+		adjustments = self.indentation_adjustments(self.unit)
+		offset = self.horizontal.get() - adjustments
+		inverse = u.delete(0, offset)
+
+		r = IRange.single(self.vertical.get())
+		self.log(inverse, r)
+
+		self.clear_horizontal_indicators()
+		self.horizontal.set(adjustments)
+		self.display(*r.exclusive())
+
+	def event_delta_delete_toeol(self, event):
+		'Delete all characters between the current position and the end of the line.'
+
+		u = self.unit[1]
+		adjustments = self.indentation_adjustments(self.unit)
+		offset = self.horizontal.get() - adjustments
+		eol = len(u)
+		inverse = u.delete(offset, eol)
+
+		r = IRange.single(self.vertical.get())
+		self.log(inverse, r)
+
+		self.clear_horizontal_indicators()
+		self.display(*r.exclusive())
+
+	def event_delta_delete_backward_adjacent_class(self, event,
+		classify=libtext.classify
+	):
+		'Delete the characters before the position until the class changes.'
+		pass
+
+	def event_delta_delete_forward_adjacent_class(self, event,
+		classify=libtext.classify
+	):
+		'Delete the characters after the position until the class changes.'
+		pass
 
 	def transition_keyboard(self, mode):
 		old_mode = self.keyboard.current[0]
@@ -2329,7 +2382,7 @@ class Fields(Projection):
 		self.controller.transcript.write(repr(self.controller.cache.storage))
 
 	def event_delta_delete_backward(self, event, quantity = 1):
-		self.delete_characters(quantity * -1)
+		self.delete_characters(-1*quantity)
 
 	def event_delta_delete_forward(self, event, quantity = 1):
 		self.delete_characters(quantity)
@@ -2542,6 +2595,7 @@ class Prompt(Lines):
 		self.window.vertical.move(1)
 		self.scrolled()
 		self.transition_keyboard('control')
+		self.clear_horizontal_indicators()
 
 	event_edit_return = execute
 	event_control_return = execute
@@ -2550,6 +2604,7 @@ class Prompt(Lines):
 		"""
 		Set the command line to a sequence of fields.
 		"""
+		self.clear_horizontal_indicators()
 		self.unit[1].sequences = list(itertools.chain.from_iterable(
 			zip(fields, itertools.repeat(self.separator, len(fields)))
 		))
@@ -3229,7 +3284,7 @@ class Console(core.Join):
 			("Terminal.app: Preferences -> Profile -> Keyboard -> Use option as Meta Key\n") + \
 			("iTerm2: Preferences -> Profiles -> Keys -> +Esc Radio Buttons\n") + \
 			("\nImmediate Exit: Shift-Meta-` (~); Toggle Command Line: Meta-`\n\n") + \
-			("This projection is the console's Transcript; the in-memory log of the process.\n")
+			("This projection is the console's Transcript; the in-memory log of the process.\n\n")
 
 		self.transcript.write(initial)
 		self.panes[1].focus()

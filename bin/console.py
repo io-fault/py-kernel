@@ -1,11 +1,11 @@
 """
 fault.io interactive console
 """
-from .. import console
+from ..console import library as libconsole
 
 name = 'console'
-initialize = console.initialize
+initialize = libconsole.initialize
 
 if __name__ == '__main__':
 	from .. import library as iolib
-	iolib.execute(console = (console.initialize,))
+	iolib.execute(console = (libconsole.initialize,))
