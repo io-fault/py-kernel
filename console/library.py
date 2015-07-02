@@ -1,4 +1,3 @@
-import collections
 import sys
 import os
 import queue
@@ -6,7 +5,6 @@ import functools
 import locale
 import codecs
 import keyword
-import operator
 import itertools
 
 from ...terminal import library as libterminal
@@ -14,12 +12,13 @@ from ...terminal import symbols
 from ...status import library as libstatus
 
 from .. import library as iolib
-from .. import core
 
-from . import libtext
-from . import lines as lineslib
 from . import libfields
-from . import keyboard
+from . import libquery
+from . import lines as lineslib
+
+from . import core
+IRange = core.IRange
 
 range_color_palette = {
 	'start-inclusive': 0x00CC00,
@@ -96,297 +95,7 @@ actions = dict(
 	),
 )
 
-class Projection(iolib.core.Resource):
-	"""
-	A projection of a source onto a connected area of the display.
-
-	Projection resources are used by Console transformers to manage the parts
-	of the display.
-	"""
-	create_keyboard_mapping = keyboard.Selection.standard
-	default_keyboard_mapping = 'edit'
-
-	@property
-	def dimensions(self):
-		return self.view.area.dimensions
-
-	@property
-	def horizontal(self):
-		'The current working horizontal position.'
-		return self.vector.horizontal
-
-	@property
-	def vertical(self):
-		'The current working vertical position.'
-		return self.vector.vertical
-
-	@property
-	def last_axis(self):
-		'The recently used axis.'
-		if self.vector_last_axis is self.horizontal:
-			return 'horizontal'
-		else:
-			return 'vertical'
-
-	@property
-	def axis(self):
-		'Return the &libterminal.Position of the last axis used.'
-		return self.vector_last_axis
-
-	@property
-	def keyset(self):
-		return self.keyboard.current
-
-	def __init__(self):
-		self.movement = False
-		self.view = None
-		self.area = None
-		self.pane = None # pane index of projection; None if not a pane or hidden
-
-		# keeps track of horizontal positions that are modified for cursor and range display
-		self.horizontal_positions = {}
-		self.horizontal_range = None
-
-		# Physical location of the projection.
-		self.vector = libterminal.Vector()
-		self.vector_last_axis = self.vector.vertical # last used axis
-		self.vertical_index = 0 # the focus line
-
-		# View location of the projection.
-		self.window = libterminal.Vector()
-
-		self.range_queue = collections.deque()
-
-		# Recorded snapshot of vector and window.
-		# Used by Console to clear outdated cursor positions.
-		self.snapshot = None
-
-		self.keyboard = self.create_keyboard_mapping() # per-projection to maintain state
-		self.keyboard.set(self.default_keyboard_mapping)
-		self.distributing = False
-
-	@staticmethod
-	@functools.lru_cache(16)
-	def event_method(target, event):
-		return 'event_' + '_'.join(event)
-
-	def route(self, event):
-		"""
-		Route the event to the target given the current processing state.
-		"""
-		mapping, event = self.keyboard.event(event)
-		if event is None:
-			# report no such binding
-			return None
-
-		return (mapping, event)
-
-	def key(self, console, event):
-		routing = self.route(event)
-		if routing is None:
-			return ()
-
-		mapping, (target_id, event_selection, params) = routing
-		method_name = self.event_method(target_id, event_selection)
-		method = getattr(self, method_name)
-
-		if self.distributing and event_selection[0] == 'delta':
-			self.clear_horizontal_indicators()
-			v = self.vertical
-			v.move(0, 1)
-			for i in range(v.magnitude):
-				self.update_unit()
-				method(event, *params)
-				v.move(1)
-			rob = None
-			self.update_vertical_state()
-			if self.distribute_once == True:
-				self.distributing = not self.distributing
-				self.distribute_once = None
-		else:
-			rob = method(event, *params)
-		self.update_horizontal_indicators()
-		return rob
-
-	def event_distribute_sequence(self, event):
-		self.distributing = not self.distributing
-		self.distribute_once = False
-
-	def event_distribute_one(self, event):
-		self.distributing = not self.distributing
-		self.distribute_once = True
-
-	def adjust(self, point, dimensions):
-		"""
-		Adjust the positioning and size of the view. &point is a pair of positive integers
-		describing the top-right corner on the screen and dimensions is a pair of positive
-		integers describing the width.
-
-		Adjustments are conditionally passed to a view.
-		"""
-		if self.view is not None:
-			self.view.adjust(point, dimensions)
-			self.calibrate(dimensions)
-
-	def calibrate(self, dimensions):
-		"""
-		Called when the projection is adjusted.
-		"""
-		w = self.window
-		w.horizontal.configure(w.horizontal.datum, dimensions[0], 0)
-		w.vertical.configure(w.vertical.datum, dimensions[1], 0)
-
-	def conceal(self):
-		"""
-		Called when the projection is hidden from the display.
-		"""
-		pass
-
-	def reveal(self):
-		"""
-		Called when the projection is revealed. May not be focused.
-		"""
-		pass
-
-	@property
-	def revealed(self):
-		'Whether the projection is currently visible.'
-		return self in self.controller.visible
-
-	def focus(self):
-		"""
-		Set position indicators and activate cursor.
-		"""
-		console = self.controller
-		events = console.set_position_indicators(self)
-		console.emit([events])
-
-	@property
-	def focused(self):
-		'Whether the projection is the current focus; receives key events.'
-		return self.controller.projection is self
-
-	def blur(self):
-		"""
-		Clear position indicators and lock cursor.
-		"""
-		console = self.controller
-		events = console.clear_position_indicators(self)
-		console.emit([events])
-
-	def connect(self, view):
-		"""
-		Connect the area to the projection for displaying the units.
-
-		Connect &None in order to conceal.
-		"""
-		self.view = view
-
-		if view is None:
-			self.area = None
-			return self.conceal()
-		else:
-			self.area = view.area
-			return self.reveal()
-
-	def clear(self):
-		"""
-		Clear the projection state.
-		Used to handle exceptional cases and programming errors.
-		"""
-		pass
-
-	def update(self, start, stop, *lines):
-		"""
-		Render all the display lines in the given ranges.
-		"""
-		pass
-
-	def render(self, start, stop):
-		pass
-
-	def refresh(self):
-		"""
-		Render all lines in the projection.
-		"""
-		pass
-
-class IRange(tuple):
-	"""
-	Inclusive numeric range used for cases where the range size is one or more.
-	"""
-	__slots__ = ()
-
-	@property
-	def direction(self):
-		'Returns -1 if the stop is less than the start.'
-		return 1 if self[0] >= self[1] else -1
-
-	@property
-	def start(self):
-		return self[0]
-
-	@property
-	def stop(self):
-		return self[1]
-
-	@classmethod
-	def normal(Class, *args):
-		"""
-		Create a normal range using the given boundaries; the minimum given will be the
-		start and the maximum will be the stop.
-		"""
-		return Class((min(*args), max(*args)))
-
-	@classmethod
-	def single(Class, index):
-		"""
-		Create a range consisting of a single unit.
-		"""
-		return Class((index, index))
-
-	def __contains__(self, x):
-		'Whether or not the range contains the given number.'
-		return self[0] <= x <= self[1]
-
-	def relation(self, r):
-		pass
-
-	def contiguous(self, r):
-		'The given range is coniguous with the other.'
-		tr = tuple(r)
-		return self[0]-1 in tr or self[1]+1 in tr
-
-	def join(self, r):
-		'Combine the ranges.'
-		return self.normal(min(self[0], r[0]), max(self[1], r[1]))
-
-	def exclusive(self):
-		'Return as an exclusive-end range pair.'
-		return (self[0], self[1]+1)
-
-	def units(self, step = 1):
-		'Return an iterator to the units in the range'
-		if self.direction > 0:
-			return range(self[0], self[1]+1, step)
-		else:
-			return range(self[0], self[1]-1, -step)
-
-class RMapping(object):
-	"""
-	Range mapping. Mapping of ranges
-	"""
-	from bisect import bisect
-
-	def __init__(self, combine = operator.methodcaller("__add__")):
-		self.ranges = []
-		self.association = {}
-		self.combine = combine
-
-	def get(self, key):
-		index = self.bisect(self.ranges, (key, key))
-
-class Fields(Projection):
+class Fields(core.Projection):
 	"""
 	A &fields based projection that maintains focus and field selection state.
 	"""
@@ -680,9 +389,10 @@ class Fields(Projection):
 		self.past.append([])
 
 	def undo(self, quantity):
-		"""
-		Undo the given quantity of *transactions*.
-		"""
+		"Undo the given quantity of *transactions*."
+		if not self.past:
+			return
+
 		if self.past[-1]:
 			actions = self.past[-1]
 			del self.past[-1]
@@ -720,9 +430,10 @@ class Fields(Projection):
 		self.update_window()
 
 	def redo(self, quantity):
-		"""
-		Redo the given quantity of *transactions*.
-		"""
+		"Redo the given quantity of *transactions*."
+		if not self.future:
+			return
+
 		actions = self.future[0]
 		actions.reverse()
 		del self.future[0]
@@ -859,9 +570,9 @@ class Fields(Projection):
 				elif cc == 'exoword':
 					color = libterminal.pastels['orange']
 				else:
-					color = 0xAAAAAA
+					color = 0xBBBBBB
 			else:
-				color = 0xAAAAAA
+				color = 0xBBBBBB
 
 			yield (x, (), color)
 		else:
@@ -870,15 +581,15 @@ class Fields(Projection):
 				yield ("#" * spaces, ('underline',), 0xaf0000, None)
 
 	# returns the text for the stop, position, and stop indicators.
-	def calculate_horizontal_start_indicator(self, text, style, positions):
+	def calculate_horizontal_start_indicator(self, empty, text, style, positions):
 		return (text or ' ',) + style
 
-	def calculate_horizontal_stop_indicator(self, text, style, positions,
+	def calculate_horizontal_stop_indicator(self, empty, text, style, positions,
 		combining_wedge = symbols.combining['low']['wedge-left'],
 	):
 		return (text or ' ',) + style
 
-	def calculate_horizontal_position_indicator(self, text, style, positions,
+	def calculate_horizontal_position_indicator(self, empty, text, style, positions,
 		vc = symbols.combining['right']['vertical-line'],
 		fs = symbols.combining['full']['forward-slash'],
 		xc = symbols.combining['high']['wedge-right'],
@@ -895,7 +606,9 @@ class Fields(Projection):
 		else:
 			style = ()
 
-		if positions[1] >= positions[2]:
+		if empty:
+			color = (0x444444, 0)
+		elif positions[1] >= positions[2]:
 			# after or at exclusive stop
 			color = (range_color_palette['stop-exclusive'], 0)
 		elif positions[1] < positions[0]:
@@ -1086,9 +799,7 @@ class Fields(Projection):
 		cells=libterminal.cells,
 		offsets=libterminal.offsets,
 	):
-		"""
-		Changes the horizontal indicators.
-		"""
+		"Changes the horizontal position indicators."
 
 		window = self.window.horizontal
 		area = self.view.area
@@ -1096,6 +807,13 @@ class Fields(Projection):
 		astyle = area.style
 
 		line = list(self.draw(unit))
+		for x in line:
+			if len(x[0]) > 0:
+				empty = False
+				break
+		else:
+			empty = True
+
 		hs = horizontal
 		hr, prefix, suffix = self.collect_horizontal_range(line, hs)
 
@@ -1162,7 +880,7 @@ class Fields(Projection):
 
 			# new indicator
 			index, size, text, style = v
-			s = self.horizontal_transforms[k](self, text.ljust(size, ' '), style, hs)
+			s = self.horizontal_transforms[k](self, empty, text.ljust(size, ' '), style, hs)
 
 			set_positions.append(shr(offset))
 			set_positions.append(astyle(*s))
@@ -1253,7 +971,7 @@ class Fields(Projection):
 		'Determines whether the field as having insignifianct content.'
 		return isinstance(field, (libfields.Formatting, libfields.Constant)) or str(field) == " "
 
-	def rotate(self, horizontal, unit, sequence, quantity, filtered = None):
+	def rotate(self, direction, horizontal, unit, sequence, quantity, filtered = None):
 		"""
 		Select the next *significant* field, skipping the given quantity.
 
@@ -1261,10 +979,14 @@ class Fields(Projection):
 		that can be skipped.
 		"""
 		start, pos, stop = horizontal.snapshot()
+		if direction > 0:
+			point = stop
+		else:
+			point = start
 
 		i = iter(sequence)
 
-		r = unit.find(pos)
+		r = unit.find(point)
 		fpath, field, state = r
 
 		# update the range to the new field.
@@ -1838,7 +1560,7 @@ class Fields(Projection):
 		"""
 		h = self.horizontal
 		self.vector_last_axis = h
-		self.rotate(h, self.unit, self.unit.subfields(), quantity)
+		self.rotate(1, h, self.unit, self.unit.subfields(), quantity)
 
 	def event_navigation_horizontal_backward(self, event, quantity = 1):
 		"""
@@ -1846,7 +1568,7 @@ class Fields(Projection):
 		"""
 		h = self.horizontal
 		self.vector_last_axis = h
-		self.rotate(h, self.unit, reversed(list(self.unit.subfields())), quantity)
+		self.rotate(-1, h, self.unit, reversed(list(self.unit.subfields())), quantity)
 
 	def event_navigation_horizontal_start(self, event):
 		h = self.horizontal
@@ -2254,13 +1976,13 @@ class Fields(Projection):
 		self.display(*r.exclusive())
 
 	def event_delta_delete_backward_adjacent_class(self, event,
-		classify=libtext.classify
+		classify=libquery.classify
 	):
 		'Delete the characters before the position until the class changes.'
 		pass
 
 	def event_delta_delete_forward_adjacent_class(self, event,
-		classify=libtext.classify
+		classify=libquery.classify
 	):
 		'Delete the characters after the position until the class changes.'
 		pass
@@ -2484,9 +2206,7 @@ class Fields(Projection):
 		self.clear_horizontal_indicators()
 
 class Lines(Fields):
-	"""
-	Fields based line editor.
-	"""
+	"Fields based line editor."
 	def __init__(self, line_class = lineslib.profile('text')[0]):
 		super().__init__()
 		self.keyboard.set('control')
@@ -2500,6 +2220,7 @@ class Lines(Fields):
 		self.vector.vertical.configure(0, nunits, 0)
 
 	def serialize(self, write, chunk_size = 128, encoding = 'utf-8'):
+		"Serialize the Projection's content into the given &write function."
 		size = 0
 
 		for i in range(0, len(self.units), chunk_size):
@@ -2513,50 +2234,32 @@ class Lines(Fields):
 		return size
 
 class Status(Fields):
-	"""
-	The status line above the prompt.
-	This projection is always present and receives events for pane management.
-	"""
-	def projection_changed(self, old, new):
-		"""
-		Updates the status field
-		"""
+	"The status line above the console prompt."
+	def __init__(self):
+		super().__init__()
+		self.units = [
+			libfields.Sequence([libfields.String("initialize")])
+		]
+
+	def draw(self, unit, getattr=getattr):
+		for path, x in unit.subfields():
+			yield x.terminal()
+
+	def projection_changed(self, new):
+		"Called when a different projection has become the focus."
 		self.projection_type = new.__class__
+
+		title = libfields.Styled(self.projection_type.__name__ or "unknown")
+		title.foreground = libterminal.pastels['blue']
+
+		self.units = [
+			libfields.Sequence([
+				title,
+				libfields.Styled(": "),
+				libfields.Styled(getattr(new, 'source', '<No Source>')),
+			])
+		]
 		return self.refresh()
-
-	def refresh(self):
-		self.view.sequence[0].update([
-			("[", (), 0x00FF00),
-			("status:", (), 0x008800),
-			(self.projection_type.__name__, (), 0x008800),
-			("]", (), 0x00FF00),
-		])
-		return list(self.view.draw())
-
-	def event_navigation_horizontal_forward(self, event, quantity = 1):
-		"""
-		Select the next pane.
-		"""
-		pass
-
-	def event_navigation_horizontal_backward(self, event, quantity = 1):
-		"""
-		Select the previouse pane.
-		"""
-		pass
-
-	# line [history] forward/backward
-	def event_navigation_vertical_forward(self, event, quantity = 1):
-		"""
-		Rotate the selected pane to the next projection.
-		"""
-		pass
-
-	def event_navigation_vertical_backward(self, event, quantity = 1):
-		"""
-		Rotate the selected pane to the previous projection.
-		"""
-		pass
 
 class Prompt(Lines):
 	"""
@@ -2743,7 +2446,7 @@ class Prompt(Lines):
 	def command(self, event):
 		pass
 
-class Transcript(Projection):
+class Transcript(core.Projection):
 	"""
 	A trivial line buffer. While &Log projections are usually preferred, a single
 	transcript is always available for critical messages.
@@ -2866,57 +2569,7 @@ def input(transformer, queue, tty):
 		enqueue(functools.partial(emit, events))
 		chars = ""
 
-class Cache(object):
-	"""
-	Mapping interface for user trans-projection communication.
-
-	Maintains a set of slots for storing a sequence of typed objects; the latest item
-	in the slot being the default. A sequence is used in order to maintain a history of
-	cached objects. The configured limit restricts the number recalled.
-
-	Console clipboard.
-	"""
-	__slots__ = ('storage', 'limit')
-	Storage = dict
-	Sequence = collections.deque
-
-	def __init__(self, limit = 8):
-		self.storage = self.Storage()
-		self.limit = limit
-
-	def allocate(self, *keys):
-		'Initialize a cache slot.'
-		for k in keys:
-			if k not in self.storage:
-				self.storage[k] = self.Sequence()
-
-	def index(self):
-		'Return a sequence of storage slots.'
-		return self.storage.keys()
-
-	def put(self, key, cobject):
-		'Put the given object as the cache entry.'
-		slot = self.storage[key]
-		type, object = cobject
-		slot.append((type, object))
-
-		if len(slot) > self.limit:
-			slot.popleft()
-
-	def get(self, key, offset = 0):
-		'Get the contents of the cache slot.'
-		r = self.storage[key][-(1 + offset)]
-
-		if r[0] == 'reference':
-			r = r[1]()
-
-		return r
-
-	def clear(self, key):
-		'Remove the all the contents of the given slot.'
-		self.storage[key].clear()
-
-class Console(core.Join):
+class Console(iolib.core.Join):
 	"""
 	The application that responds to keyboard input in order to make display changes.
 
@@ -2925,7 +2578,7 @@ class Console(core.Join):
 	"""
 	def __init__(self):
 		self.tty = None
-		self.cache = Cache() # user cache / clipboard index
+		self.cache = core.Cache() # user cache / clipboard index
 		self.cache.allocate(None)
 		self.display = libterminal.Display() # used to draw the frame.
 		self.transcript = Transcript() # the always available in memory buffer
@@ -2957,16 +2610,6 @@ class Console(core.Join):
 		for x, a in zip(self.panes, self.areas['panes']):
 			x.connect(libterminal.View(a))
 
-	def focus(self, projection):
-		"""
-		Set the focus to the given projection and return the necessary display events.
-		"""
-		old = self.projection
-		self.projection = projection
-		new = projection.vector.snapshot()
-
-		return [old.blur(), self.status.projection_changed(old, projection), projection.focus()]
-
 	def display_projection(self, pane, projection):
 		"""
 		Display the &projection on the designated pane.
@@ -2995,6 +2638,10 @@ class Console(core.Join):
 		projection.reveal()
 		self.emit([self.set_position_indicators(projection)])
 		self.emit(projection.refresh())
+
+		# update status
+		if self.pane == pane:
+			self.status.projection_changed(projection)
 
 	def pane_verticals(self, index):
 		'Calculate the vertical offsets of the pane.'
@@ -3261,7 +2908,7 @@ class Console(core.Join):
 			b''.join(self.adjust(self.dimensions)),
 		]
 
-		self.status.projection_type = self.transcript.__class__
+		self.status.projection_changed(self.transcript)
 
 		for x in self.visible:
 			initialize.extend(x.refresh())
@@ -3280,10 +2927,16 @@ class Console(core.Join):
 
 		initial = \
 			("fault.io system console\n\n") + \
+			("") + \
 			("Terminal must support meta-key in order for console to function properly.\n") + \
 			("Terminal.app: Preferences -> Profile -> Keyboard -> Use option as Meta Key\n") + \
 			("iTerm2: Preferences -> Profiles -> Keys -> +Esc Radio Buttons\n") + \
-			("\nImmediate Exit: Shift-Meta-` (~); Toggle Command Line: Meta-`\n\n") + \
+			("\nImmediate Exit: Shift-Meta-` (~); Toggle Console Prompt: Meta-`\n") + \
+			("Open file using line editor: Meta-o;\n\n") + \
+			("Pane Management\n") + \
+			(" close: Close the current projection without saving. (prompt command)\n") + \
+			(" Meta-j: Use current pane to display the Next Projection\n") + \
+			(" Meta-k: Use current pane to display the Previous Projection\n") + \
 			("This projection is the console's Transcript; the in-memory log of the process.\n\n")
 
 		self.transcript.write(initial)
@@ -3293,14 +2946,16 @@ class Console(core.Join):
 		self.context.process.terminate(1)
 
 	def focus(self, projection):
-		"""
-		Focus the given projection, blurring the current.
-		"""
+		"Focus the given projection, blurring the current. Does nothing if already focused."
 		assert projection in (self.status, self.prompt) or projection in self.visible
 
 		cp = self.projection
 		if cp is projection:
+			# already focused, do nothing.
 			return
+
+		if projection is not self.prompt:
+			self.emit(self.status.projection_changed(projection))
 
 		cp.blur()
 		self.projection = projection
@@ -3369,6 +3024,7 @@ class Console(core.Join):
 
 		self.rotation = r
 		self.display_projection(pid, p)
+		self.focus(p)
 
 	def switch_pane(self, pane):
 		"""
@@ -3388,6 +3044,7 @@ class Console(core.Join):
 			self.pane = pane
 			self.projection = new
 			new.focus()
+			self.emit(self.status.projection_changed(new))
 		else:
 			self.pane = pane
 
@@ -3407,7 +3064,8 @@ class Console(core.Join):
 	def event_method(target, event):
 		return 'event_' + '_'.join(event)
 
-	def process(self, keys, trap = keyboard.trap.event, list = list):
+	def process(self, keys, trap = core.keyboard.trap.event, list = list):
+		"Process key events received from the device."
 		# receives Key() instances and emits display events
 		context = self.context
 		process = context.process
@@ -3424,7 +3082,6 @@ class Console(core.Join):
 				# prompt or status
 				pi = None
 
-			# 
 			trapped = trap(k)
 			if trapped is not None:
 				(target_id, event_selection, params) = trapped
@@ -3446,9 +3103,10 @@ class Console(core.Join):
 					self.motion.add(projection)
 
 		for x in tuple(self.motion):
-			if x in self.visible and x is self.projection:
-				s = self.clear_position_indicators(x) + self.set_position_indicators(x)
-				self.emit((s,))
+			if x is self.projection:
+				if x in self.visible or x is self.prompt:
+					s = self.clear_position_indicators(x) + self.set_position_indicators(x)
+					self.emit((s,))
 			x.movement = False
 			self.motion.discard(x)
 
@@ -3472,12 +3130,12 @@ def initialize(program):
 	"""
 	libterminal.restore_at_exit() # cursor will be hidden and raw is enabled
 
-	console_flow = core.Flow() # terminal input -> console -> terminal output
+	console_flow = iolib.core.Flow() # terminal input -> console -> terminal output
 	console_flow.inherit(program)
 	program.place(console_flow, 'console-operation')
 
 	c = Console()
-	console_flow.configure(core.Thread(), c, core.Thread())
+	console_flow.configure(iolib.core.Thread(), c, iolib.core.Thread())
 
 	tty = open(libterminal.device.path, 'r+b')
 	# Thread()'s instances take functions

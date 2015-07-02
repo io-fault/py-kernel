@@ -419,6 +419,31 @@ class Delimiter(String):
 	merge = False
 
 @Field.register
+class Styled(object):
+	"Styled text field."
+
+	__slots__ = ('text', 'styles', 'foreground', 'background')
+
+	@property
+	def underlined(self):
+		return 'underline' in self.styles
+
+	def __init__(self, text = "", fg = None):
+		self.text = text
+		self.styles = ()
+		self.foreground = fg
+		self.background = None
+
+	def terminal(self):
+		"Return a tuple suitable for fault.terminal."
+		return (
+			self.text,
+			self.styles,
+			self.foreground,
+			self.background,
+		)
+
+@Field.register
 class Text(object):
 	"""
 	Mutable text object using manipulation instructions

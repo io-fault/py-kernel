@@ -1,4 +1,24 @@
-pass
+"""
+Horizontal and vertical query for range selection.
+"""
+
+punctuation = set(";:.,!?")
+operation = set("-+/*&^%!~")
+quotation = set("'\"`")
+
+def classify(string):
+	"Identify the class of the given character."
+
+	if string.isalpha():
+		return 'alpha'
+	if string.isdecimal():
+		return 'decimal'
+	if string in punctuation:
+		return 'punctuation'
+	if string in operation:
+		return 'operation'
+	if string in quotation:
+		return 'quotation'
 
 class Query(object):
 	"""
