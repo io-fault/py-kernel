@@ -508,7 +508,8 @@ class Fields(core.Projection):
 		Constant=libfields.Constant,
 		has_content=libfields.has_content,
 		isinstance=isinstance,
-		len=len, hasattr=hasattr, iter=iter, next=next
+		len=len, hasattr=hasattr,
+		iter=iter, next=next
 	):
 		'Draw an individual unit for rendering.'
 
@@ -568,7 +569,7 @@ class Fields(core.Projection):
 				elif cc == 'core':
 					color = 0x875fff
 				elif cc == 'exoword':
-					color = libterminal.pastels['orange']
+					color = libterminal.pastels['cyan']
 				else:
 					color = 0xBBBBBB
 			else:
@@ -922,8 +923,9 @@ class Fields(core.Projection):
 		self.vertical.move(index, 1)
 		self.update_vertical_state()
 
-	def render(self, start, stop, max = max, min = min, list = list):
+	def render(self, start, stop, max=max, min=min, list=list):
 		'Render the given line range to the view.'
+
 		origin, top, bottom = self.window.vertical.snapshot()
 		ub = len(self.units)
 		rl = min(bottom, ub)
@@ -938,28 +940,33 @@ class Fields(core.Projection):
 		stop = min(stop, rl)
 
 		r = range(start, stop)
+		relr = range(start - top, stop - top)
 		seq = self.view.sequence
 
 		# Draw the unit into the Line in the view.
-		for i in r:
-			seq[i-top].update(list(self.draw(self.units[i])))
+		draw = self.draw
+		units = self.units
+		for i, ri in zip(r, relr):
+			seq[ri].update(list(draw(units[i])))
 
 		return (start-top, stop-top)
 
-	def display(self, start, stop, list = list):
+	def display(self, start, stop, list=list):
 		'Send the given line range to the display.'
 		self.controller.emit(list(self.view.draw(*self.render(start, stop))))
 
-	def refresh(self, start = 0):
+	def refresh(self, start=0, list=list):
 		origin, top, bottom = self.window.vertical.snapshot()
 		ub = len(self.units)
 		rl = min(bottom, ub)
 		r = range(top + start, rl)
 		seq = self.view.sequence
 
+		draw = self.draw
+		units = self.units
 		for i in r:
-			u = self.units[i]
-			seq[i-top].update(list(self.draw(u)))
+			u = units[i]
+			seq[i-top].update(list(draw(u)))
 
 		u = self.out_of_bounds
 		for i in range(rl, bottom):
@@ -1069,17 +1076,13 @@ class Fields(core.Projection):
 		return (self.insert_vertical, (start, units))
 
 	def insert_vertical(self, offset, sequence):
-		"""
-		"""
 		self.units.insert(offset, sequence)
 		self.update_unit()
 		self.display(offset, None)
 		return (self.truncate_vertical, (offset, offset + len(sequence)))
 
 	def translocate_vertical(self, index, units, target, start, stop):
-		"""
-		Relocate the vertical range to the &target position.
-		"""
+		"Relocate the vertical range to the &target position."
 		seq = units[start:stop]
 		self.log(self.truncate_vertical(start, stop), IRange((start, stop-1)))
 		size = stop - start
@@ -1106,9 +1109,7 @@ class Fields(core.Projection):
 		self.display(*r.exclusive())
 
 	def event_delta_translocate(self, event):
-		"""
-		Relocate the range to the current position.
-		"""
+		"Relocate the range to the current position."
 		axis = self.last_axis
 		self.clear_horizontal_indicators()
 
@@ -1147,9 +1148,7 @@ class Fields(core.Projection):
 		self.checkpoint()
 
 	def event_delta_transpose(self, event):
-		"""
-		Relocate the current range with the queued.
-		"""
+		"Relocate the current range with the queued."
 		axis = self.last_axis
 		self.clear_horizontal_indicators()
 
@@ -1245,9 +1244,7 @@ class Fields(core.Projection):
 		self.checkpoint()
 
 	def event_delta_truncate(self, event):
-		"""
-		Remove the range of the last axis.
-		"""
+		"Remove the range of the last axis."
 		axis = self.last_axis
 		self.clear_horizontal_indicators()
 
@@ -1276,9 +1273,7 @@ class Fields(core.Projection):
 		self.update_unit()
 
 	def event_select_horizontal_line(self, event, quantity=1):
-		"""
-		Alter the horizontal range to be the length of the current vertical index.
-		"""
+		"Alter the horizontal range to be the length of the current vertical index."
 		h = self.horizontal
 
 		abs = h.get()
@@ -1299,9 +1294,7 @@ class Fields(core.Projection):
 			h.move(abs - h.datum)
 
 	def event_select_vertical_line(self, event, quantity=1):
-		"""
-		Alter the vertical range to contain a single line.
-		"""
+		"Alter the vertical range to contain a single line."
 		v = self.vertical
 		abs = v.get()
 		v.configure(abs, 1)
@@ -1309,9 +1302,7 @@ class Fields(core.Projection):
 		self.movement = True
 
 	def event_select_series(self, event):
-		"""
-		Expand the horizontal range to include fields separated by an access, routing, delimiter.
-		"""
+		"Expand the horizontal range to include fields separated by an access, routing, delimiter."
 		line = self.unit[1]
 		fields = list(self.unit.subfields())
 		offset = self.horizontal.get()
@@ -1381,9 +1372,7 @@ class Fields(core.Projection):
 		self.movement = True
 
 	def seek(self, vertical_index):
-		"""
-		Go to a specific vertical index.
-		"""
+		"Go to a specific vertical index."
 		v = self.vector.vertical
 		d, o, m = v.snapshot()
 		self.clear_horizontal_indicators()
@@ -1749,15 +1738,11 @@ class Fields(core.Projection):
 		return ((self.truncate_vertical, (new, new+quantity)), IRange((new, new+quantity-1)))
 
 	def clear_horizontal_state(self):
-		"""
-		Zero out the horizontal cursor.
-		"""
+		"Zero out the horizontal cursor."
 		self.horizontal.configure(0,0,0)
 
 	def clear_vertical_state(self):
-		"""
-		Zero out the horizontal cursor.
-		"""
+		"Zero out the horizontal cursor."
 		self.vertical.collapse()
 		self.update_vertical_state()
 
@@ -1833,9 +1818,7 @@ class Fields(core.Projection):
 		self.movement = True
 
 	def event_delta_substitute_previous(self, event):
-		"""
-		Substitute the horizontal selection with previous substitution later.
-		"""
+		"Substitute the horizontal selection with previous substitution later."
 		h = self.horizontal
 		adjustments = self.indentation_adjustments(self.unit)
 		start, position, stop = map((-adjustments).__add__, h.snapshot())
@@ -1851,9 +1834,7 @@ class Fields(core.Projection):
 		self.display(*self.current_vertical.exclusive())
 
 	def empty(self, unit):
-		"""
-		Determine whether or not the given unit is empty.
-		"""
+		"Determine whether or not the given unit is empty."
 		ul = len(unit)
 		if ul == 0:
 			return True
@@ -1864,9 +1845,7 @@ class Fields(core.Projection):
 	def insert_characters(self, characters,
 		isinstance=isinstance, StringField=libfields.String
 	):
-		"""
-		Insert characters into the focus.
-		"""
+		"Insert characters into the focus."
 		v = self.vector.vertical
 		h = self.vector.horizontal
 
@@ -1922,16 +1901,12 @@ class Fields(core.Projection):
 		self.display(*r.exclusive())
 
 	def event_delta_insert_character(self, event):
-		"""
-		Insert a character at the current cursor position.
-		"""
+		"Insert a character at the current cursor position."
 		if event.type == 'literal':
 			self.insert_characters(event.string)
 
 	def transition_insert_character(self, key):
-		"""
-		Used as a capture hook to insert literal characters.
-		"""
+		"Used as a capture hook to insert literal characters."
 		if key.type == 'literal':
 			self.insert_characters(key.string)
 			self.delete_characters(1)
@@ -1947,7 +1922,7 @@ class Fields(core.Projection):
 		self.transition_keyboard('capture')
 
 	def event_delta_delete_tobol(self, event):
-		'Delete all characters between the current position and the begining of the line.'
+		"Delete all characters between the current position and the begining of the line."
 		u = self.unit[1]
 		adjustments = self.indentation_adjustments(self.unit)
 		offset = self.horizontal.get() - adjustments
@@ -1961,7 +1936,7 @@ class Fields(core.Projection):
 		self.display(*r.exclusive())
 
 	def event_delta_delete_toeol(self, event):
-		'Delete all characters between the current position and the end of the line.'
+		"Delete all characters between the current position and the end of the line."
 
 		u = self.unit[1]
 		adjustments = self.indentation_adjustments(self.unit)
@@ -1978,13 +1953,13 @@ class Fields(core.Projection):
 	def event_delta_delete_backward_adjacent_class(self, event,
 		classify=libquery.classify
 	):
-		'Delete the characters before the position until the class changes.'
+		"Delete the characters before the position until the class changes."
 		pass
 
 	def event_delta_delete_forward_adjacent_class(self, event,
 		classify=libquery.classify
 	):
-		'Delete the characters after the position until the class changes.'
+		"Delete the characters after the position until the class changes."
 		pass
 
 	def transition_keyboard(self, mode):
@@ -2006,14 +1981,16 @@ class Fields(core.Projection):
 		self.transition_keyboard('edit')
 
 	def horizontal_selection(self):
-		'Get the string of the current horizontal selection.'
+		"Get the string of the current horizontal selection."
+
 		h = self.horizontal
 		adjustments = self.indentation_adjustments(self.unit)
 		start, position, stop = map((-adjustments).__add__, h.snapshot())
+
 		return str(self.unit[1])[start:stop]
 
 	def record_last_edit(self):
-		'Record the text of the edit performed.'
+		"Record the text of the edit performed."
 		self.last_edit = self.horizontal_selection()
 
 	def event_edit_commit(self, event):
@@ -2036,7 +2013,7 @@ class Fields(core.Projection):
 		self.insert_characters(libfields.Delimiter(' '))
 
 	def event_delta_insert_space(self, event):
-		'Insert a literal space'
+		"Insert a literal space."
 		self.insert_characterslibfields.Delimiter((' '))
 
 	def indent(self, sequence, quantity = 1, ignore_empty = False,
@@ -2110,7 +2087,7 @@ class Fields(core.Projection):
 		self.delete_characters(quantity)
 
 	def event_copy(self, event):
-		'Copy the range to the default cache entry.'
+		"Copy the range to the default cache entry."
 		if self.last_axis == 'vertical':
 			start, p, stop = self.vertical.snapshot()
 			r = '\n'.join([
@@ -2163,7 +2140,7 @@ class Fields(core.Projection):
 		self.movement = True
 
 	def unit_class(self, index, len = len):
-		'Get the corresponding line class for hte index'
+		"Get the corresponding line class for the index."
 		if len(self.units):
 			return self.units[index][1].__class__
 		else:

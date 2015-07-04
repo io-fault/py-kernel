@@ -3,7 +3,6 @@ import operator
 import collections
 
 from ...terminal import library as libterminal
-
 from .. import library as iolib
 from . import keyboard
 
@@ -17,6 +16,7 @@ class Cache(object):
 
 	Console clipboard.
 	"""
+
 	__slots__ = ('storage', 'limit')
 	Storage = dict
 	Sequence = collections.deque
@@ -59,6 +59,7 @@ class Cache(object):
 
 class IRange(tuple):
 	"Inclusive numeric range used for cases where the range size is one or more."
+
 	__slots__ = ()
 
 	@property
