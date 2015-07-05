@@ -210,7 +210,7 @@ class Projection(iolib.core.Resource):
 
 		return (mapping, event)
 
-	def key(self, console, event):
+	def key(self, console, event, getattr=getattr, range=range):
 		"Process the given key event."
 		routing = self.route(event)
 		if routing is None:
@@ -223,11 +223,18 @@ class Projection(iolib.core.Resource):
 		if self.distributing and event_selection[0] == 'delta':
 			self.clear_horizontal_indicators()
 			v = self.vertical
+			h = self.horizontal
+			vs = v.get()
 			v.move(0, 1)
+			hs = self.horizontal.snapshot()
+
 			for i in range(v.magnitude):
+				h.restore(hs)
 				self.update_unit()
 				method(event, *params)
 				v.move(1)
+
+			v.set(vs)
 			rob = None
 			self.update_vertical_state()
 			if self.distribute_once == True:
@@ -235,8 +242,10 @@ class Projection(iolib.core.Resource):
 				self.distribute_once = None
 		else:
 			rob = method(event, *params)
+
 		if self.controller.projection is self:
 			self.update_horizontal_indicators()
+
 		return rob
 
 	def event_distribute_sequence(self, event):

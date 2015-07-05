@@ -230,9 +230,7 @@ class Fields(core.Projection):
 		h.limit(hmin, self.unit.characters())
 
 	def update_unit(self):
-		"""
-		Unconditionally update the vertical index and unit without scrolling.
-		"""
+		"Unconditionally update the vertical index and unit without scrolling."
 
 		v = self.vertical
 		nl = v.get()
@@ -252,6 +250,7 @@ class Fields(core.Projection):
 			self.unit = self.out_of_bounds
 
 		self.vertical_index = nl
+		self.constrain_horizontal_range()
 
 	def update_vertical_state(self):
 		"""
@@ -1798,15 +1797,13 @@ class Fields(core.Projection):
 		self.movement = True
 
 	def event_delta_substitute(self, event):
-		"""
-		Substitute the contents of the selection.
-		For structured fields, this will clear the all of the subfields.
-		"""
+		"Substitute the contents of the selection."
 		h = self.horizontal
 		adjustments = self.indentation_adjustments(self.unit)
 		start, position, stop = map((-adjustments).__add__, h.snapshot())
 		vi = self.vertical_index
 
+		#last_substituted = self.unit[1][start:stop]
 		inverse = self.unit[1].delete(start, stop)
 		r = IRange.single(vi)
 		self.log(inverse, r)
@@ -2005,7 +2002,7 @@ class Fields(core.Projection):
 		self.undo(1)
 		self.transition_keyboard('control')
 
-	def event_edit_space(self, event):
+	def event_delta_edit_insert_space(self, event):
 		"""
 		Insert a constant into the field sequence and
 		create a new text field for further editing.
@@ -2290,7 +2287,7 @@ class Prompt(Lines):
 		))
 		self.controller.emit(self.refresh())
 
-	def event_edit_space(self, event):
+	def event_delta_edit_insert_space(self, event):
 		self.insert_characters(self.separator)
 
 	def event_edit_tab(self, event):

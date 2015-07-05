@@ -185,7 +185,7 @@ edit.assign(controlk('x'), 'projection', ('delta', 'delete', 'forward'))
 
 # these are mapped to keyboard names in order to allow class-level overrides
 # and/or context sensitive action selection
-edit.assign(('control', 'space', 0), 'projection', ('edit', 'space'))
+edit.assign(('control', 'space', 0), 'projection', ('delta', 'edit', 'insert', 'space'))
 edit.assign(('control', 'tab', 0), 'projection', ('edit', 'tab'))
 edit.assign(('control', 'tab', shift), 'projection', ('edit', 'shift', 'tab'))
 edit.assign(('control', 'return', 0), 'projection', ('edit', 'return'))
