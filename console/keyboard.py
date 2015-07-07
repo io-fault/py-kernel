@@ -84,8 +84,6 @@ control.assign(caps('e'), 'projection', ('navigation', 'vertical', 'paging'))
 control.assign(controlk('e'), 'projection', ('print', 'unit'))
 
 # temporary
-control.assign(literal('w'), 'projection', ('window', 'vertical', 'forward'))
-control.assign(caps('w'), 'projection', ('window', 'vertical', 'backward'))
 control.assign(controlk('w'), 'projection', ('console', 'save'))
 
 control.assign(literal('j'), 'projection', ('navigation', 'vertical', 'forward'))
@@ -144,8 +142,11 @@ for i in range(10):
 # character level movement
 control.assign(controlk('space'), 'projection', ('navigation', 'forward', 'character'))
 control.assign(delta('delete'), 'projection', ('navigation', 'backward', 'character'))
-control.assign(nav('left'), 'projection', ('navigation', 'backward', 'character'))
-control.assign(nav('right'), 'projection', ('navigation', 'forward', 'character'))
+
+control.assign(nav('left'), 'projection', ('window', 'horizontal', 'forward'))
+control.assign(nav('right'), 'projection', ('window', 'horizontal', 'backward'))
+control.assign(nav('down'), 'projection', ('window', 'vertical', 'forward'))
+control.assign(nav('up'), 'projection', ('window', 'vertical', 'backward'))
 
 control.assign(literal('m'), 'projection', ('menu', 'primary')) # move to field index
 control.assign(caps('m'), 'projection', ('menu', 'secondary')) # move to line number
@@ -165,9 +166,6 @@ control.assign(caps('r'), 'projection', ('delta', 'replace'),)
 
 control.assign(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
 control.assign(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
-
-control.assign(nav('down'), 'container', ('navigation', 'vertical', 'forward'))
-control.assign(nav('up'), 'container', ('navigation', 'vertical', 'backward'))
 
 control.assign(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
 

@@ -101,15 +101,6 @@ class Fields(core.Projection):
 	"""
 	separator = libfields.field_separator
 
-	color_palette = {
-		# modes
-		'edit': 0xFF0000,
-		'control': 0xFF0000,
-	}
-	character_palette = {
-		'character-deleted': symbols.combining['high']['x'],
-		'cursor': ('[', ']'),
-	}
 	delete_across_units = False
 	margin = 8 # number of lines that remains below or above the cursor
 	out_of_bounds = libfields.Sequence((libfields.Indentation.acquire(0),))
@@ -320,9 +311,7 @@ class Fields(core.Projection):
 			self.constrain_horizontal_range()
 
 	def scrolled(self):
-		"""
-		Bind the window to the appropriate edges.
-		"""
+		"Bind the window to the appropriate edges."
 		h = self.window.horizontal
 		v = self.window.vertical
 
@@ -345,6 +334,8 @@ class Fields(core.Projection):
 			v.move(-underflow)
 
 		v.reposition()
+
+		# All lines are being updated.
 		self.controller.emit(self.refresh())
 
 	def __init__(self):
@@ -370,9 +361,7 @@ class Fields(core.Projection):
 		self.future = []
 
 	def log(self, *inverse):
-		"""
-		Log a change for undo-operations.
-		"""
+		"Log a change for undo-operations."
 		if not self.past:
 			self.past.append([])
 		self.past[-1].append((None, inverse),) # timestamp
@@ -454,9 +443,7 @@ class Fields(core.Projection):
 		self.update_window()
 
 	def find(self, pattern):
-		"""
-		Alter the vertical and horizontal query to search.
-		"""
+		"Alter the vertical and horizontal query to search."
 		self.vertical_query = self.horizontal_query = 'pattern'
 		self.pattern = pattern
 		self.event_navigation_vertical_stop(None)
@@ -468,13 +455,11 @@ class Fields(core.Projection):
 		self.redo(quantity)
 
 	def event_delta_map(self, event):
-		"""
-		Map the the following commands across the vertical range.
-		"""
+		"Map the the following commands across the vertical range."
 		self.distribution = 'vertical'
 
 	def offsets(self, unit, *indexes):
-		'Calculate the cell offsets of the given unit.'
+		"Calculate the cell offsets of the given unit."
 		u = self.draw(unit)
 		libterminal.offsets(u, indexes)
 
@@ -489,13 +474,13 @@ class Fields(core.Projection):
 		return (('-' * (size-1)) + '|') * v
 
 	def comment(self, q, iterator, color = color_reference['brick']):
-		'Draw the comment.'
+		"Draw the comment."
 		yield (q.value(), (), color)
 		for path, x in iterator:
 			yield (x.value(), (), color)
 
 	def quotation(self, q, iterator, color = 0x666666):
-		'Draw the quotation.'
+		"Draw the quotation."
 		yield (q.value(), (), color)
 		for path, x in iterator:
 			yield (x.value(), (), color)
@@ -510,7 +495,7 @@ class Fields(core.Projection):
 		len=len, hasattr=hasattr,
 		iter=iter, next=next
 	):
-		'Draw an individual unit for rendering.'
+		"Draw an individual unit for rendering."
 
 		fs = 0
 
@@ -637,9 +622,9 @@ class Fields(core.Projection):
 
 	def collect_horizontal_range(self,
 		line, positions,
-		len = len,
-		whole = slice(None,None),
-		address = libfields.address,
+		len=len,
+		whole=slice(None,None),
+		address=libfields.address,
 	):
 		"""
 		Collect the fragments of the horizontal range from the rendered unit.
@@ -749,9 +734,7 @@ class Fields(core.Projection):
 		return slices
 
 	def clear_horizontal_indicators(self, starmap=itertools.starmap, cells=libterminal.cells):
-		"""
-		Called to clear the horizontal indicators for line switches.
-		"""
+		"Called to clear the horizontal indicators for line switches."
 		area = self.view.area
 		shr = area.seek_horizontal_relative
 		astyle = area.style
@@ -798,6 +781,7 @@ class Fields(core.Projection):
 		starmap=itertools.starmap,
 		cells=libterminal.cells,
 		offsets=libterminal.offsets,
+		list=list, len=len, tuple=tuple, zip=zip
 	):
 		"Changes the horizontal position indicators."
 
@@ -951,7 +935,7 @@ class Fields(core.Projection):
 		return (start-top, stop-top)
 
 	def display(self, start, stop, list=list):
-		'Send the given line range to the display.'
+		"Send the given line range to the display."
 		self.controller.emit(list(self.view.draw(*self.render(start, stop))))
 
 	def refresh(self, start=0, list=list):
@@ -1043,7 +1027,7 @@ class Fields(core.Projection):
 		prompt = console.prompt
 		prompt.prepare(libfields.String("seek"), libfields.String(""))
 		prompt.event_select_horizontal_line(None)
-		prompt.horizontal.move(1, -1)
+		prompt.horizontal.move(0, -1)
 		prompt.keyboard.set('edit')
 		console.focus_prompt()
 
@@ -2282,9 +2266,12 @@ class Prompt(Lines):
 		Set the command line to a sequence of fields.
 		"""
 		self.clear_horizontal_indicators()
-		self.unit[1].sequences = list(itertools.chain.from_iterable(
+		l = list(itertools.chain.from_iterable(
 			zip(fields, itertools.repeat(self.separator, len(fields)))
 		))
+		# remove additional field separator
+		del l[-1]
+		self.unit[1].sequences = l
 		self.controller.emit(self.refresh())
 
 	def event_delta_edit_insert_space(self, event):
@@ -2618,7 +2605,7 @@ class Console(iolib.core.Join):
 			self.status.projection_changed(projection)
 
 	def pane_verticals(self, index):
-		'Calculate the vertical offsets of the pane.'
+		"Calculate the vertical offsets of the pane."
 		if index is None:
 			return None
 
@@ -2777,9 +2764,7 @@ class Console(iolib.core.Join):
 		h_bottom_right = symbols.corners['bottom-right'],
 		color = 0x222222
 	):
-		"""
-		Clear the position indicators on the frame.
-		"""
+		"Clear the position indicators on the frame."
 		events = bytearray()
 
 		if projection.snapshot is None:
@@ -2911,7 +2896,7 @@ class Console(iolib.core.Join):
 			(" close: Close the current projection without saving. (prompt command)\n") + \
 			(" Meta-j: Use current pane to display the Next Projection\n") + \
 			(" Meta-k: Use current pane to display the Previous Projection\n") + \
-			("This projection is the console's Transcript; the in-memory log of the process.\n\n")
+			("\nThis projection is the console's Transcript; the in-memory log of the process.\n\n")
 
 		self.transcript.write(initial)
 		self.panes[1].focus()
@@ -2960,7 +2945,7 @@ class Console(iolib.core.Join):
 		prompt = self.prompt
 		prompt.prepare(libfields.String("open"), libfields.String(""))
 		prompt.event_select_horizontal_line(None)
-		prompt.horizontal.move(1, -1)
+		prompt.horizontal.move(0, -1)
 		prompt.keyboard.set('edit')
 		self.focus_prompt()
 
