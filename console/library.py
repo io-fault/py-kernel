@@ -906,8 +906,11 @@ class Fields(core.Projection):
 		self.vertical.move(index, 1)
 		self.update_vertical_state()
 
-	def render(self, start, stop, max=max, min=min, list=list):
-		'Render the given line range to the view.'
+	def render(self, start, stop,
+		len=len, max=max, min=min,
+		list=list, range=range, zip=zip,
+	):
+		"Render the given line range into the terminal view."
 
 		origin, top, bottom = self.window.vertical.snapshot()
 		ub = len(self.units)
@@ -923,7 +926,11 @@ class Fields(core.Projection):
 		stop = min(stop, rl)
 
 		r = range(start, stop)
-		relr = range(start - top, stop - top)
+
+		rstart = start - top
+		rstop = stop - top
+		relr = range(rstart, rstop)
+
 		seq = self.view.sequence
 
 		# Draw the unit into the Line in the view.
@@ -932,11 +939,11 @@ class Fields(core.Projection):
 		for i, ri in zip(r, relr):
 			seq[ri].update(list(draw(units[i])))
 
-		return (start-top, stop-top)
+		return (rstart, rstop)
 
 	def display(self, start, stop, list=list):
 		"Send the given line range to the display."
-		self.controller.emit(list(self.view.draw(*self.render(start, stop))))
+		self.controller.emit(list(self.view.render(*self.render(start, stop))))
 
 	def refresh(self, start=0, list=list):
 		origin, top, bottom = self.window.vertical.snapshot()
@@ -955,10 +962,10 @@ class Fields(core.Projection):
 		for i in range(rl, bottom):
 			seq[i-top].update(list(self.draw(self.out_of_bounds)))
 
-		return list(self.view.draw())
+		return list(self.view.render())
 
 	def insignificant(self, path, field):
-		'Determines whether the field as having insignifianct content.'
+		"Determines whether the field as having insignifianct content."
 		return isinstance(field, (libfields.Formatting, libfields.Constant)) or str(field) == " "
 
 	def rotate(self, direction, horizontal, unit, sequence, quantity, filtered = None):
@@ -1036,9 +1043,7 @@ class Fields(core.Projection):
 		sel[-2].delete(sel[-1])
 
 	def truncate_vertical(self, start, stop):
-		"""
-		Remove a vertical range from the projection.
-		"""
+		"Remove a vertical range from the projection."
 		# delete range
 		units = self.units[start:stop]
 		self.units.delete(start, stop)
@@ -1375,6 +1380,7 @@ class Fields(core.Projection):
 
 	# line [history] forward/backward
 	def event_navigation_vertical_forward(self, event, quantity = 1):
+		"Move the position to the next line."
 		v = self.vertical
 		self.clear_horizontal_indicators()
 		v.move(quantity)
@@ -1383,6 +1389,7 @@ class Fields(core.Projection):
 		self.movement = True
 
 	def event_navigation_vertical_backward(self, event, quantity = 1):
+		"Move the position to the previous line."
 		v = self.vertical
 		self.clear_horizontal_indicators()
 		v.move(-quantity)
@@ -1742,6 +1749,9 @@ class Fields(core.Projection):
 
 	def event_open_ahead(self, event, quantity = 1):
 		"Open a new vertical ahead of the current vertical position."
+		if len(self.units) == 0:
+			return self.event_open_behind(event, quantity)
+
 		inverse = self.open_vertical(self.get_indentation_level(), 1, quantity)
 		self.log(*inverse)
 		self.keyboard.set('edit')
@@ -2573,7 +2583,7 @@ class Console(iolib.core.Join):
 
 	def display_projection(self, pane, projection):
 		"""
-		Display the &projection on the designated pane.
+		Display the &projection on the designated pane index.
 		"""
 		if projection in self.visible:
 			# already displayed; focus?
@@ -2599,10 +2609,6 @@ class Console(iolib.core.Join):
 		projection.reveal()
 		self.emit([self.set_position_indicators(projection)])
 		self.emit(projection.refresh())
-
-		# update status
-		if self.pane == pane:
-			self.status.projection_changed(projection)
 
 	def pane_verticals(self, index):
 		"Calculate the vertical offsets of the pane."
@@ -2867,7 +2873,7 @@ class Console(iolib.core.Join):
 			b''.join(self.adjust(self.dimensions)),
 		]
 
-		self.status.projection_changed(self.transcript)
+		initialize.extend(self.status.projection_changed(self.transcript))
 
 		for x in self.visible:
 			initialize.extend(x.refresh())
@@ -2909,9 +2915,6 @@ class Console(iolib.core.Join):
 		assert projection in (self.status, self.prompt) or projection in self.visible
 
 		cp = self.projection
-		if cp is projection:
-			# already focused, do nothing.
-			return
 
 		if projection is not self.prompt:
 			self.emit(self.status.projection_changed(projection))
@@ -2983,7 +2986,7 @@ class Console(iolib.core.Join):
 
 		self.rotation = r
 		self.display_projection(pid, p)
-		self.focus(p)
+		self.focus_pane()
 
 	def switch_pane(self, pane):
 		"""

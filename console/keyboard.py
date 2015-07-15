@@ -56,151 +56,155 @@ trap.assign(('escaped', 'o', 0), 'console', ('prepare', 'open'))
 
 # projection control mapping
 control = Mapping(('projection', ('navigation', 'jump', 'character'), ()))
+ca = control.assign
 
 # map
-control.assign(literal('y'), 'projection', ('distribute', 'one'))
-control.assign(caps('y'), 'projection', ('distribute', 'sequence'))
+ca(literal('y'), 'projection', ('distribute', 'one'))
+ca(caps('y'), 'projection', ('distribute', 'sequence'))
 
 # control
-control.assign(controlk('c'), 'projection', ('interrupt',))
-control.assign(('escaped', 'c', 0), 'projection', ('copy',))
+ca(controlk('c'), 'projection', ('interrupt',))
+ca(('escaped', 'c', 0), 'projection', ('copy',))
 
 #control.assign(('control', 'escape', 0), 'projection', ('transition', 'exit'))
-control.assign(('control', 'space', 0), 'projection', ('control', 'space'))
-control.assign(('control', 'return', 0), 'projection', ('control', 'return'))
+ca(('control', 'space', 0), 'projection', ('control', 'space'))
+ca(('control', 'return', 0), 'projection', ('control', 'return'))
 
-control.assign(literal('f'), 'projection', ('navigation', 'horizontal', 'forward'))
-control.assign(literal('d'), 'projection', ('navigation', 'horizontal', 'backward'))
-control.assign(caps('f'), 'projection', ('navigation', 'horizontal', 'stop'))
-control.assign(caps('d'), 'projection', ('navigation', 'horizontal', 'start'))
-control.assign(controlk('f'), 'projection', ())
-control.assign(controlk('d'), 'projection', ())
+ca(literal('f'), 'projection', ('navigation', 'horizontal', 'forward'))
+ca(literal('d'), 'projection', ('navigation', 'horizontal', 'backward'))
+ca(caps('f'), 'projection', ('navigation', 'horizontal', 'stop'))
+ca(caps('d'), 'projection', ('navigation', 'horizontal', 'start'))
+ca(controlk('f'), 'projection', ())
+ca(controlk('d'), 'projection', ())
 
-control.assign(literal('s'), 'projection', ('select', 'series',))
-control.assign(caps('s'), 'projection', ('select', 'series', 'backward')) # spare
+ca(literal('s'), 'projection', ('select', 'series',))
+ca(caps('s'), 'projection', ('select', 'series', 'backward')) # spare
 
-control.assign(literal('e'), 'projection', ('navigation', 'vertical', 'sections'))
-control.assign(caps('e'), 'projection', ('navigation', 'vertical', 'paging'))
-control.assign(controlk('e'), 'projection', ('print', 'unit'))
+ca(literal('e'), 'projection', ('navigation', 'vertical', 'sections'))
+ca(caps('e'), 'projection', ('navigation', 'vertical', 'paging'))
+ca(controlk('e'), 'projection', ('print', 'unit'))
 
 # temporary
-control.assign(controlk('w'), 'projection', ('console', 'save'))
+ca(controlk('w'), 'projection', ('console', 'save'))
 
-control.assign(literal('j'), 'projection', ('navigation', 'vertical', 'forward'))
-control.assign(literal('k'), 'projection', ('navigation', 'vertical', 'backward'))
-control.assign(caps('j'), 'projection', ('navigation', 'vertical', 'stop'))
-control.assign(caps('k'), 'projection', ('navigation', 'vertical', 'start'))
-control.assign(('control', 'newline', 0), 'projection', ('navigation', 'void', 'forward'))
-control.assign(controlk('k'), 'projection', ('navigation', 'void', 'backward'))
+ca(literal('j'), 'projection', ('navigation', 'vertical', 'forward'))
+ca(literal('k'), 'projection', ('navigation', 'vertical', 'backward'))
+ca(caps('j'), 'projection', ('navigation', 'vertical', 'stop'))
+ca(caps('k'), 'projection', ('navigation', 'vertical', 'start'))
+ca(('control', 'newline', 0), 'projection', ('navigation', 'void', 'forward'))
+ca(controlk('k'), 'projection', ('navigation', 'void', 'backward'))
 
-control.assign(caps('o'), 'projection', ('open', 'behind',))
-control.assign(literal('o'), 'projection', ('open', 'ahead'))
-control.assign(controlk('o'), 'projection', ('open', 'into'))
+ca(caps('o'), 'projection', ('open', 'behind',))
+ca(literal('o'), 'projection', ('open', 'ahead'))
+ca(controlk('o'), 'projection', ('open', 'into'))
 
-control.assign(literal('q'), 'projection', ('navigation', 'range', 'enqueue'))
-control.assign(caps('q'), 'projection', ('navigation', 'range', 'dequeue'))
-control.assign(controlk('q'), 'projection', ('',)) # spare
+ca(literal('q'), 'projection', ('navigation', 'range', 'enqueue'))
+ca(caps('q'), 'projection', ('navigation', 'range', 'dequeue'))
+ca(controlk('q'), 'projection', ('',)) # spare
 
-control.assign(literal('v'), 'projection', ('navigation', 'void', 'forward',))
-control.assign(caps('v'), 'projection', ('navigation', 'void', 'backward',))
-control.assign(controlk('v'), 'projection', ('',)) # spare
+ca(literal('v'), 'projection', ('navigation', 'void', 'forward',))
+ca(caps('v'), 'projection', ('navigation', 'void', 'backward',))
+ca(controlk('v'), 'projection', ('',)) # spare
 
-control.assign(literal('t'), 'projection', ('delta', 'translocate',))
-control.assign(caps('t'), 'projection', ('delta', 'transpose',))
-control.assign(controlk('t'), 'projection', ('delta', 'truncate'))
+ca(literal('t'), 'projection', ('delta', 'translocate',))
+ca(caps('t'), 'projection', ('delta', 'transpose',))
+ca(controlk('t'), 'projection', ('delta', 'truncate'))
 
-control.assign(literal('z'), 'projection', ('place', 'stop',))
-control.assign(caps('z'), 'projection', ('place', 'start',))
-control.assign(controlk('z'), 'projection', ('place', 'expand'))
+ca(literal('z'), 'projection', ('place', 'stop',))
+ca(caps('z'), 'projection', ('place', 'start',))
+ca(controlk('z'), 'projection', ('place', 'expand'))
 
 # [undo] log
-control.assign(literal('u'), 'projection', ('delta', 'undo',))
-control.assign(caps('u'), 'projection', ('delta', 'redo',))
-control.assign(controlk('u'), 'projection', ('redo',))
+ca(literal('u'), 'projection', ('delta', 'undo',))
+ca(caps('u'), 'projection', ('delta', 'redo',))
+ca(controlk('u'), 'projection', ('redo',))
 
-control.assign(literal('a'), 'projection', ('select', 'adjacent', 'local'))
-control.assign(caps('a'), 'projection', ('select', 'adjacent'))
+ca(literal('a'), 'projection', ('select', 'adjacent', 'local'))
+ca(caps('a'), 'projection', ('select', 'adjacent'))
 
-control.assign(literal('b'), 'projection', ('select', 'block'))
-control.assign(caps('b'), 'projection', ('select', 'outerblock'))
+ca(literal('b'), 'projection', ('select', 'block'))
+ca(caps('b'), 'projection', ('select', 'outerblock'))
 
-control.assign(literal('n'), 'projection', ('delta', 'split',))
-control.assign(caps('n'), 'projection', ('delta', 'join',))
-control.assign(controlk('n'), 'projection', ('',))
+ca(literal('n'), 'projection', ('delta', 'split',))
+ca(caps('n'), 'projection', ('delta', 'join',))
+ca(controlk('n'), 'projection', ('',))
 
-control.assign(literal('p'), 'projection', ('paste', 'after'))
-control.assign(caps('p'), 'projection', ('paste', 'before',))
-control.assign(controlk('p'), 'projection', ('paste', 'into',))
+ca(literal('p'), 'projection', ('paste', 'after'))
+ca(caps('p'), 'projection', ('paste', 'before',))
+ca(controlk('p'), 'projection', ('paste', 'into',))
 
-control.assign(literal('l'), 'projection', ('select', 'horizontal', 'line'))
-control.assign(caps('l'), 'projection', ('select', 'vertical', 'line'))
-control.assign(controlk('l'), 'projection', ('console', 'seek', 'line'))
+ca(literal('l'), 'projection', ('select', 'horizontal', 'line'))
+ca(caps('l'), 'projection', ('select', 'vertical', 'line'))
+ca(controlk('l'), 'projection', ('console', 'seek', 'line'))
 
 for i in range(10):
 	control.assign(literal(str(i)), 'projection', ('index', 'reference'))
 
 # character level movement
-control.assign(controlk('space'), 'projection', ('navigation', 'forward', 'character'))
-control.assign(delta('delete'), 'projection', ('navigation', 'backward', 'character'))
+ca(controlk('space'), 'projection', ('navigation', 'forward', 'character'))
+ca(delta('delete'), 'projection', ('navigation', 'backward', 'character'))
 
-control.assign(nav('left'), 'projection', ('window', 'horizontal', 'forward'))
-control.assign(nav('right'), 'projection', ('window', 'horizontal', 'backward'))
-control.assign(nav('down'), 'projection', ('window', 'vertical', 'forward'))
-control.assign(nav('up'), 'projection', ('window', 'vertical', 'backward'))
+ca(nav('left'), 'projection', ('window', 'horizontal', 'forward'))
+ca(nav('right'), 'projection', ('window', 'horizontal', 'backward'))
+ca(nav('down'), 'projection', ('window', 'vertical', 'forward'))
+ca(nav('up'), 'projection', ('window', 'vertical', 'backward'))
 
-control.assign(literal('m'), 'projection', ('menu', 'primary')) # move to field index
-control.assign(caps('m'), 'projection', ('menu', 'secondary')) # move to line number
+ca(literal('m'), 'projection', ('menu', 'primary')) # move to field index
+ca(caps('m'), 'projection', ('menu', 'secondary')) # move to line number
 
-control.assign(literal('i'), 'projection', ('transition', 'edit'),)
-control.assign(caps('i'), 'projection', ('delta', 'split'),) # split field
+ca(literal('i'), 'projection', ('transition', 'edit'),)
+ca(caps('i'), 'projection', ('delta', 'split'),) # split field
 
-control.assign(literal('c'), 'projection', ('delta', 'substitute'),)
-control.assign(caps('c'), 'projection', ('delta', 'substitute', 'previous'),) # remap this
+ca(literal('c'), 'projection', ('delta', 'substitute'),)
+ca(caps('c'), 'projection', ('delta', 'substitute', 'previous'),) # remap this
 
-control.assign(literal('x'), 'projection', ('delta', 'delete', 'forward'),)
-control.assign(caps('x'), 'projection', ('delta', 'delete', 'backward'),)
-control.assign(controlk('x'), 'selection', ('remove', 'selection')) # cut line
+ca(literal('x'), 'projection', ('delta', 'delete', 'forward'),)
+ca(caps('x'), 'projection', ('delta', 'delete', 'backward'),)
+ca(controlk('x'), 'selection', ('remove', 'selection')) # cut line
 
-control.assign(literal('r'), 'projection', ('delta', 'replace', 'character'),)
-control.assign(caps('r'), 'projection', ('delta', 'replace'),)
+ca(literal('r'), 'projection', ('delta', 'replace', 'character'),)
+ca(caps('r'), 'projection', ('delta', 'replace'),)
 
-control.assign(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
-control.assign(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
+ca(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
+ca(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
 
-control.assign(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
+ca(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
+del ca
 
 # insert mode
 edit = Mapping(default = ('projection', ('delta', 'insert', 'character'), ())) # insert
-edit.assign(('control', 'nul', 0), 'projection', ('delta', 'insert', 'space')) # literal space
+ea = edit.assign
+ea(('control', 'nul', 0), 'projection', ('delta', 'insert', 'space')) # literal space
 
-edit.assign(controlk('c'), 'projection', ('edit', 'abort'))
-edit.assign(controlk('d'), 'projection', ('edit', 'commit')) # eof
-edit.assign(controlk('v'), 'projection', ('edit', 'capture'))
+ea(controlk('c'), 'projection', ('edit', 'abort'))
+ea(controlk('d'), 'projection', ('edit', 'commit')) # eof
+ea(controlk('v'), 'projection', ('edit', 'capture'))
 
-edit.assign(('delta', 'delete', 0), 'projection', ('delta', 'delete', 'backward'))
-edit.assign(('delta', 'backspace', 0), 'projection', ('delta', 'delete', 'backward'))
-edit.assign(controlk('x'), 'projection', ('delta', 'delete', 'forward'))
+ea(('delta', 'delete', 0), 'projection', ('delta', 'delete', 'backward'))
+ea(('delta', 'backspace', 0), 'projection', ('delta', 'delete', 'backward'))
+ea(controlk('x'), 'projection', ('delta', 'delete', 'forward'))
 
 # these are mapped to keyboard names in order to allow class-level overrides
 # and/or context sensitive action selection
-edit.assign(('control', 'space', 0), 'projection', ('delta', 'edit', 'insert', 'space'))
-edit.assign(('control', 'tab', 0), 'projection', ('edit', 'tab'))
-edit.assign(('control', 'tab', shift), 'projection', ('edit', 'shift', 'tab'))
-edit.assign(('control', 'return', 0), 'projection', ('edit', 'return'))
+ea(('control', 'space', 0), 'projection', ('delta', 'edit', 'insert', 'space'))
+ea(('control', 'tab', 0), 'projection', ('edit', 'tab'))
+ea(('control', 'tab', shift), 'projection', ('edit', 'shift', 'tab'))
+ea(('control', 'return', 0), 'projection', ('edit', 'return'))
 
-edit.assign(('navigation', 'left', 0), 'projection', ('navigation', 'backward', 'character'))
-edit.assign(('navigation', 'right', 0), 'projection', ('navigation', 'forward', 'character'))
-edit.assign(('navigation', 'up', 0), 'projection', ('navigation', 'beginning'))
-edit.assign(('navigation', 'down', 0), 'projection', ('navigation', 'end'))
+ea(('navigation', 'left', 0), 'projection', ('navigation', 'backward', 'character'))
+ea(('navigation', 'right', 0), 'projection', ('navigation', 'forward', 'character'))
+ea(('navigation', 'up', 0), 'projection', ('navigation', 'beginning'))
+ea(('navigation', 'down', 0), 'projection', ('navigation', 'end'))
 
-edit.assign(controlk('u'), 'projection', ('delta', 'delete', 'tobol'))
-edit.assign(controlk('k'), 'projection', ('delta', 'delete', 'toeol'))
+ea(controlk('u'), 'projection', ('delta', 'delete', 'tobol'))
+ea(controlk('k'), 'projection', ('delta', 'delete', 'toeol'))
 
-edit.assign(controlk('w'), 'projection', ('delta', 'delete', 'backward', 'adjacent', 'class'))
-edit.assign(controlk('t'), 'projection', ('delta', 'delete', 'forward', 'adjacent', 'class'))
+ea(controlk('w'), 'projection', ('delta', 'delete', 'backward', 'adjacent', 'class'))
+ea(controlk('t'), 'projection', ('delta', 'delete', 'forward', 'adjacent', 'class'))
 
-edit.assign(controlk('a'), 'projection', ('navigation', 'move', 'bol'))
-edit.assign(controlk('e'), 'projection', ('navigation', 'move', 'eol'))
+ea(controlk('a'), 'projection', ('navigation', 'move', 'bol'))
+ea(controlk('e'), 'projection', ('navigation', 'move', 'eol'))
+del ea
 
 # capture keystroke
 capture = Mapping(default = ('projection', ('capture',), ()))
