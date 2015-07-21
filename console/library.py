@@ -2064,6 +2064,11 @@ class Fields(core.Projection):
 		self.display(*r.exclusive())
 		self.constrain_horizontal_range()
 
+	def event_delta_indent_null(self, event, quantity = None):
+		"Remove all indentation from the line."
+		il = self.get_indentation_level()
+		return self.event_delta_indent_decrement(event, il)
+
 	event_edit_tab = event_delta_indent_increment
 	event_edit_shift_tab = event_delta_indent_decrement
 

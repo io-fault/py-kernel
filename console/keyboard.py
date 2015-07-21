@@ -167,6 +167,7 @@ ca(caps('r'), 'projection', ('delta', 'replace'),)
 
 ca(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
 ca(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
+ca(controlk('v'), 'projection', ('delta', 'indent', 'null'))
 
 ca(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
 del ca
