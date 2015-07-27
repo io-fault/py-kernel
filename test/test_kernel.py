@@ -1,6 +1,7 @@
 import os
 import time
-from .. import kernel
+from .. import kernel as library
+kernel = library
 
 def test_alarm_units(test):
 	kif = kernel.Interface()
@@ -132,4 +133,4 @@ def test_track(test):
 
 if __name__ == '__main__':
 	import sys; from ...development import libtest
-	libtest.execute(sys.modules['__name__'])
+	libtest.execute(sys.modules[__name__])

@@ -2137,17 +2137,18 @@ class Fields(core.Projection):
 
 	def unit_class(self, index, len = len):
 		"Get the corresponding line class for the index."
-		if len(self.units):
+		nunits = len(self.units)
+		if nunits and index >= 0 and index < nunits:
 			return self.units[index][1].__class__
 		else:
 			return self.document_line_class
 
-	def paste(self, index, cache = None, Sequence = libfields.Sequence):
-		typ, s = self.controller.cache.get(cache)
-		sl = str(s).split('\n')
+	def write(self, index, string, line_separator = '\n', Sequence = libfields.Sequence):
+		"Create new lines to write the string into."
+		sl = str(string).split(line_separator)
 		nl = len(sl)
 
-		Class = self.unit_class(self.vertical_index)
+		Class = self.unit_class(index)
 		parse = Class.parse
 
 		paste = []
@@ -2160,6 +2161,13 @@ class Fields(core.Projection):
 		self.units[r[0]:r[0]] = paste
 		self.display(r[0], None)
 		self.log((self.truncate_vertical, r), IRange((r[0], r[1]-1)))
+
+	def append(self, string):
+		self.write(len(self.units), string)
+
+	def paste(self, index, cache = None):
+		typ, s = self.controller.cache.get(cache)
+		return self.write(index, s)
 
 	def event_paste_after(self, event):
 		self.paste(self.vertical_index+1)
@@ -2178,9 +2186,26 @@ class Fields(core.Projection):
 		super().blur()
 		self.clear_horizontal_indicators()
 
+	def sequence(self, unit):
+		current = ""
+
+		for path, x in unit.subfields():
+			if isinstance(x, libfields.FieldSeparator) and x:
+				yield current
+				current = ""
+			elif isinstance(x, libfields.Formatting):
+				pass
+			else:
+				current += x.value()
+		else:
+			# a trailing empty field will be ignored
+			if current:
+				yield current
+
 class Lines(Fields):
-	"Fields based line editor."
-	def __init__(self, line_class = lineslib.profile('text')[0]):
+	"Fields based line editor"
+
+	def __init__(self, line_class=lineslib.profile('text')[0]):
 		super().__init__()
 		self.keyboard.set('control')
 		self.source = None
@@ -2205,6 +2230,54 @@ class Lines(Fields):
 			size += len(c) + 1
 
 		return size
+
+import subprocess
+class Shell(Lines):
+	"Fault Shell"
+
+	def __init__(self):
+		super().__init__()
+
+		self.command_history = []
+		self.command_history_position = None
+
+		self.current_prompt = 0
+
+	def execute(self, event):
+		command = list(self.sequence(self.unit))
+		self.command_history.append(command)
+
+		#cname = command[0]
+		#result = method(*command[1:])
+		sp = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=None)
+		stdout, stderr = sp.communicate(timeout=5)
+		self.append("")
+		if stdout:
+			self.append(stdout.decode())
+
+		self.seek(len(self.units)-1)
+		self.event_open_ahead(event)
+		self.current_prompt = self.vertical.get()
+		self.scrolled()
+
+	event_edit_return = execute
+	event_control_return = execute
+
+	def event_delta_edit_insert_space(self, event):
+		self.insert_characters(self.separator)
+
+	def prepare(self, *fields):
+		"""
+		Set the command line to a sequence of fields.
+		"""
+		self.clear_horizontal_indicators()
+		l = list(itertools.chain.from_iterable(
+			zip(fields, itertools.repeat(self.separator, len(fields)))
+		))
+		# remove additional field separator
+		del l[-1]
+		self.unit[1].sequences = l
+		self.controller.emit(self.refresh())
 
 class Status(Fields):
 	"The status line above the console prompt."
@@ -2244,22 +2317,6 @@ class Prompt(Lines):
 	The units of a prompt make up the history.
 	"""
 	margin = 0
-
-	def sequence(self, unit):
-		current = ""
-
-		for path, x in unit.subfields():
-			if isinstance(x, libfields.FieldSeparator) and x:
-				yield current
-				current = ""
-			elif isinstance(x, libfields.Formatting):
-				pass
-			else:
-				current += x.value()
-		else:
-			# a trailing empty field will be ignored
-			if current:
-				yield current
 
 	def execute(self, event):
 		command = list(self.sequence(self.unit))
@@ -2325,6 +2382,17 @@ class Prompt(Lines):
 		console = self.controller
 		p = console.visible[console.pane]
 		p.print_unit()
+
+	def command_shell(self):
+		"Open a new shell in the current focus pane."
+		console = self.controller
+		new = Shell()
+		new.source = "<memory>"
+		new.units = libfields.Segments([])
+		new.inherit(self.controller)
+		console.panes.append(new)
+		console.display_projection(console.pane, new)
+		console.focus_pane()
 
 	def command_open(self,
 		source : 'route',
@@ -2615,6 +2683,10 @@ class Console(iolib.core.Join):
 		self.emit([self.set_position_indicators(projection)])
 		self.emit(projection.refresh())
 
+		if False and isinstance(current, Lines):
+			# remove hidden empty projections
+			del self.panes[self.panes.index(current)]
+
 	def pane_verticals(self, index):
 		"Calculate the vertical offsets of the pane."
 		if index is None:
@@ -2866,6 +2938,16 @@ class Console(iolib.core.Join):
 		self.emit(initialize)
 
 	def actuate(self):
+		inv = self.context.process.invocation
+		if 'system' in inv.parameters:
+			name = inv.parameters['system'].get('name', None)
+			args = inv.parameters['system'].get('arguments', ())
+			initdir = inv.parameters['system'].get('directory', None)
+		else:
+			name = "<not invoked via system>"
+			args = ()
+			initdir = None
+
 		for x in self.panes:
 			x.inherit(self)
 		self.status.inherit(self)
@@ -2911,6 +2993,10 @@ class Console(iolib.core.Join):
 
 		self.transcript.write(initial)
 		self.panes[1].focus()
+
+		for x in args:
+			self.prompt.command_open(x)
+		self.transcript.write("opened by: " + sys.executable + " " + name + " " + " ".join(args) + "\n")
 
 	def event_process_exit(self, event):
 		self.context.process.terminate(1)
@@ -3112,4 +3198,5 @@ def initialize(program):
 	console_flow.sequence[0].install(input, tty)
 
 	program.place(c, 'console') # the Console() instance
+	os.environ['FIO_SYSTEM_CONSOLE'] = str(os.getpid())
 	c.actuate()

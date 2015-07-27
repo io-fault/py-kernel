@@ -213,54 +213,6 @@ class Endpoint(tuple):
 			else:
 				return (program, path, program.index[path].access(eid))
 
-class Pipeline(object):
-	"""
-	Manages the set of information regarding an executed pipeline.
-	"""
-	__slots__ = ('identifiers', 'commands', 'pids', 'errors', 'status', 'input', 'output')
-
-	def __init__(self, names, commands):
-		self.identifiers = tuple(names)
-		self.commands = tuple(commands)
-		ncommands = len(self.commands)
-		self.pids = [None] * ncommands
-		self.errors = [None] * ncommands
-		self.status = [None] * ncommands
-		self.input = None
-		self.output = None
-
-	def spawn(self):
-		n = len(self.commands)
-
-		# one for each command, split read and write ends into separate lists
-		stderr = []
-		pipes = []
-
-		for i in range(n):
-			stderr.append(os.pipe())
-
-		self.errors = [x[0] for x in stderr]
-		stderr = [x[1] for x in stderr]
-
-		# first stdin and final stdout
-		for i in range(n+1):
-			pipes.append(os.pipe())
-
-		self.input = pipes[0][1]
-		self.output = pipes[-1][0]
-
-		try:
-			for i in range(0, len(self.commands)):
-				command = self.commands[i]
-				self.pids[i] = spawn(command, stdin = pipes[i][0], stdout = pipes[i+1][1], stderr = stderr[i])
-		finally:
-			# fd's inherited in the child processes
-			os.close(pipes[0][0])
-			os.close(pipes[-1][1])
-			for r, w in pipes[1:-2]:
-				os.close(r)
-				os.close(w)
-
 class Program(core.Resource):
 	"""
 	An asynchronous Program.

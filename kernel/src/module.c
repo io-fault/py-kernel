@@ -1,6 +1,7 @@
 #if 0
 csource = """
 #endif
+
 /*
  * kernel.py.c - kernel interfaces for process invocation and exit signalling
  */
@@ -11,9 +12,8 @@ csource = """
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <spawn.h>
-
 #include <sys/event.h>
+
 typedef struct kevent kevent_t; /* kernel event description */
 #define KQ_FILTERS() \
 	FILTER(EVFILT_USER) \
@@ -50,31 +50,31 @@ typedef struct kevent kevent_t; /* kernel event description */
 	SIGNAME(SIGUSR1)
 
 /*
- *	SIGNAME(SIGUSR2)
+ * SIGNAME(SIGUSR2)
  *
- *	SIGUSR2 is used to interrupt the main thread. This is used
- *	to allow system.interject() to operate.
+ * SIGUSR2 is used to interrupt the main thread. This is used
+ * to allow system.interject() to operate.
  */
 
 #ifndef HAVE_STDINT_H
-/* relying on Python's checks */
-#include <stdint.h>
+	/* relying on Python's checks */
+	#include <stdint.h>
 #endif
 
 #ifndef CONFIG_STATIC_KEVENTS
-#define CONFIG_STATIC_KEVENTS 16
+	#define CONFIG_STATIC_KEVENTS 16
 #elif CONFIG_STATIC_KEVENTS < 8
-#undef CONFIG_STATIC_KEVENTS
-#define CONFIG_STATIC_KEVENTS 16
-#warning nope.
+	#undef CONFIG_STATIC_KEVENTS
+	#define CONFIG_STATIC_KEVENTS 16
+	#warning nope.
 #endif
 
 #ifndef CONFIG_SYSCALL_RETRY
-#define CONFIG_SYSCALL_RETRY 64
+	#define CONFIG_SYSCALL_RETRY 64
 #elif CONFIG_SYSCALL_RETRY < 8
-#undef CONFIG_SYSCALL_RETRY
-#define CONFIG_SYSCALL_RETRY 16
-#warning nope.
+	#undef CONFIG_SYSCALL_RETRY
+	#define CONFIG_SYSCALL_RETRY 16
+	#warning nope.
 #endif
 
 /*
@@ -111,7 +111,7 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 	RETRY_STATE_INIT;
 	int r = -1;
 
-RETRY_SYSCALL:
+	RETRY_SYSCALL:
 	r = kevent(kif->kif_kqueue, changes, nchanges, events, nevents, timeout);
 	if (r >= 0)
 	{
@@ -223,23 +223,24 @@ interface_init(Interface kif)
 		return(0);
 	}
 
-#define SIGNAME(SN) \
-	kev.udata = NULL; \
-	kev.data = 0; \
-	kev.ident = (uintptr_t) SN; \
-	kev.flags = EV_ADD|EV_RECEIPT|EV_CLEAR; \
-	kev.filter = EVFILT_SIGNAL; \
-	kev.fflags = 0; \
-\
-	if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 1, &ts)) \
-	{ \
-		PyErr_SetFromErrno(PyExc_OSError); \
-		close(kif->kif_kqueue); \
-		kif->kif_kqueue = -1; \
-		return(0); \
-	}
+	#define SIGNAME(SN) \
+		kev.udata = NULL; \
+		kev.data = 0; \
+		kev.ident = (uintptr_t) SN; \
+		kev.flags = EV_ADD|EV_RECEIPT|EV_CLEAR; \
+		kev.filter = EVFILT_SIGNAL; \
+		kev.fflags = 0; \
+		\
+		if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 1, &ts)) \
+		{ \
+			PyErr_SetFromErrno(PyExc_OSError); \
+			close(kif->kif_kqueue); \
+			kif->kif_kqueue = -1; \
+			return(0); \
+		}
+
 	KQ_SIGNALS()
-#undef SIGNAME
+	#undef SIGNAME
 
 	return(1);
 }
@@ -554,11 +555,11 @@ signal_string(int sig)
 			return "delta";
 		break;
 
-#ifdef SIGINFO
-		case SIGINFO:
-			return "terminal.query";
-		break;
-#endif
+		#ifdef SIGINFO
+			case SIGINFO:
+				return "terminal.query";
+			break;
+		#endif
 
 		case SIGWINCH:
 			return "terminal.delta";
@@ -751,88 +752,97 @@ static PyMethodDef
 interface_methods[] = {
 	{"void", (PyCFunction) interface_void,
 		METH_NOARGS, PyDoc_STR(
-"void()\n\n"
-":returns: None\n"
-"\n"
-"Destroy the Interface instance, closing any file descriptors managed by the object.\n"
-"Also destroy the internal set-object for holding kernel references.\n"
-)},
+			"void()\n\n"
+			":returns: None\n"
+			"\n"
+			"Destroy the Interface instance, closing any file descriptors managed by the object.\n"
+			"Also destroy the internal set-object for holding kernel references.\n"
+		)
+	},
 
 	{"track", (PyCFunction) interface_track, METH_VARARGS,
 		PyDoc_STR(
-"track(link_object, pid)\n\n"
-":returns: None\n"
-":rtype: NoneType\n"
-"\n"
-"Watch a process so that an event will be generated when it exits.\n"
-)},
+			"track(link_object, pid)\n\n"
+			":returns: None\n"
+			":rtype: NoneType\n"
+			"\n"
+			"Watch a process so that an event will be generated when it exits.\n"
+		)
+	},
 
 	{"alarm", (PyCFunction) interface_alarm, METH_VARARGS|METH_KEYWORDS,
 		PyDoc_STR(
-"alarm(link_object, period, unit)\n\n"
-":returns: None\n"
-":rtype: NoneType\n"
-"\n"
-"Allocate a one-time timer that will cause an event after the designed period.\n"
-)},
+			"alarm(link_object, period, unit)\n\n"
+			":returns: None\n"
+			":rtype: NoneType\n"
+			"\n"
+			"Allocate a one-time timer that will cause an event after the designed period.\n"
+		)
+	},
 
 	{"recur", (PyCFunction) interface_recur, METH_VARARGS|METH_KEYWORDS,
 		PyDoc_STR(
-"recur(link_object, period, unit)\n\n"
-":returns: None\n"
-":rtype: NoneType\n"
-"\n"
-"Allocate a recurring timer that will cause an event at the designed frequency.\n"
-)},
+			"recur(link_object, period, unit)\n\n"
+			":returns: None\n"
+			":rtype: NoneType\n"
+			"\n"
+			"Allocate a recurring timer that will cause an event at the designed frequency.\n"
+		)
+	},
 
 	{"cancel", (PyCFunction) interface_cancel, METH_O,
 		PyDoc_STR(
-"recur(link_object)\n\n"
-":returns: None\n"
-":rtype: NoneType\n"
-"\n"
-"Cancel a timer, recurring or once, using the link that the timer was allocated with.\n"
-)},
+			"recur(link_object)\n\n"
+			":returns: None\n"
+			":rtype: NoneType\n"
+			"\n"
+			"Cancel a timer, recurring or once, using the link that the timer was allocated with.\n"
+		)
+	},
 
 	{"force", (PyCFunction) interface_force, METH_NOARGS,
 		PyDoc_STR(
-":returns: None or True or False\n"
-"\n"
-"Cause a corresponding :py:meth:`.wait` call to stop waiting **if** the Interface\n"
-"instance is inside a with-statement block::\n"
-"\n"
-"	with kinterface:\n"
-"		kinterface.wait()\n"
-"\n"
-"\n"
-)},
+			":returns: None or True or False\n"
+			"\n"
+			"Cause a corresponding :py:meth:`.wait` call to stop waiting **if** the Interface\n"
+			"instance is inside a with-statement block::\n"
+			"\n"
+			"	with kinterface:\n"
+			"		kinterface.wait()\n"
+			"\n"
+			"\n"
+		)
+	},
 
 	{"wait",
 		(PyCFunction) interface_wait, METH_VARARGS,
 		PyDoc_STR(
-":returns: Sequence of events that occurred while waiting.\n"
-":rtype: list\n"
-"\n"
-"Normally executed after entering a with-statement block.\n"
-"If executed outside, the :py:meth:`.force` method will not interrupt the system call."
-)},
+			":returns: Sequence of events that occurred while waiting.\n"
+			":rtype: list\n"
+			"\n"
+			"Normally executed after entering a with-statement block.\n"
+			"If executed outside, the :py:meth:`.force` method will not interrupt the system call."
+		)
+	},
 
 	{"__enter__",
 		(PyCFunction) interface_enter, METH_NOARGS,
 		PyDoc_STR(
-":returns: Sequence of events that occurred while waiting.\n"
-":rtype: list\n"
-"\n"
-"Enter waiting state."
-)},
+			":returns: Sequence of events that occurred while waiting.\n"
+			":rtype: list\n"
+			"\n"
+			"Enter waiting state."
+		)
+	},
 
 	{"__exit__",
 		(PyCFunction) interface_exit, METH_VARARGS,
 		PyDoc_STR(
-":returns: None.\n"
-"\n"
-"Leave waiting state."
-)},
+			":returns: None.\n"
+			"\n"
+			"Leave waiting state."
+		)
+	},
 
 	{NULL,},
 };
@@ -885,11 +895,11 @@ interface_new(PyTypeObject *subtype, PyObj args, PyObj kw)
 	Interface kif;
 
 	if (!PyArg_ParseTupleAndKeywords(args, kw, "", kwlist))
-		return(NULL); XCOVERAGE
+		return(NULL);
 
 	kif = (Interface) subtype->tp_alloc(subtype, 0);
 	if (kif == NULL)
-		return(NULL); XCOVERAGE
+		return(NULL);
 
 	kif->kif_kqueue = -1;
 	kif->kif_waiting = 0;
@@ -923,287 +933,48 @@ PyDoc_STRVAR(interface_doc,
 PyTypeObject
 InterfaceType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	QPATH("Interface"),			/* tp_name */
-	sizeof(struct Interface),	/* tp_basicsize */
-	0,									/* tp_itemsize */
-	interface_dealloc,			/* tp_dealloc */
-	NULL,								/* tp_print */
-	NULL,								/* tp_getattr */
-	NULL,								/* tp_setattr */
-	NULL,								/* tp_compare */
-	NULL,								/* tp_repr */
-	NULL,								/* tp_as_number */
-	NULL,								/* tp_as_sequence */
-	NULL,								/* tp_as_mapping */
-	NULL,								/* tp_hash */
-	NULL,								/* tp_call */
-	NULL,								/* tp_str */
-	NULL,								/* tp_getattro */
-	NULL,								/* tp_setattro */
-	NULL,								/* tp_as_buffer */
+	QPATH("Interface"),          /* tp_name */
+	sizeof(struct Interface),    /* tp_basicsize */
+	0,                           /* tp_itemsize */
+	interface_dealloc,           /* tp_dealloc */
+	NULL,                        /* tp_print */
+	NULL,                        /* tp_getattr */
+	NULL,                        /* tp_setattr */
+	NULL,                        /* tp_compare */
+	NULL,                        /* tp_repr */
+	NULL,                        /* tp_as_number */
+	NULL,                        /* tp_as_sequence */
+	NULL,                        /* tp_as_mapping */
+	NULL,                        /* tp_hash */
+	NULL,                        /* tp_call */
+	NULL,                        /* tp_str */
+	NULL,                        /* tp_getattro */
+	NULL,                        /* tp_setattro */
+	NULL,                        /* tp_as_buffer */
 	Py_TPFLAGS_BASETYPE|
 	Py_TPFLAGS_HAVE_GC|
-	Py_TPFLAGS_DEFAULT,			/* tp_flags */
-	interface_doc,					/* tp_doc */
-	interface_traverse,			/* tp_traverse */
-	interface_clear,				/* tp_clear */
-	NULL,								/* tp_richcompare */
-	0,									/* tp_weaklistoffset */
-	NULL,								/* tp_iter */
-	NULL,								/* tp_iternext */
-	interface_methods,			/* tp_methods */
-	interface_members,			/* tp_members */
-	NULL,								/* tp_getset */
-	NULL,								/* tp_base */
-	NULL,								/* tp_dict */
-	NULL,								/* tp_descr_get */
-	NULL,								/* tp_descr_set */
-	0,									/* tp_dictoffset */
-	NULL,								/* tp_init */
-	NULL,								/* tp_alloc */
-	interface_new,					/* tp_new */
+	Py_TPFLAGS_DEFAULT,          /* tp_flags */
+	interface_doc,               /* tp_doc */
+	interface_traverse,          /* tp_traverse */
+	interface_clear,             /* tp_clear */
+	NULL,                        /* tp_richcompare */
+	0,                           /* tp_weaklistoffset */
+	NULL,                        /* tp_iter */
+	NULL,                        /* tp_iternext */
+	interface_methods,           /* tp_methods */
+	interface_members,           /* tp_members */
+	NULL,                        /* tp_getset */
+	NULL,                        /* tp_base */
+	NULL,                        /* tp_dict */
+	NULL,                        /* tp_descr_get */
+	NULL,                        /* tp_descr_set */
+	0,                           /* tp_dictoffset */
+	NULL,                        /* tp_init */
+	NULL,                        /* tp_alloc */
+	interface_new,               /* tp_new */
 };
 
-static PyObj
-set_process_title(PyObj mod, PyObj title)
-{
-	PyObj bytes;
-
-#ifndef __MACH__
-	/*
-	 * no support on darwin
-	 */
-	bytes = PyUnicode_AsUTF8String(title);
-
-	if (bytes == NULL)
-		return(NULL);
-
-	setproctitle("%s", PyBytes_AS_STRING(bytes));
-	Py_DECREF(bytes);
-#endif
-
-	Py_RETURN_NONE;
-}
-
-static PyObj
-execfile(PyObj mod, PyObj args, PyObj kw)
-{
-	pid_t child = 0;
-	int err = 0;
-
-	PyObj fdmap, cargs;
-
-	char *path;
-	char **argv = NULL;
-	char **envp = NULL;
-
-	short flags = 0;
-	posix_spawnattr_t sa;
-	posix_spawn_file_actions_t fa;
-
-	if (!PyArg_ParseTuple(args, "OsO", &fdmap, &path, &cargs))
-		return(NULL);
-
-	if (posix_spawnattr_init(&sa) != 0)
-	{
-		PyErr_SetFromErrno(PyExc_OSError);
-		return(NULL);
-	}
-
-	if (posix_spawn_file_actions_init(&fa) != 0)
-	{
-		PyErr_SetFromErrno(PyExc_OSError);
-		posix_spawnattr_destroy(&sa);
-		errno = 0; /* ignore any error from destroy */
-		return(NULL);
-	}
-
-#ifdef POSIX_SPAWN_CLOEXEC_DEFAULT
-	flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
-#endif
-
-#if 0
-	When Requested:
-	flags |= POSIX_SPAWN_SETPGROUP:
-#endif
-
-	if (posix_spawnattr_setflags(&sa, flags) != 0)
-	{
-		err = 1;
-		PyErr_SetFromErrno(PyExc_OSError);
-	}
-
-	/*
-	 * Handle the fdmap parameter.
-	 */
-	if (!err)
-	{
-		int fd, newfd, r;
-
-		PyLoop_ForEachTuple(fdmap, "ii", &fd, &newfd)
-		{
-			if (newfd >= 0)
-				r = posix_spawn_file_actions_adddup2(&fa, fd, newfd);
-			else
-				r = posix_spawn_file_actions_addinherit_np(&fa, fd);
-
-			if (r != 0)
-			{
-				PyErr_SetFromErrno(PyExc_OSError);
-				break;
-			}
-		}
-		PyLoop_CatchError(fdmap)
-		{
-			err = 1;
-		}
-		PyLoop_End(fdmap)
-	}
-
-	/*
-	 * Environment
-	 */
-	if (!err && kw != NULL)
-	{
-		int k = 0;
-		Py_ssize_t keysize, valuesize, dl = PyDict_Size(kw);
-		char *key, *value;
-
-		envp = malloc(sizeof(void *) * dl);
-		if (envp == NULL)
-		{
-			PyErr_SetFromErrno(PyExc_OSError);
-			err = 1;
-		}
-		else
-		{
-			PyLoop_ForEachDictItem(kw, "s#s#", &key, &keysize, &value, &valuesize)
-			{
-				envp[k] = malloc(keysize);
-				envp[k+1] = malloc(valuesize);
-
-				strncpy(envp[k], key, keysize);
-				strncpy(envp[k+1], value, valuesize);
-
-				k += 2;
-			}
-			PyLoop_CatchError(kw)
-			{
-				err = 1;
-			}
-			PyLoop_End(kw)
-		}
-	}
-
-	/*
-	 * Command Arguments
-	 */
-	if (!err && cargs != NULL)
-	{
-		int k = 0;
-		char *value;
-		Py_ssize_t valuesize, al = PySequence_Length(cargs);
-
-		argv = malloc(sizeof(void *) * al);
-		if (argv == NULL)
-		{
-			PyErr_SetFromErrno(PyExc_OSError);
-			err = 1;
-		}
-		else
-		{
-			PyLoop_ForEachTuple(cargs, "s#", &value, &valuesize)
-			{
-				argv[k] = malloc(valuesize);
-
-				strncpy(argv[k], value, valuesize);
-				k += 1;
-			}
-			PyLoop_CatchError(cargs)
-			{
-				err = 1;
-			}
-			PyLoop_End(cargs)
-		}
-	}
-
-	/*
-	 * run the spawn
-	 */
-	if (!err)
-	{
-		if (posix_spawn(&child, (const char *) path, &fa, &sa, argv, envp) != 0)
-		{
-			PyErr_SetFromErrno(PyExc_OSError);
-			err = 1;
-		}
-	}
-
-	/*
-	 * cleanup code. errors here are ignored.
-	 */
-
-	if (argv != NULL)
-	{
-		int i = 0;
-
-		for (i = 0; argv[i] != NULL; ++i)
-			free(argv[i]);
-		free(argv);
-	}
-
-	if (envp != NULL)
-	{
-		int i = 0;
-
-		for (i = 0; envp[i] != NULL; ++i)
-			free(envp[i]);
-		free(envp);
-	}
-
-	if (posix_spawnattr_destroy(&sa) != 0)
-	{
-		/*
-		 * A warning would be appropriate.
-		PyErr_SetFromErrno(PyExc_OSError);
-		 */
-	}
-
-	if (posix_spawn_file_actions_destroy(&fa) != 0)
-	{
-		/*
-		 * A warning would be appropriate.
-		PyErr_SetFromErrno(PyExc_OSError);
-		 */
-	}
-
-	if (err)
-		return(NULL);
-
-	/*
-	 * Spawned a subprocess.
-	 */
-	return(PyLong_FromLong((long) child));
-}
-
 METHODS() = {
-	{"set_process_title",
-		(PyCFunction) set_process_title, METH_O,
-		PyDoc_STR(
-":returns: None\n"
-"\n"
-"Set the process title on supporting platforms."
-)},
-
-	{"execfile",
-		(PyCFunction) execfile, METH_O,
-		PyDoc_STR(
-":returns: pid\n"
-":rtype: int\n"
-"\n"
-"Execute the given file in a subprocess with the given arguments."
-)},
-
 	{NULL,}
 };
 
@@ -1214,7 +985,7 @@ INIT(PyDoc_STR("Kernel interfaces for supporting nucleus based process managemen
 {
 	PyObj mod = NULL;
 
-#if TEST()
+	#if TEST()
 	Py_XDECREF(__EOVERRIDE__);
 	__EOVERRIDE__ = PyDict_New();
 	if (__EOVERRIDE__ == NULL)
@@ -1224,32 +995,31 @@ INIT(PyDoc_STR("Kernel interfaces for supporting nucleus based process managemen
 	__POVERRIDE__ = PyDict_New();
 	if (__POVERRIDE__ == NULL)
 		return(NULL); XCOVERAGE
-#endif
+	#endif
 
 	CREATE_MODULE(&mod);
 	if (mod == NULL)
-		return(NULL); XCOVERAGE
+		return(NULL);
 
-#if TEST()
-	PyModule_AddObject(mod, "EOVERRIDE", __EOVERRIDE__);
-	PyModule_AddObject(mod, "POVERRIDE", __POVERRIDE__);
-#endif
+	#if TEST()
+		PyModule_AddObject(mod, "EOVERRIDE", __EOVERRIDE__);
+		PyModule_AddObject(mod, "POVERRIDE", __POVERRIDE__);
+	#endif
 
-	/*
-	 * Initialize Transit types.
-	 */
-#define ID(NAME) \
-	if (PyType_Ready((PyTypeObject *) &( NAME##Type ))) \
-		goto error; \
-	if (PyModule_AddObject(mod, #NAME, (PyObj) &( NAME##Type )) < 0) \
-		goto error;
+	#define ID(NAME) \
+		if (PyType_Ready((PyTypeObject *) &( NAME##Type ))) \
+			goto error; \
+		if (PyModule_AddObject(mod, #NAME, (PyObj) &( NAME##Type )) < 0) \
+			goto error;
+
 	PYTHON_TYPES()
-#undef ID
+	#undef ID
 
 	return(mod);
-error:
-	DROP_MODULE(mod);
-	return(NULL);
+
+	error:
+		DROP_MODULE(mod);
+		return(NULL);
 }
 /*
  * vim: ts=3:sw=3:noet:
