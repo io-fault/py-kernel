@@ -327,7 +327,7 @@ interface_track(PyObj self, PyObj args)
 	kev.ident = (uintptr_t) l;
 	kev.flags = EV_ADD|EV_RECEIPT|EV_CLEAR;
 	kev.filter = EVFILT_PROC;
-	kev.fflags = NOTE_EXIT|NOTE_SIGNAL;
+	kev.fflags = NOTE_EXIT;
 
 	if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 1, &ts))
 	{
