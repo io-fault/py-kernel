@@ -6,7 +6,15 @@ import sys
 import os
 
 def initialize(unit):
-	"Initialize the sectord process."
+	"""
+	Initialize the sectord process.
+
+	Load ports from the invocation configuration,
+	setup libdaemon.Control for control interfaces and forking.
+
+	The module paths provided as arguments will be used as sector
+	modules loaded into "/bin".
+	"""
 
 	from .. import libdaemon
 	from .. import libservice
@@ -22,21 +30,13 @@ def initialize(unit):
 
 	r = routeslib.File.from_cwd()
 	s = libservice.Service(r.container, r.identity)
-	s.load()
+	s.load() # parameters
 
 	root_sector = libdaemon.Control(modules)
 	unit.place(root_sector, "control")
 	unit.place(s, "service")
 	root_sector.subresource(unit)
 	root_sector.actuate()
-
-	from ...chronometry import library as timelib
-	def dtask():
-		sys.stderr.buffer.write(b"AH DEFERRED!\n")
-		sys.stderr.buffer.write(os.environ.get("FGLOBAL").encode('utf-8')+b'\n')
-		sys.stderr.flush()
-
-	unit.scheduler.defer(timelib.Measure.of(second=4), dtask)
 
 if __name__ == '__main__':
 	from .. import library
