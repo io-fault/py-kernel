@@ -565,7 +565,7 @@ signal_string(int sig)
 
 		case SIGURG:
 			return "urgent";
-		break
+		break;
 
 		#ifdef SIGINFO
 			case SIGINFO:
