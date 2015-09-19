@@ -72,7 +72,7 @@ def identify_route(override=None):
 	if env is None:
 		return default_route
 
-	return routeslibs.File.from_path(env)
+	return routeslib.File.from_path(env)
 
 def extract(xml, ns="https://fault.io/xml/spawns"):
 	"""
