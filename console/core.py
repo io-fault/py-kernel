@@ -8,7 +8,7 @@ from . import keyboard
 
 class Cache(object):
 	"""
-	Mapping interface for user trans-projection communication.
+	Mapping interface for user trans-refraction communication.
 
 	Maintains a set of slots for storing a sequence of typed objects; the latest item
 	in the slot being the default. A sequence is used in order to maintain a history of
@@ -127,13 +127,14 @@ class RMapping(object):
 	def get(self, key):
 		index = self.bisect(self.ranges, (key, key))
 
-class Projection(iolib.core.Resource):
+class Refraction(iolib.Resource):
 	"""
-	A projection of a source onto a connected area of the display.
+	A Refraction of a source onto a connected area of the display.
 
-	Projection resources are used by Console transformers to manage the parts
+	Refraction resources are used by Console transformers to manage the parts
 	of the display.
 	"""
+
 	create_keyboard_mapping = keyboard.Selection.standard
 	default_keyboard_mapping = 'edit'
 
@@ -172,18 +173,18 @@ class Projection(iolib.core.Resource):
 		self.movement = False
 		self.view = None
 		self.area = None
-		self.pane = None # pane index of projection; None if not a pane or hidden
+		self.pane = None # pane index of refraction; None if not a pane or hidden
 
 		# keeps track of horizontal positions that are modified for cursor and range display
 		self.horizontal_positions = {}
 		self.horizontal_range = None
 
-		# Physical location of the projection.
+		# Physical location of the refraction.
 		self.vector = libterminal.Vector()
 		self.vector_last_axis = self.vector.vertical # last used axis
 		self.vertical_index = 0 # the focus line
 
-		# View location of the projection.
+		# View location of the refraction.
 		self.window = libterminal.Vector()
 
 		self.range_queue = collections.deque()
@@ -192,7 +193,7 @@ class Projection(iolib.core.Resource):
 		# Used by Console to clear outdated cursor positions.
 		self.snapshot = None
 
-		self.keyboard = self.create_keyboard_mapping() # per-projection to maintain state
+		self.keyboard = self.create_keyboard_mapping() # per-refraction to maintain state
 		self.keyboard.set(self.default_keyboard_mapping)
 		self.distributing = False
 
@@ -243,7 +244,7 @@ class Projection(iolib.core.Resource):
 		else:
 			rob = method(event, *params)
 
-		if self.controller.projection is self:
+		if self.controller.refraction is self:
 			self.update_horizontal_indicators()
 
 		return rob
@@ -269,22 +270,22 @@ class Projection(iolib.core.Resource):
 			self.calibrate(dimensions)
 
 	def calibrate(self, dimensions):
-		"Called when the projection is adjusted."
+		"Called when the refraction is adjusted."
 		w = self.window
 		w.horizontal.configure(w.horizontal.datum, dimensions[0], 0)
 		w.vertical.configure(w.vertical.datum, dimensions[1], 0)
 
 	def conceal(self):
-		"Called when the projection is hidden from the display."
+		"Called when the refraction is hidden from the display."
 		pass
 
 	def reveal(self):
-		"Called when the projection is revealed. May not be focused."
+		"Called when the refraction is revealed. May not be focused."
 		pass
 
 	@property
 	def revealed(self):
-		"Whether the projection is currently visible."
+		"Whether the refraction is currently visible."
 		return self in self.controller.visible
 
 	def focus(self):
@@ -295,8 +296,8 @@ class Projection(iolib.core.Resource):
 
 	@property
 	def focused(self):
-		"Whether the projection is the current focus; receives key events."
-		return self.controller.projection is self
+		"Whether the refraction is the current focus; receives key events."
+		return self.controller.refraction is self
 
 	def blur(self):
 		"Clear position indicators and lock cursor."
@@ -306,7 +307,7 @@ class Projection(iolib.core.Resource):
 
 	def connect(self, view):
 		"""
-		Connect the area to the projection for displaying the units.
+		Connect the area to the refraction for displaying the units.
 
 		Connect &None in order to conceal.
 		"""
@@ -320,7 +321,7 @@ class Projection(iolib.core.Resource):
 			return self.reveal()
 
 	def clear(self):
-		"Clear the projection state."
+		"Clear the refraction state."
 		pass
 
 	def update(self, start, stop, *lines):
@@ -331,5 +332,5 @@ class Projection(iolib.core.Resource):
 		pass
 
 	def refresh(self):
-		"Render all lines in the projection."
+		"Render all lines in the refraction."
 		pass

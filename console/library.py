@@ -95,9 +95,9 @@ actions = dict(
 	),
 )
 
-class Fields(core.Projection):
+class Fields(core.Refraction):
 	"""
-	A &fields based projection that maintains focus and field selection state.
+	A &fields based refraction that maintains focus and field selection state.
 	"""
 	separator = libfields.field_separator
 
@@ -1024,6 +1024,15 @@ class Fields(core.Projection):
 			self.update_horizontal_indicators()
 			self.movement = True
 
+	def event_console_search(self, event):
+		console = self.controller
+		prompt = console.prompt
+		prompt.prepare(libfields.String("search"), libfields.String(""))
+		prompt.horizontal.configure(8, 8, 0)
+		prompt.event_transition_edit(event)
+		console.focus_prompt()
+		self.update_horizontal_indicators()
+
 	def event_console_save(self, event):
 		console = self.controller
 		console.prompt.prepare(libfields.String("write"), libfields.String(self.source))
@@ -1043,7 +1052,7 @@ class Fields(core.Projection):
 		sel[-2].delete(sel[-1])
 
 	def truncate_vertical(self, start, stop):
-		"Remove a vertical range from the projection."
+		"Remove a vertical range from the refraction."
 		# delete range
 		units = self.units[start:stop]
 		self.units.delete(start, stop)
@@ -1448,7 +1457,7 @@ class Fields(core.Projection):
 				units = zip(reversed(list(self.units.select(start, stop))), range(stop-1, start-1, -1))
 
 				for u, i in units:
-					index = str(u[1]).rfind(self.pattern)
+					index = str(u[1]).find(self.pattern)
 					if index > -1:
 						break
 				else:
@@ -1461,7 +1470,8 @@ class Fields(core.Projection):
 				break
 
 			if index > -1:
-				self.horizontal.configure(self.indentation_adjustments(u) + index, len(self.pattern))
+				adj = libfields.indentation(u).characters()
+				self.horizontal.configure(adj + index, len(self.pattern))
 				v.set(i)
 		else:
 			vi = self.vertical_index
@@ -1497,7 +1507,7 @@ class Fields(core.Projection):
 				units = zip(self.units.select(vi,l), itertools.count(vi))
 
 				for u, i in units:
-					index = str(u[1]).lstrip().find(self.pattern)
+					index = str(u[1]).find(self.pattern)
 					if index > -1:
 						break
 				else:
@@ -1510,7 +1520,8 @@ class Fields(core.Projection):
 				break
 
 			if index > -1:
-				self.horizontal.configure(self.indentation_adjustments(u) + index, len(self.pattern))
+				adj = libfields.indentation(u).characters()
+				self.horizontal.configure(adj + index, len(self.pattern))
 				v.set(i)
 		else:
 			vi = self.vertical_index
@@ -2218,7 +2229,7 @@ class Lines(Fields):
 		self.vector.vertical.configure(0, nunits, 0)
 
 	def serialize(self, write, chunk_size = 128, encoding = 'utf-8'):
-		"Serialize the Projection's content into the given &write function."
+		"Serialize the Refraction's content into the given &write function."
 		size = 0
 
 		for i in range(0, len(self.units), chunk_size):
@@ -2291,11 +2302,11 @@ class Status(Fields):
 		for path, x in unit.subfields():
 			yield x.terminal()
 
-	def projection_changed(self, new):
-		"Called when a different projection has become the focus."
-		self.projection_type = new.__class__
+	def refraction_changed(self, new):
+		"Called when a different refraction has become the focus."
+		self.refraction_type = new.__class__
 
-		title = libfields.Styled(self.projection_type.__name__ or "unknown")
+		title = libfields.Styled(self.refraction_type.__name__ or "unknown")
 		title.foreground = libterminal.pastels['blue']
 
 		self.units = [
@@ -2311,7 +2322,7 @@ class Prompt(Lines):
 	"""
 	The prompt providing access to the console's command interface.
 
-	This projection manages the last two lines on the screen and provides
+	This refraction manages the last two lines on the screen and provides
 	a globally accessible command interface for managing the content panes.
 
 	The units of a prompt make up the history.
@@ -2389,9 +2400,9 @@ class Prompt(Lines):
 		new = Shell()
 		new.source = "<memory>"
 		new.units = libfields.Segments([])
-		new.inherit(self.controller)
+		new.affix(self.controller)
 		console.panes.append(new)
-		console.display_projection(console.pane, new)
+		console.display_refraction(console.pane, new)
 		console.focus_pane()
 
 	def command_open(self,
@@ -2401,7 +2412,7 @@ class Prompt(Lines):
 		encoding : 'encoding' = 'utf-8',
 	):
 		"""
-		Open a new projection using the identified source.
+		Open a new refraction using the identified source.
 
 		The implementation will be selected based on the file type.
 		"""
@@ -2434,10 +2445,10 @@ class Prompt(Lines):
 		new.source = path
 		new.units = libfields.Segments(i)
 
-		new.inherit(self.controller)
+		new.subresource(self.controller)
 		console.panes.append(new)
 
-		console.display_projection(console.pane, new)
+		console.display_refraction(console.pane, new)
 		console.focus_pane()
 
 	def command_write(self, target : 'path'):
@@ -2457,10 +2468,10 @@ class Prompt(Lines):
 
 	def command_seek(self, vertical_index : 'whole number'):
 		"""
-		Move the projection's vector to a specific vertical index. (Line Number).
+		Move the refraction's vector to a specific vertical index. (Line Number).
 		"""
 		console = self.controller
-		#p = console.projection
+		#p = console.refraction
 		p = console.visible[console.pane]
 		p.seek(int(vertical_index) - 1)
 
@@ -2475,7 +2486,7 @@ class Prompt(Lines):
 		if len(console.visible) == len(console.panes):
 			return
 
-		console.event_pane_rotate_projection(None)
+		console.event_pane_rotate_refraction(None)
 		if p is not console.transcript:
 			del console.panes[console.panes.index(p)]
 
@@ -2490,11 +2501,12 @@ class Prompt(Lines):
 	def command(self, event):
 		pass
 
-class Transcript(core.Projection):
+class Transcript(core.Refraction):
 	"""
-	A trivial line buffer. While &Log projections are usually preferred, a single
+	A trivial line buffer. While &Log refractions are usually preferred, a single
 	transcript is always available for critical messages.
 	"""
+
 	@staticmethod
 	def system():
 		"""
@@ -2613,13 +2625,14 @@ def input(transformer, queue, tty):
 		enqueue(functools.partial(emit, events))
 		chars = ""
 
-class Console(iolib.core.Join):
+class Console(iolib.Reactor):
 	"""
 	The application that responds to keyboard input in order to make display changes.
 
-	Console is a complex Transformer that consists of a set of &Projection's. The
-	projections are associated with panes that make up the total screen.
+	Console is a complex Transformer that consists of a set of &Refraction's. The
+	refractions are associated with panes that make up the total screen.
 	"""
+
 	def __init__(self):
 		self.tty = None
 		self.cache = core.Cache() # user cache / clipboard index
@@ -2635,17 +2648,17 @@ class Console(iolib.core.Join):
 		self.areas = {
 			'status': libterminal.Area(),
 			'prompt': libterminal.Area(),
-			'panes': (libterminal.Area(), libterminal.Area()),
+			'panes': (libterminal.Area(), libterminal.Area(), libterminal.Area()),
 		}
 
 		self.panes = [self.transcript, Lines(), Lines()]
 		self.rotation = 0
-		self.visible = list(self.panes[:2])
+		self.visible = list(self.panes[:3])
 
 		self.pane = 1 # focus pane (visible)
-		self.projection = self.panes[1] # focus projection; receives events
+		self.refraction = self.panes[1] # focus refraction; receives events
 
-	def install(self, tty):
+	def affix(self, tty):
 		self.tty = tty
 		self.dimensions = self.get_display_dimensions()
 
@@ -2654,11 +2667,11 @@ class Console(iolib.core.Join):
 		for x, a in zip(self.panes, self.areas['panes']):
 			x.connect(libterminal.View(a))
 
-	def display_projection(self, pane, projection):
+	def display_refraction(self, pane, refraction):
 		"""
-		Display the &projection on the designated pane index.
+		Display the &refraction on the designated pane index.
 		"""
-		if projection in self.visible:
+		if refraction in self.visible:
 			# already displayed; focus?
 			return
 
@@ -2671,20 +2684,20 @@ class Console(iolib.core.Join):
 
 		self.emit([v.area.clear()])
 
-		self.visible[pane] = projection
-		projection.pane = pane
-		projection.connect(v)
+		self.visible[pane] = refraction
+		refraction.pane = pane
+		refraction.connect(v)
 
-		if self.projection is current:
-			self.projection = projection
+		if self.refraction is current:
+			self.refraction = refraction
 
-		projection.calibrate(v.area.dimensions)
-		projection.reveal()
-		self.emit([self.set_position_indicators(projection)])
-		self.emit(projection.refresh())
+		refraction.calibrate(v.area.dimensions)
+		refraction.reveal()
+		self.emit([self.set_position_indicators(refraction)])
+		self.emit(refraction.refresh())
 
 		if False and isinstance(current, Lines):
-			# remove hidden empty projections
+			# remove hidden empty refractions
 			del self.panes[self.panes.index(current)]
 
 	def pane_verticals(self, index):
@@ -2771,18 +2784,21 @@ class Console(iolib.core.Join):
 		yield seek((width, height - 3)) + style(bottom_right, color = color, control_map = nomap)
 		yield seek((0, height - 3)) + style(bottom_left, color = color, control_map = nomap)
 
-	def set_position_indicators(self, projection,
+	def set_position_indicators(self, refraction,
 		colors=(0x008800, 0xF0F000, 0x880000),
 		vprecede=symbols.wedges['up'],
 		vproceed=symbols.wedges['down'],
 		vwedges=(symbols.wedges['right'], symbols.wedges['left']),
-		hprecede=symbols.wedges['left'],
-		hproceed=symbols.wedges['right'],
+		hproceed=symbols.wedges['left'],
+		hprecede=symbols.wedges['right'],
+		#vwedges=(symbols.lines['vertical'],)*2,
+		#hproceed=symbols.lines['vertical'],
+		#hprecede=symbols.lines['vertical'],
 	):
 		events = bytearray()
-		verticals = self.pane_verticals(projection.pane)
-		win = projection.window
-		vec = projection.vector
+		verticals = self.pane_verticals(refraction.pane)
+		win = refraction.window
+		vec = refraction.vector
 
 		seek = self.display.seek
 		style = self.display.style
@@ -2817,7 +2833,7 @@ class Console(iolib.core.Join):
 		else:
 			hpointer = symbols.wedges['down']
 			h_offset = 0
-			h_limit = projection.dimensions[0]
+			h_limit = refraction.dimensions[0]
 
 		horiz = vec.horizontal.snapshot()
 		for x, color in zip(horiz, colors):
@@ -2836,10 +2852,10 @@ class Console(iolib.core.Join):
 				events += style(pointer, color = color)
 
 		# record the setting for subsequent clears
-		projection.snapshot = (vec.snapshot(), win.snapshot())
+		refraction.snapshot = (vec.snapshot(), win.snapshot())
 		return events
 
-	def clear_position_indicators(self, projection,
+	def clear_position_indicators(self, refraction,
 		v_line = symbols.lines['vertical'],
 		h_line = symbols.lines['horizontal'],
 		h_intersection = symbols.intersections['bottom'],
@@ -2850,16 +2866,16 @@ class Console(iolib.core.Join):
 		"Clear the position indicators on the frame."
 		events = bytearray()
 
-		if projection.snapshot is None:
+		if refraction.snapshot is None:
 			return events
 
 		seek = self.display.seek
 		style = self.display.style
 
 		# (horiz, vert) tuples
-		vec, win = projection.snapshot # stored state
+		vec, win = refraction.snapshot # stored state
 
-		verticals = self.pane_verticals(projection.pane)
+		verticals = self.pane_verticals(refraction.pane)
 		v_limit = self.dimensions[1] - 3
 
 		vtop = win[1][1]
@@ -2915,7 +2931,7 @@ class Console(iolib.core.Join):
 			events += seek((x, v_limit))
 			events += style(sym, color = color)
 
-		projection.snapshot = None
+		refraction.snapshot = None
 		return events
 
 	def delta(self):
@@ -2949,9 +2965,9 @@ class Console(iolib.core.Join):
 			initdir = None
 
 		for x in self.panes:
-			x.inherit(self)
-		self.status.inherit(self)
-		self.prompt.inherit(self)
+			x.subresource(self)
+		self.status.subresource(self)
+		self.prompt.subresource(self)
 
 		initialize = [
 			self.display.clear(),
@@ -2960,7 +2976,7 @@ class Console(iolib.core.Join):
 			b''.join(self.adjust(self.dimensions)),
 		]
 
-		initialize.extend(self.status.projection_changed(self.transcript))
+		initialize.extend(self.status.refraction_changed(self.transcript))
 
 		for x in self.visible:
 			initialize.extend(x.refresh())
@@ -2986,10 +3002,11 @@ class Console(iolib.core.Join):
 			("\nImmediate Exit: Shift-Meta-` (~); Toggle Console Prompt: Meta-`\n") + \
 			("Open file using line editor: Meta-o;\n\n") + \
 			("Pane Management\n") + \
-			(" close: Close the current projection without saving. (prompt command)\n") + \
-			(" Meta-j: Use current pane to display the Next Projection\n") + \
-			(" Meta-k: Use current pane to display the Previous Projection\n") + \
-			("\nThis projection is the console's Transcript; the in-memory log of the process.\n\n")
+			(" close: Close the current refraction without saving. (prompt command)\n") + \
+			(" Meta-j: Use current pane to display the Next Refraction\n") + \
+			(" Meta-k: Use current pane to display the Previous Refraction\n") + \
+			("\nThis refraction is the console's Transcript; the in-memory log of the process.\n\n") + \
+			("If you cannot do things my way, I'll just have to find another user.\n\n")
 
 		self.transcript.write(initial)
 		self.panes[1].focus()
@@ -3001,18 +3018,18 @@ class Console(iolib.core.Join):
 	def event_process_exit(self, event):
 		self.context.process.terminate(1)
 
-	def focus(self, projection):
-		"Focus the given projection, blurring the current. Does nothing if already focused."
-		assert projection in (self.status, self.prompt) or projection in self.visible
+	def focus(self, refraction):
+		"Focus the given refraction, blurring the current. Does nothing if already focused."
+		assert refraction in (self.status, self.prompt) or refraction in self.visible
 
-		cp = self.projection
+		cp = self.refraction
 
-		if projection is not self.prompt:
-			self.emit(self.status.projection_changed(projection))
+		if refraction is not self.prompt:
+			self.emit(self.status.refraction_changed(refraction))
 
 		cp.blur()
-		self.projection = projection
-		projection.focus()
+		self.refraction = refraction
+		refraction.focus()
 
 	def focus_prompt(self):
 		"""
@@ -3030,7 +3047,7 @@ class Console(iolib.core.Join):
 		"""
 		Toggle the focusing of the prompt.
 		"""
-		if self.projection is self.prompt:
+		if self.refraction is self.prompt:
 			self.focus_pane()
 		else:
 			self.focus_prompt()
@@ -3043,9 +3060,9 @@ class Console(iolib.core.Join):
 		prompt.keyboard.set('edit')
 		self.focus_prompt()
 
-	def event_pane_rotate_projection(self, event, direction = 1):
+	def event_pane_rotate_refraction(self, event, direction = 1):
 		"""
-		Display the next projection in the current working pane according to
+		Display the next refraction in the current working pane according to
 		the persistent rotation state.
 		"""
 		pid = self.pane
@@ -3069,22 +3086,22 @@ class Console(iolib.core.Join):
 			if p in visibles:
 				continue
 
-			# found a projection
+			# found a refraction
 			break
 		else:
 			# cycled; all panes visible
 			return
 
 		self.rotation = r
-		self.display_projection(pid, p)
+		self.display_refraction(pid, p)
 		self.focus_pane()
 
 	def switch_pane(self, pane):
 		"""
 		Focus the given pane.
 
-		The new focus pane will only receive a &Projection.focus call iff
-		the old pane's projection is the current receiver, &Console.projection.
+		The new focus pane will only receive a &Refraction.focus call iff
+		the old pane's refraction is the current receiver, &Console.refraction.
 		"""
 		if pane == self.pane:
 			return
@@ -3092,12 +3109,12 @@ class Console(iolib.core.Join):
 		old = self.visible[self.pane]
 		new = self.visible[pane]
 
-		if self.projection is old:
+		if self.refraction is old:
 			old.blur()
 			self.pane = pane
-			self.projection = new
+			self.refraction = new
 			new.focus()
-			self.emit(self.status.projection_changed(new))
+			self.emit(self.status.refraction_changed(new))
 		else:
 			self.pane = pane
 
@@ -3126,11 +3143,11 @@ class Console(iolib.core.Join):
 		events = list()
 
 		for k in keys:
-			# projection can change from individual keystrokes.
-			projection = self.projection
+			# refraction can change from individual keystrokes.
+			refraction = self.refraction
 			# discover if a pane has focus
-			if projection in self.visible:
-				pi = self.visible.index(projection)
+			if refraction in self.visible:
+				pi = self.visible.index(refraction)
 			else:
 				# prompt or status
 				pi = None
@@ -3143,20 +3160,20 @@ class Console(iolib.core.Join):
 
 				result = method(k, *params)
 			else:
-				# projection may change during iteration
-				result = projection.key(self, k)
+				# refraction may change during iteration
+				result = refraction.key(self, k)
 				if result is not None:
 					#self.rstack.append(result)
 					pass
 
-				if projection.scrolling:
-					self.refreshing.add(projection)
+				if refraction.scrolling:
+					self.refreshing.add(refraction)
 
-				if projection.movement:
-					self.motion.add(projection)
+				if refraction.movement:
+					self.motion.add(refraction)
 
 		for x in tuple(self.motion):
-			if x is self.projection:
+			if x is self.refraction:
 				if x in self.visible or x is self.prompt:
 					s = self.clear_position_indicators(x) + self.set_position_indicators(x)
 					self.emit((s,))
@@ -3165,7 +3182,7 @@ class Console(iolib.core.Join):
 
 		for x in tuple(self.refreshing):
 			if x.pane is not None and x in self.visible:
-				events.extend(projection.refresh())
+				events.extend(refraction.refresh())
 			x.scrolling = False
 			self.refreshing.discard(x)
 
@@ -3183,19 +3200,17 @@ def initialize(program):
 	"""
 	libterminal.restore_at_exit() # cursor will be hidden and raw is enabled
 
-	console_flow = iolib.core.Flow() # terminal input -> console -> terminal output
-	console_flow.inherit(program)
+	console_flow = iolib.Flow() # terminal input -> console -> terminal output
+	console_flow.subresource(program)
 	program.place(console_flow, 'console-operation')
 
 	c = Console()
-	console_flow.configure(iolib.core.Thread(), c, iolib.core.Thread())
-
 	tty = open(libterminal.device.path, 'r+b')
-	# Thread()'s instances take functions
+	console_flow.affix(iolib.Parallel(input, (tty,)), c, iolib.Parallel(output, (tty,)))
 
-	console_flow.sequence[-1].install(output, tty)
-	console_flow.sequence[1].install(tty)
-	console_flow.sequence[0].install(input, tty)
+	console_flow.sequence[1].affix(tty)
+	console_flow.sequence[0].actuate()
+	console_flow.sequence[-1].actuate()
 
 	program.place(c, 'console') # the Console() instance
 	os.environ['FIO_SYSTEM_CONSOLE'] = str(os.getpid())

@@ -47,168 +47,169 @@ trap = Mapping()
 trap.assign(('escaped', '~', 0), 'console', ('process', 'exit'))
 trap.assign(('escaped', '`', 0), 'console', ('toggle', 'prompt'))
 # pane management
-trap.assign(('escaped', 'j', 0), 'console', ('pane', 'rotate', 'projection'), (1,))
-trap.assign(('escaped', 'k', 0), 'console', ('pane', 'rotate', 'projection'), (-1,))
+trap.assign(('escaped', 'j', 0), 'console', ('pane', 'rotate', 'refraction'), (1,))
+trap.assign(('escaped', 'k', 0), 'console', ('pane', 'rotate', 'refraction'), (-1,))
 
 trap.assign(('control', 'tab', meta), 'console', ('console', 'rotate', 'pane'))
 trap.assign(('control', 'tab', shiftmeta), 'console', ('navigation', 'backward'))
 trap.assign(('escaped', 'o', 0), 'console', ('prepare', 'open'))
 
-# projection control mapping
-control = Mapping(('projection', ('navigation', 'jump', 'character'), ()))
+# refraction control mapping
+control = Mapping(('refraction', ('navigation', 'jump', 'character'), ()))
 ca = control.assign
 
 # map
-ca(literal('y'), 'projection', ('distribute', 'one'))
-ca(caps('y'), 'projection', ('distribute', 'sequence'))
+ca(literal('y'), 'refraction', ('distribute', 'one'))
+ca(caps('y'), 'refraction', ('distribute', 'sequence'))
 
 # control
-ca(controlk('c'), 'projection', ('interrupt',))
-ca(('escaped', 'c', 0), 'projection', ('copy',))
+ca(controlk('c'), 'refraction', ('interrupt',))
+ca(('escaped', 'c', 0), 'refraction', ('copy',))
 
-#control.assign(('control', 'escape', 0), 'projection', ('transition', 'exit'))
-ca(('control', 'space', 0), 'projection', ('control', 'space'))
-ca(('control', 'return', 0), 'projection', ('control', 'return'))
+#control.assign(('control', 'escape', 0), 'refraction', ('transition', 'exit'))
+ca(('control', 'space', 0), 'refraction', ('control', 'space'))
+ca(('control', 'return', 0), 'refraction', ('control', 'return'))
 
-ca(literal('f'), 'projection', ('navigation', 'horizontal', 'forward'))
-ca(literal('d'), 'projection', ('navigation', 'horizontal', 'backward'))
-ca(caps('f'), 'projection', ('navigation', 'horizontal', 'stop'))
-ca(caps('d'), 'projection', ('navigation', 'horizontal', 'start'))
-ca(controlk('f'), 'projection', ())
-ca(controlk('d'), 'projection', ())
+ca(literal('f'), 'refraction', ('navigation', 'horizontal', 'forward'))
+ca(literal('d'), 'refraction', ('navigation', 'horizontal', 'backward'))
+ca(caps('f'), 'refraction', ('navigation', 'horizontal', 'stop'))
+ca(caps('d'), 'refraction', ('navigation', 'horizontal', 'start'))
+ca(controlk('f'), 'refraction', ())
+ca(controlk('d'), 'refraction', ())
 
-ca(literal('s'), 'projection', ('select', 'series',))
-ca(caps('s'), 'projection', ('select', 'series', 'backward')) # spare
+ca(literal('s'), 'refraction', ('select', 'series',))
+ca(caps('s'), 'refraction', ('select', 'series', 'backward')) # spare
+ca(controlk('s'), 'refraction', ('console', 'search'))
 
-ca(literal('e'), 'projection', ('navigation', 'vertical', 'sections'))
-ca(caps('e'), 'projection', ('navigation', 'vertical', 'paging'))
-ca(controlk('e'), 'projection', ('print', 'unit'))
+ca(literal('e'), 'refraction', ('navigation', 'vertical', 'sections'))
+ca(caps('e'), 'refraction', ('navigation', 'vertical', 'paging'))
+ca(controlk('e'), 'refraction', ('print', 'unit'))
 
 # temporary
-ca(controlk('w'), 'projection', ('console', 'save'))
+ca(controlk('w'), 'refraction', ('console', 'save'))
 
-ca(literal('j'), 'projection', ('navigation', 'vertical', 'forward'))
-ca(literal('k'), 'projection', ('navigation', 'vertical', 'backward'))
-ca(caps('j'), 'projection', ('navigation', 'vertical', 'stop'))
-ca(caps('k'), 'projection', ('navigation', 'vertical', 'start'))
-ca(('control', 'newline', 0), 'projection', ('navigation', 'void', 'forward'))
-ca(controlk('k'), 'projection', ('navigation', 'void', 'backward'))
+ca(literal('j'), 'refraction', ('navigation', 'vertical', 'forward'))
+ca(literal('k'), 'refraction', ('navigation', 'vertical', 'backward'))
+ca(caps('j'), 'refraction', ('navigation', 'vertical', 'stop'))
+ca(caps('k'), 'refraction', ('navigation', 'vertical', 'start'))
+ca(('control', 'newline', 0), 'refraction', ('navigation', 'void', 'forward'))
+ca(controlk('k'), 'refraction', ('navigation', 'void', 'backward'))
 
-ca(caps('o'), 'projection', ('open', 'behind',))
-ca(literal('o'), 'projection', ('open', 'ahead'))
-ca(controlk('o'), 'projection', ('open', 'into'))
+ca(caps('o'), 'refraction', ('open', 'behind',))
+ca(literal('o'), 'refraction', ('open', 'ahead'))
+ca(controlk('o'), 'refraction', ('open', 'into'))
 
-ca(literal('q'), 'projection', ('navigation', 'range', 'enqueue'))
-ca(caps('q'), 'projection', ('navigation', 'range', 'dequeue'))
-ca(controlk('q'), 'projection', ('',)) # spare
+ca(literal('q'), 'refraction', ('navigation', 'range', 'enqueue'))
+ca(caps('q'), 'refraction', ('navigation', 'range', 'dequeue'))
+ca(controlk('q'), 'refraction', ('',)) # spare
 
-ca(literal('v'), 'projection', ('navigation', 'void', 'forward',))
-ca(caps('v'), 'projection', ('navigation', 'void', 'backward',))
-ca(controlk('v'), 'projection', ('',)) # spare
+ca(literal('v'), 'refraction', ('navigation', 'void', 'forward',))
+ca(caps('v'), 'refraction', ('navigation', 'void', 'backward',))
+ca(controlk('v'), 'refraction', ('',)) # spare
 
-ca(literal('t'), 'projection', ('delta', 'translocate',))
-ca(caps('t'), 'projection', ('delta', 'transpose',))
-ca(controlk('t'), 'projection', ('delta', 'truncate'))
+ca(literal('t'), 'refraction', ('delta', 'translocate',))
+ca(caps('t'), 'refraction', ('delta', 'transpose',))
+ca(controlk('t'), 'refraction', ('delta', 'truncate'))
 
-ca(literal('z'), 'projection', ('place', 'stop',))
-ca(caps('z'), 'projection', ('place', 'start',))
-ca(controlk('z'), 'projection', ('place', 'expand'))
+ca(literal('z'), 'refraction', ('place', 'stop',))
+ca(caps('z'), 'refraction', ('place', 'start',))
+ca(controlk('z'), 'refraction', ('place', 'expand'))
 
 # [undo] log
-ca(literal('u'), 'projection', ('delta', 'undo',))
-ca(caps('u'), 'projection', ('delta', 'redo',))
-ca(controlk('u'), 'projection', ('redo',))
+ca(literal('u'), 'refraction', ('delta', 'undo',))
+ca(caps('u'), 'refraction', ('delta', 'redo',))
+ca(controlk('u'), 'refraction', ('redo',))
 
-ca(literal('a'), 'projection', ('select', 'adjacent', 'local'))
-ca(caps('a'), 'projection', ('select', 'adjacent'))
+ca(literal('a'), 'refraction', ('select', 'adjacent', 'local'))
+ca(caps('a'), 'refraction', ('select', 'adjacent'))
 
-ca(literal('b'), 'projection', ('select', 'block'))
-ca(caps('b'), 'projection', ('select', 'outerblock'))
+ca(literal('b'), 'refraction', ('select', 'block'))
+ca(caps('b'), 'refraction', ('select', 'outerblock'))
 
-ca(literal('n'), 'projection', ('delta', 'split',))
-ca(caps('n'), 'projection', ('delta', 'join',))
-ca(controlk('n'), 'projection', ('',))
+ca(literal('n'), 'refraction', ('delta', 'split',))
+ca(caps('n'), 'refraction', ('delta', 'join',))
+ca(controlk('n'), 'refraction', ('',))
 
-ca(literal('p'), 'projection', ('paste', 'after'))
-ca(caps('p'), 'projection', ('paste', 'before',))
-ca(controlk('p'), 'projection', ('paste', 'into',))
+ca(literal('p'), 'refraction', ('paste', 'after'))
+ca(caps('p'), 'refraction', ('paste', 'before',))
+ca(controlk('p'), 'refraction', ('paste', 'into',))
 
-ca(literal('l'), 'projection', ('select', 'horizontal', 'line'))
-ca(caps('l'), 'projection', ('select', 'vertical', 'line'))
-ca(controlk('l'), 'projection', ('console', 'seek', 'line'))
+ca(literal('l'), 'refraction', ('select', 'horizontal', 'line'))
+ca(caps('l'), 'refraction', ('select', 'vertical', 'line'))
+ca(controlk('l'), 'refraction', ('console', 'seek', 'line'))
 
 for i in range(10):
-	control.assign(literal(str(i)), 'projection', ('index', 'reference'))
+	control.assign(literal(str(i)), 'refraction', ('index', 'reference'))
 
 # character level movement
-ca(controlk('space'), 'projection', ('navigation', 'forward', 'character'))
-ca(delta('delete'), 'projection', ('navigation', 'backward', 'character'))
+ca(controlk('space'), 'refraction', ('navigation', 'forward', 'character'))
+ca(delta('delete'), 'refraction', ('navigation', 'backward', 'character'))
 
-ca(nav('left'), 'projection', ('window', 'horizontal', 'forward'))
-ca(nav('right'), 'projection', ('window', 'horizontal', 'backward'))
-ca(nav('down'), 'projection', ('window', 'vertical', 'forward'))
-ca(nav('up'), 'projection', ('window', 'vertical', 'backward'))
+ca(nav('left'), 'refraction', ('window', 'horizontal', 'forward'))
+ca(nav('right'), 'refraction', ('window', 'horizontal', 'backward'))
+ca(nav('down'), 'refraction', ('window', 'vertical', 'forward'))
+ca(nav('up'), 'refraction', ('window', 'vertical', 'backward'))
 
-ca(literal('m'), 'projection', ('menu', 'primary')) # move to field index
-ca(caps('m'), 'projection', ('menu', 'secondary')) # move to line number
+ca(literal('m'), 'refraction', ('menu', 'primary')) # move to field index
+ca(caps('m'), 'refraction', ('menu', 'secondary')) # move to line number
 
-ca(literal('i'), 'projection', ('transition', 'edit'),)
-ca(caps('i'), 'projection', ('delta', 'split'),) # split field
+ca(literal('i'), 'refraction', ('transition', 'edit'),)
+ca(caps('i'), 'refraction', ('delta', 'split'),) # split field
 
-ca(literal('c'), 'projection', ('delta', 'substitute'),)
-ca(caps('c'), 'projection', ('delta', 'substitute', 'previous'),) # remap this
+ca(literal('c'), 'refraction', ('delta', 'substitute'),)
+ca(caps('c'), 'refraction', ('delta', 'substitute', 'previous'),) # remap this
 
-ca(literal('x'), 'projection', ('delta', 'delete', 'forward'),)
-ca(caps('x'), 'projection', ('delta', 'delete', 'backward'),)
+ca(literal('x'), 'refraction', ('delta', 'delete', 'forward'),)
+ca(caps('x'), 'refraction', ('delta', 'delete', 'backward'),)
 ca(controlk('x'), 'selection', ('remove', 'selection')) # cut line
 
-ca(literal('r'), 'projection', ('delta', 'replace', 'character'),)
-ca(caps('r'), 'projection', ('delta', 'replace'),)
+ca(literal('r'), 'refraction', ('delta', 'replace', 'character'),)
+ca(caps('r'), 'refraction', ('delta', 'replace'),)
 
-ca(('control', 'tab', 0), 'projection', ('delta', 'indent', 'increment'))
-ca(('control', 'tab', shift), 'projection', ('delta', 'indent', 'decrement'))
-ca(controlk('v'), 'projection', ('delta', 'indent', 'null'))
+ca(('control', 'tab', 0), 'refraction', ('delta', 'indent', 'increment'))
+ca(('control', 'tab', shift), 'refraction', ('delta', 'indent', 'decrement'))
+ca(controlk('v'), 'refraction', ('delta', 'indent', 'null'))
 
 ca(('control', 'c', 1), 'control', ('navigation', 'console')) # focus control console
 del ca
 
 # insert mode
-edit = Mapping(default = ('projection', ('delta', 'insert', 'character'), ())) # insert
+edit = Mapping(default = ('refraction', ('delta', 'insert', 'character'), ())) # insert
 ea = edit.assign
-ea(('control', 'nul', 0), 'projection', ('delta', 'insert', 'space')) # literal space
+ea(('control', 'nul', 0), 'refraction', ('delta', 'insert', 'space')) # literal space
 
-ea(controlk('c'), 'projection', ('edit', 'abort'))
-ea(controlk('d'), 'projection', ('edit', 'commit')) # eof
-ea(controlk('v'), 'projection', ('edit', 'capture'))
+ea(controlk('c'), 'refraction', ('edit', 'abort'))
+ea(controlk('d'), 'refraction', ('edit', 'commit')) # eof
+ea(controlk('v'), 'refraction', ('edit', 'capture'))
 
-ea(('delta', 'delete', 0), 'projection', ('delta', 'delete', 'backward'))
-ea(('delta', 'backspace', 0), 'projection', ('delta', 'delete', 'backward'))
-ea(controlk('x'), 'projection', ('delta', 'delete', 'forward'))
+ea(('delta', 'delete', 0), 'refraction', ('delta', 'delete', 'backward'))
+ea(('delta', 'backspace', 0), 'refraction', ('delta', 'delete', 'backward'))
+ea(controlk('x'), 'refraction', ('delta', 'delete', 'forward'))
 
 # these are mapped to keyboard names in order to allow class-level overrides
 # and/or context sensitive action selection
-ea(('control', 'space', 0), 'projection', ('delta', 'edit', 'insert', 'space'))
-ea(('control', 'tab', 0), 'projection', ('edit', 'tab'))
-ea(('control', 'tab', shift), 'projection', ('edit', 'shift', 'tab'))
-ea(('control', 'return', 0), 'projection', ('edit', 'return'))
+ea(('control', 'space', 0), 'refraction', ('delta', 'edit', 'insert', 'space'))
+ea(('control', 'tab', 0), 'refraction', ('edit', 'tab'))
+ea(('control', 'tab', shift), 'refraction', ('edit', 'shift', 'tab'))
+ea(('control', 'return', 0), 'refraction', ('edit', 'return'))
 
-ea(('navigation', 'left', 0), 'projection', ('navigation', 'backward', 'character'))
-ea(('navigation', 'right', 0), 'projection', ('navigation', 'forward', 'character'))
-ea(('navigation', 'up', 0), 'projection', ('navigation', 'beginning'))
-ea(('navigation', 'down', 0), 'projection', ('navigation', 'end'))
+ea(('navigation', 'left', 0), 'refraction', ('navigation', 'backward', 'character'))
+ea(('navigation', 'right', 0), 'refraction', ('navigation', 'forward', 'character'))
+ea(('navigation', 'up', 0), 'refraction', ('navigation', 'beginning'))
+ea(('navigation', 'down', 0), 'refraction', ('navigation', 'end'))
 
-ea(controlk('u'), 'projection', ('delta', 'delete', 'tobol'))
-ea(controlk('k'), 'projection', ('delta', 'delete', 'toeol'))
+ea(controlk('u'), 'refraction', ('delta', 'delete', 'tobol'))
+ea(controlk('k'), 'refraction', ('delta', 'delete', 'toeol'))
 
-ea(controlk('w'), 'projection', ('delta', 'delete', 'backward', 'adjacent', 'class'))
-ea(controlk('t'), 'projection', ('delta', 'delete', 'forward', 'adjacent', 'class'))
+ea(controlk('w'), 'refraction', ('delta', 'delete', 'backward', 'adjacent', 'class'))
+ea(controlk('t'), 'refraction', ('delta', 'delete', 'forward', 'adjacent', 'class'))
 
-ea(controlk('a'), 'projection', ('navigation', 'move', 'bol'))
-ea(controlk('e'), 'projection', ('navigation', 'move', 'eol'))
+ea(controlk('a'), 'refraction', ('navigation', 'move', 'bol'))
+ea(controlk('e'), 'refraction', ('navigation', 'move', 'eol'))
 del ea
 
 # capture keystroke
-capture = Mapping(default = ('projection', ('capture',), ()))
+capture = Mapping(default = ('refraction', ('capture',), ()))
 
 # field creation and type selection
 types = Mapping()
@@ -223,7 +224,7 @@ field_type_mnemonics = {
 	'r': 'reference', # contextual reference (variables, environment)
 }
 for k, v in field_type_mnemonics.items():
-	types.assign(literal(k), 'projection', ('type',), (v,))
+	types.assign(literal(k), 'refraction', ('type',), (v,))
 
 types.assign(literal('l'), 'container', ('create', 'line'))
 
