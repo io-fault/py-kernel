@@ -1,5 +1,5 @@
 """
-Alias to @library.boot
+Alias to &library.execute
 """
 from .. import library
 

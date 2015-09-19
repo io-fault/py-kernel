@@ -1,27 +1,47 @@
 """
 HTTP transformers and protocols.
+
+XXX: Trailers will be purely protocol level with a summary attached to the LayerContext.
 """
+import functools
+import collections
+import itertools
+import json
+import pprint
+
 from ..internet import libhttp
 from ..internet import libmedia
 from ..chronometry import library as timelib
 
 from . import core
 
-# XXX: probably split it up into Request and Respond subclasses
-class Transaction(object):
+class Layer(core.Layer):
 	"""
-	An HTTP Transaction; common state used by individual HTTP transits.
+	The HTTP layer of a connection; superclass of &Request and &Response
 	"""
-	# sent *or* received attributes
-	path = None
-	method = None
 
-	response_code = None
-	response_description = None
-	response_version = None
-	request_method = None
-	request_path = None
-	request_version = None
+	protocol = 'http'
+	version = 1
+
+	@property
+	def content(self):
+		"Whether the Layer Context is associated with content."
+		return self.length is not None
+
+	@property
+	def length(self):
+		"The length of the content; positive if exact, &None if no content, and -1 if arbitrary."
+
+		cl = self.headers.get(b'content-length')
+		if cl is not None:
+			return int(cl.decode('utf-8'))
+
+		te = self.headers.get(b'transfer-encoding')
+		if te is not None and te.lower().strip() == b'chunked':
+			return -1
+
+		# no content
+		return None
 
 	cached_headers = set(
 		x.lower() for x in [
@@ -72,243 +92,529 @@ class Transaction(object):
 	)
 
 	@property
-	def media_range(self):
-		"""
-		Structured form of the Accept header.
-		"""
-		pass
+	def connection(self):
+		"Return the connection header stripped and lowered or &<b''> if no header present"
+		return self.headers.get(b'connection', b'').strip().lower()
+
+	@property
+	def media_range(self, parse_range=libmedia.Range.from_bytes):
+		"Structured form of the Accept header."
+
+		if b'accept' in self.headers:
+			return parse_range(self.headers[b'accept'])
+		else:
+			return libmedia.any_range
 
 	@property
 	def date(self, parse = timelib.parse_rfc1123):
-		"""
-		Date header timestamp.
-		"""
+		"Date header timestamp."
+
+		if not b'date' in self.headers:
+			return None
+
 		ts = self.headers[b'date'].decode('utf-8')
 		return parse(ts)
 
 	@property
 	def encoding(self):
-		"""
-		Encoding header as bytes.
-		"""
+		"Character encoding of entity content. &None if not applicable."
+		pass
 
 	@property
 	def terminal(self):
-		"""
-		Whether this is the last request or response in the connection.
-		"""
-		return self.headers.get(b'connection', b'').strip().lower() == b'close'
+		"Whether this is the last request or response in the connection."
+
+		if self.version == b'1.0':
+			return True
+
+		return self.connection == b'close'
+
+	@property
+	def substitution(self):
+		"Whether or not the request looking to perform protocol substitution."
+
+		return self.connection == b'upgrade'
 
 	@property
 	def cookies(self):
-		"""
-		Cookie sequence for retrieved Cookie headers or Set-Cookie headers.
-		"""
+		"Cookie sequence for retrieved Cookie headers or Set-Cookie headers."
+
 		self.parameters.get('cookies', ())
 
-	def __init__(self, polarity):
-		self.polarity = polarity
+	def __init__(self):
 		self.parameters = dict()
 		self.headers = dict()
+		self.inititation = None
+		self.header_sequence = []
 
-	@classmethod
-	def client(Class, method, path, version = b'HTTP/1.1'):
-		r = Class(1)
-		r.method = method
-		r.path = path
-		r.version = ('HTTP', '1.1')
+	def initiate(self, rline):
+		"Called when the request or response was received from a remote endpoint."
+		self.initiation = rline
 
-		r.request_method = method.encode('utf-8')
-		r.request_path = path.encode('utf-8')
-		r.request_version = version
-		return r
+	def add_headers(self, headers, cookies = False, cache = ()):
+		"Accept a set of headers from the remote end."
 
-	@classmethod
-	def server(Class):
-		r = Class(-1)
-		return r
-
-	@property
-	def perspective(self):
-		return (None, 'client', 'server')[self.polarity]
-
-	def initiation(self, rline):
-		"""
-		Called when the request or response was received from a remote endpoint.
-		"""
-		self.remote_line = rline
-
-		if self.perspective == 'client':
-			version, response_code, description = rline
-			self.response_code = response_code
-			self.response_description = description
-			self.response_version = version
-		elif self.perspective == 'server':
-			method, uri_path, version = rline
-			self.request_method = method
-			self.request_path = uri_path
-			self.request_version = version
-
-			self.path = uri_path.decode('utf-8')
-			self.method = method.decode('utf-8')
-		else:
-			raise ValueError("invalid perspective", perspective)
-
-	def accept(self, headers, cookies = False, cache = ()):
-		"""
-		Accept a set of headers from the remote end.
-		"""
-		self.header_sequence = headers
+		self.header_sequence += headers
 
 		for k, v in self.header_sequence:
 			k = k.lower()
 			if k in self.cached_headers:
 				self.headers[k] = v
-			elif k in (b'set-cookie', b'cookie'):
+			elif k in {b'set-cookie', b'cookie'}:
 				cookies = self.parameters.setdefault('cookies', list())
 				cookies.append(v)
 			elif k in cache:
 				self.headers[k] = v
 
-		print(self.date)
-		print(self.header_sequence)
+	def trailer(self, headers):
+		self.accept(headers)
 
-class Protocol(core.Protocol):
-	"""
-	The HTTP protocol implementation for io programs. Produces or consumes &Transaction
-	instances for request-response cycles.
-	"""
-	name = 'http'
-	Transaction = Transaction
+class Request(Layer):
+	"Request portion of an HTTP transaction"
 
-	def __init__(self, perspective):
-		self.perspective = perspective
+	@property
+	def method(self):
+		return self.initiation[0]
 
-	@classmethod
-	def allocate(Class):
-		"""
-		Allocate a Transaction for submission.
-		"""
-		return Class.Transaction()
+	@property
+	def path(self):
+		return self.initiation[1]
 
-	def pair(self):
-		return (core.Generator(), core.Generator())
+	@property
+	def version(self):
+		return self.initiation[2]
 
-	def http1_processor(
-		self,
-		transformer,
-		input = b'',
-		rline = libhttp.Event.rline,
-		headers = libhttp.Event.headers,
-		trailers = libhttp.Event.trailers,
-		content = libhttp.Event.content,
-		chunk = libhttp.Event.chunk,
-		violation = libhttp.Event.violation,
-		bypass = libhttp.Event.bypass,
-		EOH = libhttp.EOH,
-		EOM = libhttp.EOM,
+class Response(Layer):
+	"Response portion of an HTTP transaction"
+
+	@property
+	def version(self):
+		return self.initiation[0]
+
+	@property
+	def code(self):
+		return self.initiation[1]
+
+	@property
+	def description(self):
+		return self.initiation[2]
+
+def v1_output(
+		layer, transport,
+		checksum=None,
+
+		rline=libhttp.Event.rline,
+		headers=libhttp.Event.headers,
+		trailers=libhttp.Event.trailers,
+		content=libhttp.Event.content,
+		chunk=libhttp.Event.chunk,
+		EOH=libhttp.EOH,
+		EOM=libhttp.EOM,
+
+		repeat=itertools.repeat,
+		zip=zip,
 	):
-		state = libhttp.disassembly() # produces http events
-		xact = Transaction.server()
+	"""
+	Send HTTP 1.0 or 1.1 events.
 
-		# get the initial sequence of events
-		events = []
-		while not events:
-			for x in (yield):
-				events.extend(state.send(x))
-		events = iter(events) # StopIteration is used to signal fetch more
+	The protocol will construct a new generator for every Request/Response that is
+	to be emitted to the remote end. GeneratorExit is used to signal the termination
+	of the message if the Transaction length is not &None.
+	"""
 
-		close_state = False # header Connection: close
-		while not close_state:
-			local_state = {
-				rline: [],
-				headers: [],
-			}
+	lheaders = []
+	events = [
+		(rline, layer.initiation),
+		(headers, layer.header_sequence),
+		EOH,
+	]
+	length = layer.length
 
-			headers_received = False
-			while not headers_received:
-				for x in events:
-					local_state[x[0]].extend(x[1])
-					if x == EOH:
-						headers_received = True
-						break
+	if length is None:
+		pass
+	elif length >= 0:
+		btype = content
+	else:
+		btype = chunk
+
+	transport(events)
+	del events
+
+	try:
+		if length is None:
+			# transport EOM in finally
+			pass
+		else:
+			# emit until generator is explicitly stopped
+			while 1:
+				transport(zip(repeat(btype), (yield)))
+	finally:
+		# generator exit
+		transport((EOM,))
+
+def v1_input(
+		allocate, ready, transport, finish,
+
+		rline=libhttp.Event.rline,
+		headers=libhttp.Event.headers,
+		trailers=libhttp.Event.trailers,
+		content=libhttp.Event.content,
+		chunk=libhttp.Event.chunk,
+		violation=libhttp.Event.violation,
+		bypass=libhttp.Event.bypass,
+		EOH=libhttp.EOH,
+		EOM=libhttp.EOM,
+		iter=iter,
+	):
+	"""
+	Receive HTTP 1.0 or 1.1 input events for routing.
+
+	Given a Transaction allocation function and a Transaction completion function,
+	receive
+	"""
+
+	close_state = False # header Connection: close
+	events = iter(())
+	def http_protocol_violation(data):
+		raise Exception(data)
+
+	while not close_state:
+
+		lrline = []
+		lheaders = []
+		local_state = {
+			rline: lrline.extend,
+			headers: lheaders.extend,
+			violation: http_protocol_violation,
+		}
+
+		headers_received = False
+		while not headers_received:
+			for x in events:
+				local_state[x[0]](x[1])
+				if x == EOH:
+					headers_received = True
+					break
+			else:
+				# need more for headers
+				events = iter((yield))
+
+		# got request or status line and headers for this request
+		assert len(lrline) == 3
+
+		layer = allocate()
+		layer.initiate(lrline[:3])
+		layer.add_headers(lheaders)
+
+		if layer.terminal:
+			# Connection: close present.
+			# generator will exit when the loop completes
+			close_state = True
+
+		##
+		# local_state is used as a catch all
+		# if strictness is desired, it should be implemented here.
+
+		body = [] # XXX: context based allocation? (memory constraints)
+		trailer_sequence = []
+		local_state = {
+			# handle both chunking and content types
+			content: body.append,
+			chunk: body.append,
+			trailers: trailer_sequence.extend,
+			violation: http_protocol_violation,
+		}
+
+		# notify the protocol that the transaction is ready
+		ready(layer)
+
+		body_complete = False
+		while not body_complete:
+			for x in events:
+				if x == EOM:
+					body_complete = True
+					break
+
+				# not an eof event, so extend state and process as needed
+				local_state[x[0]](x[1])
+
+				if trailer_sequence:
+					layer.trailer(trailer_sequence)
 				else:
-					# need more for headers
-					events = []
-					while not events:
-						for x in (yield):
-							events.extend(state.send(x))
-					events = iter(events)
+					if body:
+						# send a copy of the body onward
+						transport(layer, body)
 
-			# got request or status line and headers for this request
-			assert len(local_state[rline]) == 3
+						body = []
+						local_state[content] = body.append
+						local_state[chunk] = body.append
 
-			xact.initiation(local_state[rline][:3])
-			xact.accept(local_state[headers])
+			else:
+				# need more for EOM
+				events = iter((yield))
+			# for x in events
+		else:
+			# pop transaction
+			finish(layer)
+			layer = None
 
-			if xact.terminal:
-				# Connection: close present.
-				# generator will exit when the loop completes
-				close_state = True
+		# while not body_complete
+	# while not close_state
 
-			# document = self.open(xact) # initialize the document and the response transformers
-			if False:
-				# wait until the transaction is ready for the document
-				transformer.flow.obstruct(xact.ready)
-				while not xact.ready():
-					for x in (yield):
-						input += x
+	# During Protocol Substitution, the disassembler
+	# may produce bypass events that contain data for
+	# the protocol that is taking over the connection.
+	excess = bytearray()
+	while True:
+		# Expecting bypass events.
+		for typ, data in events:
+			if typ == bypass:
+				excess += data
 
-			##
-			# local_state is used as a catch all
-			# if strictness is desired, it should be implemented here.
+		# XXX: currently no way to access the excess
+		events = (yield)
 
-			body = [] # XXX: context based allocation
-			trailer_sequence = []
-			local_state = {
-				# handle both chunking and content types
-				content: body.append,
-				chunk: body.append,
-				trailers: trailer_sequence.extend
-			}
+# The distinction between Client1 and Server1 is necessary for managing
+# 
 
-			request_complete = False
-			while not request_complete:
-				for x in events:
-					if x == EOM:
-						request_complete = True
-						break
+def flows(xact, input, output):
+	fi, fo = xact.flows()
 
-					# not an eof event, so extend state and process as needed
-					local_state[x[0]](x[1])
-					if trailer_sequence:
-						xact.trailer(None) # XXX: Not sure about signalling with these.
-					else:
-						if body:
-							# send a copy of the body onward
-							# transformer.route(xact, body)
-							transformer.emit(body)
-							print(body)
-							body = []
-							local_state[content] = body.append
-							local_state[chunk] = body.append
-				else:
-					# need more for EOM
-					events = []
-					while not events:
-						for x in (yield):
-							events.extend(state.send(x))
-					events = iter(events)
+	pi = core.Functional(libhttp.disassembly().send)
+	fi.affix(*(input + (pi,)))
+	pi.actuate()
 
-		# end of message loop (connection: close header present)
-		# handle connection closure
+	po = core.Functional(libhttp.assembly().send)
+	fo.affix(*((po,) + output))
+	po.actuate()
 
-	def http1_emission(self, transformer):
-		state = libhttp.assembly() # produces http responses
+	return fi, fo
 
-		event = (yield)
+def init_sector(xact):
+	si, so = xact.acquire_socket(fd)
+	return flows(xact, si, so)
 
-		while True:
-			# pass through atm, needs to require events
-			transformer.emission(event)
-			event = (yield)
+def client_v1(input, output,
+		suffix=(Response, Request, v1_input, v1_output)
+	):
+	"""
+	Given input and output Flows, construct and connect a Protocol instance
+	for an HTTP 1.x client.
+	"""
+
+	# Protcol I/O flows provide a Composition transformer.
+	input.sequence[-1].push(libhttp.disassembly().send)
+	output.sequence[0].push(libhttp.assembly().send)
+
+	p = core.QueueProtocol()
+	p.requisite(input, output, xact.sector.reception_open, xact.sector.reception_close, *suffix)
+
+	return p
+
+def server_v1(xact, accept, closed, input, output):
+	fi, fo = flows(xact, input, output)
+
+	p = core.QueueProtocol(Request, Response, v1_input, v1_output)
+	p.requisite(accept, closed, fi, fo)
+
+	return p, fi, fo
+
+class Interface(core.Interface):
+	"""
+	An HTTP interface Sector. Provides the foundations for constructing
+	an HTTP 2.0, 1.1, and 1.0 interface.
+
+	Interfaces represent a set of client or server connections.
+	"""
+
+	def accept(self, packet):
+		pass
+
+# Media Support (Accept header) for Python types.
+
+# Preferences for particular types when no accept header is given or */*
+octets = (libmedia.Type.from_string(libmedia.types['data']),)
+adaption_preferences = {
+	str: (
+		libmedia.Type.from_string('text/plain'),
+		libmedia.Type.from_string(libmedia.types['data']),
+		libmedia.Type.from_string(libmedia.types['json']),
+	),
+	bytes: octets,
+	memoryview: octets,
+	bytearray: octets,
+
+	list: (
+		libmedia.Type.from_string(libmedia.types['json']),
+		libmedia.Type.from_string('text/plain'),
+	),
+	dict: (
+		libmedia.Type.from_string(libmedia.types['json']),
+		libmedia.Type.from_string('text/plain'),
+	),
+	None.__class__: (
+		libmedia.Type.from_string(libmedia.types['json']),
+	)
+}
+del octets
+
+conversions = {
+	'text/plain': lambda x: str(x).encode('utf-8'),
+	libmedia.types['json']: lambda x: json.dumps(x).encode('utf-8'),
+	libmedia.types['data']: lambda x: x,
+}
+
+def adapt(encoding_range, media_range, obj, iterating = None):
+	"""
+	Adapt an arbitrary Python object to the desired request type.
+	Used to interface with Python systems.
+
+	The &iterating parameter instructs &adapt that the &obj is an
+	iterable producing instances of &iterating. For instance,
+	if the iterator produces &bytes, &iterating should be set to &bytes.
+	This allows &adapt to select the conversion method based on the type
+	of objects being produced.
+
+	Returns &None when there was not an acceptable response.
+	"""
+
+	if iterating is not None:
+		subject_type = iterating
+	else:
+		subject_type = type(obj)
+
+	types = adaption_preferences[subject_type]
+
+	result = media_range.query(*types)
+	if not result:
+		return None
+
+	matched_request, match, quality = result
+	if match == libmedia.any_type:
+		# determine type from obj type
+		match = adaption_preferences[subject_type][0]
+
+	if iterating:
+		c = conversion[str(match)]
+		adaption = b''.join(map(c, obj))
+	else:
+		adaption = conversions[str(match)](obj)
+
+	return match, adaption
+
+def resource(**kw):
+	"""
+	HTTP Resource Method Decorator
+
+	Usage:
+
+		@http.resource(limit=0, ...)
+		def method(sector, request, response, input):
+			pass
+
+		@method.override('text/html')
+		def method(sector, request, response, input):
+			"Resource implementation for text/html requests(Accept Header)."
+			pass
+	"""
+
+	global functools, Resource
+	return functools.partial(Resource, **kw)
+
+class Resource(object):
+	"""
+	Decorator for trivial Python HTTP interfaces.
+
+	Performs automatic conversion for input and output based on the Accept headers.
+	"""
+
+	def __init__(self, call, limit=None):
+		self.parameters = [
+			x for x in locals().items() if x[0] != 'self'
+		]
+		self.call = call
+		self.overrides = {}
+		functools.wraps(self.call)(self)
+
+	def override(self, *types):
+		"""
+		Override the request handler for the resource when the request
+		is preferring the given type.
+		"""
+
+		def Temporary(call):
+			for x in types:
+				self.overrides[libmedia.Type.from_string(x)] = call
+			return self
+
+		return Temporary
+
+	def execution(self, sector, request, response, input, output):
+		result = self.call(sector, request, response, input)
+
+		ct, data = adapt(None, request.media_range, result)
+		response.add_headers([
+			(b'Content-Type', str(ct).encode('utf-8')),
+			(b'Content-Length', str(len(data)).encode('utf-8')),
+		])
+		if request.terminal:
+			response.add_headers([
+				(b'Connection', b'close')
+			])
+
+		response.initiate((request.version, b'200', b'OK'))
+
+		f = core.Flow()
+		f.affix(core.Transformer())
+		f.subresource(sector)
+		sector.affix(f)
+		output(f)
+
+		f.process((data,))
+		f.terminate(self)
+
+	def adapt(self,
+			sector, request, response, input, output,
+			str=str, len=len, create_flow=core.Flow,
+		):
+		# input and output are callbacks that accept Flow's to connect
+		# to the request's I/O
+
+		if input is not None:
+			# Buffer and transform the input to the callable.
+			fi = create_flow(core.Collect.list)
+			sector.dispatch(fi)
+			input(fi)
+
+			def transformed(flow, call=self.call, args=(sector,request,response)):
+				store = flow.sequence[0].storage
+				data_input = b''.join(store)
+				call(*args)
+
+			fi.atexit(transformed)
+			return fi
+		else:
+			result = self.call(sector, request, response, None)
+
+			ct, data = adapt(None, request.media_range, result)
+			response.add_headers([
+				(b'Content-Type', str(ct).encode('utf-8')),
+				(b'Content-Length', str(len(data)).encode('utf-8')),
+			])
+			if request.terminal:
+				response.add_headers([
+					(b'Connection', b'close')
+				])
+
+			response.initiate((request.version, b'200', b'OK'))
+
+			f = core.Flow()
+			f.requisite(core.Iterate())
+			f.sequence[0].requisite(terminal=True)
+			sector.dispatch(f)
+
+			# connect output and initiate the iterator
+			output(f)
+			f.process([(data,)])
+		return f
+	__call__ = adapt

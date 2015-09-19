@@ -1,6 +1,7 @@
 """
-Commons area. Most functionality lives in nucleus modules with descriptive names.
+Hierarchically organized asyncrhonous I/O library for Python.
 """
+
 import os
 import sys
 import functools
@@ -10,6 +11,7 @@ import inspect
 import weakref
 import queue
 import traceback
+import itertools
 
 from . import core
 from . import traffic
@@ -21,285 +23,8 @@ from ..fork import libhazmat
 from ..internet import library as netlib
 from ..internet import libri
 
-def profile(hostname = None):
-	"""
-	Dictionary containing a profile of the machine's components.
-	"""
-	import psutil
-	import platform
-	import sys
-	import resource
-	import getpass
-	from ..chronometry import library as timelib
-
-	boot = timelib.unix(psutil.boot_time())
-
-	machine = {
-		'boot': boot,
-		'architecture': platform.machine(),
-		'cpu': {
-			'physical': psutil.cpu_count(logical=False),
-			'logical': psutil.cpu_count(),
-		},
-		'memory': {
-			'capacity': psutil.virtual_memory().total
-		}
-	}
-
-	os = {
-		'name': platform.system(),
-		'version': platform.release(),
-		'network': {
-			'hostname': hostname or platform.node(),
-			'net': psutil.net_io_counters(True),
-		},
-		'memory': {
-			'pagesize': resource.getpagesize(),
-		}
-	}
-
-	python = {
-		'name': 'python',
-		'implementation': platform.python_implementation(),
-		'version': platform.python_version_tuple(),
-		'compiler': platform.python_compiler(),
-		'abi': sys.abiflags,
-	}
-
-	return {
-		'machine': machine,
-		'system' : os,
-		'substrate': {
-			'python': python,
-		},
-		'user': {
-			'depth': int(os.environ.get('SHLVL', 0)) - 1,
-			'user': getpass.getuser(),
-			'home': os.path.expanduser('~'),
-		}
-	}
-
-class Port(int):
-	"""
-	System Port Indicator (file descriptor).
-
-	Ports can be associated with arbitrary endpoints.
-	"""
-	__slots__ = ()
-
-	def __str__(self):
-		return 'spi://' + int.__str__(self)
-
-class Endpoint(tuple):
-	"""
-	A process-local endpoint. These objects are pointers to [logical] process resources.
-	"""
-	__slots__ = ()
-	protocol = 'ps' # Process[or Program] Space
-
-	@property
-	def program(self):
-		'The absolute program name; &None if subjective reference.'
-		return self[0]
-
-	@property
-	def pid(self):
-		"""
-		The process identifier pointing to the location of the endpoint.
-		Necessary in interprocess communication.
-		"""
-		return self[4]
-
-	@property
-	def path(self):
-		"""
-		The path in the structure used to locate the container.
-		"""
-		if not self.directory:
-			return self[1][:-1]
-
-	@property
-	def identifier(self):
-		"""
-		Last component in the path if it's not a directory.
-		"""
-		if not self.directory:
-			return self[1][-1]
-
-	@property
-	def directory(self):
-		"""
-		Endpoint refers to the *directory* of the location, not the assigned object.
-		"""
-		return self[2]
-
-	@property
-	def validation(self):
-		"""
-		A unique identifier selecting an object within the &core.Object.
-		Usually the result of an &id call of a particular object
-		"""
-		return self[3]
-
-	def __str__(self, formatting = "{0}{4}/{1}{2}{3}"):
-		one = '/'.join(self.path)
-		three = two = ''
-		if self.directory:
-			two = '/'
-		if self.validation is not None:
-			three = '#' + str(self.validation)
-
-		if self.program:
-			zero = "ps://" + self.program
-		else:
-			zero = "/"
-
-		if self.pid is not None:
-			four = ":" + str(self.pid)
-
-		return formatting.format(zero, one, two, three, four)
-
-	@classmethod
-	def parse(Class, psi):
-		"""
-		Parse an IRI-like indicator for selecting a process object.
-		"""
-		dir = False
-		d = libri.parse(psi)
-
-		path = d.get('path', ())
-		if path != ():
-			if path[-1] == '':
-				pseq = path[:-1]
-				dir = True
-			else:
-				pseq = path
-		else:
-			pseq = ()
-
-		port = d.get('port', None)
-
-		return Class(
-			(d['host'], tuple(pseq), dir, d.get('fragment', None), port)
-		)
-
-	@classmethod
-	def local(Class, *path, directory = False):
-		"""
-		Construct a local reference using the given absolute path.
-		"""
-		return Class((None, path, directory, None, None))
-
-	def dereference(self, program = None, process = None):
-		if program is None:
-			program = core.__process_index__[process][self.program]
-
-		# specific object?
-		dir = program.index.get(self.path, None)
-		if dir is None:
-			# file not found
-			return None
-
-		path = self.path
-		eid = self.eid
-
-		if self.directory:
-			# it's a directory reference, so no entry object
-			return (program, path, None)
-		else:
-			eid = self.identifier
-			if eid is None:
-				return (program, path, program.index[path])
-			else:
-				return (program, path, program.index[path].access(eid))
-
-class Program(core.Resource):
-	"""
-	An asynchronous Program.
-
-	These objects are used to manage the running state of a part of a &LogicalProcess,
-	and to provide introspective interfaces for it.
-	"""
-	def __init__(self, identifier):
-		self.identifier = identifier
-		self.terminated = None
-
-		self.roots = []
-		self.structure = {}
-		self.index = {}
-
-	def initialize(self, *mains, process = None, context = None, Context = None):
-		# make sure we have a context
-		if context is None:
-			context = Context(process)
-			context.associate(self)
-			self.context = context
-
-		self.roots.extend(mains)
-
-	def execute(self):
-		"""
-		Execute the program by enqueueing the initialization functions.
-
-		This should only be called by the controller of the program.
-		Normally, it is called automatically when the program is loaded by the process.
-		"""
-		if self.terminated is not None:
-			return
-
-		for program_initializor in self.roots:
-			program_initializor(self)
-
-		self.terminated = False
-
-	def terminate(self, _process_index = core.__process_index__):
-		if self.terminated is not True:
-			if _process_index[self.context.process][None] is self:
-				self.context.process.terminate(self.result)
-				self.terminated = True
-			else:
-				self.terminated = True
-
-	def place(self, obj, *destination):
-		"""
-		Place the given object in the program at the specified location.
-		"""
-		self.index[destination] = obj
-
-		try:
-			# build out path
-			p = self.structure
-			for x in destination:
-				if x in p:
-					p = p[x]
-				else:
-					p[x] = dict()
-
-			obj.location = Endpoint.local(*destination)
-		except:
-			del self.index[destination]
-			raise
-
-	def delete(self, *address):
-		obj = self.index[address]
-		obj.location_path = None
-		del self.index[address]
-
-	def listdir(self, *address):
-		"""
-		List the contents of an address.
-		This only includes subdirectories.
-		"""
-		p = self.structure
-		for x in address:
-			if x in p:
-				p = p[x]
-			else:
-				break
-		else:
-			return list(p.keys())
-		# no directory
-		return None
+from ..chronometry import library as timelib
+from ..routes import library as routeslib
 
 class Context(object):
 	"""
@@ -308,7 +33,12 @@ class Context(object):
 	Manages dedicated threads, general processing threads, memory allocation,
 	flow constructors, environment variable access and local overrides, contextual tasks,
 	pipeline construction, child management.
+
+	Contexts are the view to the &Process and the Kernel of the system running
+	the process. Subcontexts can be created to override the default functionality
+	and provide a different environment. Contexts are associated with every &core.Resource.
 	"""
+
 	inheritance = ('environment',)
 
 	def __init__(self, process):
@@ -317,29 +47,109 @@ class Context(object):
 		self.association = None
 		self.environment = ()
 
-	def associate(self, obj):
-		"""
-		Associate the context with a particular process object, &point.
+	@property
+	def unit(self):
+		"The &Unit of the association."
+		global Unit
 
-		Only one association may exist and implies that the context will be terminated
+		point = self.association()
+		while not isinstance(point, Unit):
+			point = point.controller
+
+		return point
+
+	def faulted(self, resource):
+		"""
+		Notify the controlling &Unit instance of the fault.
+		"""
+
+		self.unit.faulted(resource)
+
+	def defer(self, measure, task, maximum=6000, seconds=timelib.Measure.of(second=2)):
+		"""
+		Schedule the task for execution after the period of time &measure elapses.
+
+		&core.Scheduler instances will resubmit a task if there is a substantial delay
+		remaining. When large duration defers are placed, the seconds unit are used
+		and decidedly inexact, so resubmission is used with a finer grain.
+		"""
+
+		# select the granularity based on the measure
+
+		if measure > seconds:
+			# greater than two seconds
+			quantity = min(measure.select('second'), maximum)
+			quantity -= 1
+			unit = 's'
+		elif measure < 10000:
+			# measures are in nanoseconds
+			unit = 'n'
+			quantity = measure
+		elif measure < 1000000:
+			unit = 'u'
+			quantity = measure.select('microsecond')
+		else:
+			unit = 'm'
+			quantity = min(measure.select('millisecond'), 0xFFFFFFFF)
+
+		return self.process.kernel.alarm(task, quantity, unit)
+
+	def cancel(self, task):
+		"""
+		Cancel a scheduled task.
+		"""
+
+		return self.process.kernel.cancel(task)
+
+	def io(self):
+		"""
+		Signal the &Process that I/O occurred for this context.
+
+		XXX: Replace with direct Junction references in Transits?
+		"""
+
+		unit = self.association()
+		self.process.interchange.force(id=unit)
+
+	def inherit(self, context):
+		"""
+		Inherit the context's exports.
+		"""
+
+		raise Exception("not implemented")
+
+	def associate(self, resource, Ref=weakref.ref):
+		"""
+		Associate the context with a particular &core.Resource object, &resource.
+
+		Only one association may exist and implies that the context will be destroyed
 		after the object has finished its work.
 		"""
-		self.association = weakref.ref(obj)
+
+		self.association = Ref(resource)
 
 	def enqueue(self, *tasks):
+		"Enqueue the tasks for subsequent processing; used by threads to synchronize their effect."
+
 		self.process.enqueue(*tasks)
 
 	def dispatch(self, controller, task):
+		"Execute the given task on a general purpose thread"
+
 		fenqueue = self.process.fabric.enqueue
 		fenqueue(controller, task)
 
 	def execute(self, controller, function, *parameters):
+		"Execute the given function in a thread associated with the specified controller"
+
 		return self.process.fabric.execute(controller, function, *parameters)
 
 	def environ(self, identifier):
 		"""
-		Access.
+		Access the environment from the perspective of the context.
+		Context overrides may hide process environment variables.
 		"""
+
 		if identifier in self.environment:
 			return self.environment[identifier]
 
@@ -351,61 +161,62 @@ class Context(object):
 
 		Child processes spawned relative to the context will inherit the overrides.
 		"""
+
 		if self.environment:
 			self.environment[identifier] = value
 		else:
 			self.environment = {}
 			self.environment[identifier] = value
 
-	def inherit(self, context):
+	def interfaces(self, *allocs, transmission = 'sockets'):
 		"""
-		Inherit the context's exports.
+		Allocate leaked listening interfaces.
 		"""
-		raise Exception("not implemented")
 
-	def kio(self, *io, Transformer = core.Detour):
+		unit = self.association()
+		if unit is None:
+			raise RuntimeError("context has no associated resource")
+
+		r = []
+		with self.process.io(unit) as alloc:
+			for endpoint in allocs:
+				typ = endpoint.protocol
+				r.append(alloc((transmission, typ), (str(endpoint.address), endpoint.port)))
+
+		return r
+
+	def bindings(self, *allocs, transmission = 'sockets'):
 		"""
-		Allocate a set of Transformers for performing I/O with the kernel.
-		Returns a sequence the same length as the &requests given.
+		Allocate leaked listening interfaces.
+
+		Returns a sequence of file descriptors that can later be acquired by traffic.
 		"""
-		area = self.association() # usually Program instance
 
-		with self.process.io(area) as alloc:
-			for x in io:
-				ip = x.interface
-				r = x.route
+		alloc = traffic.library.kernel.Junction.rallocate
+		unit = self.association()
+		if unit is None:
+			raise RuntimeError("context has no associated resource")
 
-				if x.transmission == 'octets':
-					locator = ('octets', r.protocol)
-					i = Transformer()
-					o = Transformer()
+		for endpoint in allocs:
+			typ = endpoint.protocol
+			t = alloc((transmission, typ), (str(endpoint.address), endpoint.port))
 
-					rw = alloc(locator, (str(r.address), r.port))
-					i.install(rw[0])
-					o.install(rw[1])
+			fd = t.port.fileno
+			t.port.leak()
+			t.terminate()
+			del t
 
-					return (i, o)
-				elif x.transmission == 'sockets':
-					locator = ('sockets', r.protocol)
-					i = Transformer()
-					r = alloc(locator, (str(r.address), r.port))
-					r.link = i
-					i.transit = r
-
-					return r
-				else:
-					pass
-		# with process.io
+			yield fd
 
 class Fabric(object):
 	"""
-	Thread manager for logical processes;
-	Logical process thread pool with capacity to manage dedicated threads.
+	Thread manager for processes; thread pool with capacity to manage dedicated threads.
 	"""
+
 	Queue = queue.Queue
 
-	def __init__(self, process, minimum = 1, maximum = 16):
-		self.process = weakref.proxy(process) # report unhandled thread exceptions
+	def __init__(self, process, minimum=1, maximum=16, proxy=weakref.proxy):
+		self.process = proxy(process) # report unhandled thread exceptions
 		self.minimum = minimum
 		self.maximum = maximum
 
@@ -414,10 +225,21 @@ class Fabric(object):
 
 		self.general_purpose_queue = self.Queue()
 
+	def void(self):
+		"""
+		Destroy the thread indexes and general purpose queue.
+		Normally used after a process fork on the residual Process.
+		"""
+
+		self.gpt.clear()
+		self.dpt.clear()
+		self.general_purpose_queue.clear()
+
 	def execute(self, controller, callable, *args):
 		"""
 		Create a dedicated thread and execute the given callable within it.
 		"""
+
 		self.spawn(weakref.ref(controller), callable, args)
 
 	def critical(self, controller, context, callable, *args):
@@ -428,13 +250,15 @@ class Fabric(object):
 		The additional &context parameter is an arbitrary object describing the resource;
 		often the object whose method is considered critical.
 		"""
+
 		self.spawn(weakref.ref(controller), forklib.critical, (context, callable) + args)
 
 	def spawn(self, controller, callable, args, create_thread = libhazmat.create_thread):
 		"""
 		Add a thread to the context's fabric.
-		This expands the "parallel" capacity of the logical process.
+		This expands the "parallel" capacity of a &Process.
 		"""
+
 		tid = create_thread(self.thread, (controller, (callable, args)))
 		return tid
 
@@ -442,6 +266,7 @@ class Fabric(object):
 		"""
 		Manage the execution of a general purpose thread or a dedicated thread.
 		"""
+
 		controller, thread_root = parameters
 		tid = gettid()
 
@@ -462,7 +287,7 @@ class Fabric(object):
 				else:
 					del self.dpt[tid]
 		except BaseException as exception:
-			self.process.exception(controller, exception, "Thread")
+			self.process.error(controller, exception, "Thread")
 
 	def loop(self, *parameters, gettid = libhazmat.identify_thread):
 		"""
@@ -471,8 +296,9 @@ class Fabric(object):
 		Function used to manage threads in a logical process's fabric.
 		This function is called within a new thread.
 		"""
+
 		controller, queue = parameters
-		assert controller is None # controller is implicitly LogicalProcess
+		assert controller is None # controller is implicitly Process
 
 		get = queue.get
 		tid = gettid()
@@ -490,25 +316,28 @@ class Fabric(object):
 					# sync result if any
 					self.process.enqueue(r)
 			except BaseException as err:
-				self.exception(task, err, title = "General Purpose Thread")
+				self.error(task, err, title = "General Purpose Thread")
 			finally:
 				pass
 
 	def executing(self, tid):
-		'Whether or not the given thread [identifier] is executing in this Fabric instance.'
+		"Whether or not the given thread [identifier] is executing in this Fabric instance."
+
 		return tid in self.dpt or tid in self.gpt
 
 	def increase(self, count = 1):
 		"""
 		Increase the general purpose thread count.
 		"""
+
 		for x in range(count):
 			self.spawn(None, self.loop, (None, self.general_purpose_queue,))
 
-	def descrease(self, count = 1):
+	def decrease(self, count = 1):
 		"""
 		Reduce the general purpose thread count.
 		"""
+
 		for x in range(count):
 			# None signal .thread() to exit
 			self.general_purpose_queue.put(None)
@@ -517,15 +346,18 @@ class Fabric(object):
 		"""
 		Execute the given task in a general purpose thread. A new thread will *not* be created.
 		"""
+
 		qsize = self.general_purpose_queue.qsize()
 		self.general_purpose_queue.put((controller, task))
 		return qsize
 
-class LogicalProcess(object):
+# Process exists here as it is rather distinct from core.*
+# It doesn't fall into the classification of a Resource.
+class Process(object):
 	"""
-	A logical process.
+	The representation of the system process running Python.
 
-	Usually only one @LogicalProcess is active per-process, but it is reasonable to launch multiple
+	Usually only one &Process is active per-process, but it can be reasonable to launch multiple
 	in order to perform operations that would otherwise expect its own space.
 	"""
 
@@ -533,53 +365,72 @@ class LogicalProcess(object):
 	def current(tid = libhazmat.identify_thread):
 		"""
 		Resolve the current logical process based on the thread's identifier.
-		@None is returned if the thread was not created by a @LogicalProcess.
+		&None is returned if the thread was not created by a &Process.
 		"""
+
 		x = tid()
 		for y in core.__process_index__:
 			if y.fabric.executing(x):
 				return y
 
 	@classmethod
-	def spawn(Class, invocation, programs, identifier = 'root'):
+	def spawn(Class, invocation, units, identity = 'root'):
 		"""
-		Construct a booted &LogicalProcess using the given &invocation
-		with the specified Programs.
+		Construct a booted &Process using the given &invocation
+		with the specified &Unit's.
 		"""
-		lp = Class(identifier, invocation = invocation)
-		lpd = core.__process_index__[lp] = {}
+
+		proc = Class(identity, invocation = invocation)
+		lpd = core.__process_index__[proc] = {}
 
 		inits = []
-		for identifier, roots in programs.items():
-			program = Program(identifier)
-			program.initialize(*roots, process = lp, Context = Context)
-			program.location = (lp.identifier,)
-			lpd[identifier] = program
+		for identity, roots in units.items():
+			unit = Unit()
+			unit.requisite(identity, roots, process = proc, Context = Context)
+			lpd[identity] = unit
+			proc._enqueue(functools.partial(forklib.critical, None, unit.actuate))
 
-			lp._enqueue(program.execute)
-
-		lpd[None] = program # determines primary program
-		return lp
+		lpd[None] = unit # determines primary program
+		return proc
 
 	def log(self, data):
 		"""
 		Append only access to a *critical* process log. Usually points to &sys.stderr and
-		primarily used for process related issues. Normally inappropriate for &Program's.
+		primarily used for process related issues. Normally inappropriate for &Unit's.
 		"""
+
 		self._logfile.write(data)
+		self._logfile.flush()
+
+	def fork(self, *tasks):
+		"""
+		Fork the process and enqueue the given tasks in the child.
+		Returns a &core.Subprocess instance referring to the Process-Id.
+		"""
+
+		global Subprocess
+
+		pid = forklib.Fork.dispatch(self.boot, *tasks)
+		subprocess = Subprocess()
+		subprocess.requisite((pid,))
+
+		return subprocess
 
 	def boot(self, *tasks):
 		"""
 		Boot the Context with the given tasks enqueued in the Task queue.
 		"""
+
 		if self.kernel is not None:
-			raise Exception("already booted")
+			raise RuntimeError("already booted")
+
+		forklib.fork_child_cleanup.add(self.void)
 
 		# kernel interface: watch pid exits, process signals, and enqueue events
 		self.kernel = Kernel()
-		self.enqueue(*tasks)
+		self.enqueue(*[functools.partial(forklib.critical, None, x) for x in tasks])
 
-		self.fabric.increase(1)
+		self.fabric.increase(1) # general purpose threads
 		self.fabric.spawn(None, self.main, ())
 
 		# replace boot() with protect() for main thread protection
@@ -589,17 +440,20 @@ class LogicalProcess(object):
 		"""
 		The main task loop executed by a dedicated thread created by &boot.
 		"""
+
 		# Normally
 		try:
 			self.loop()
-		except BaseException:
-			self.exception(self.loop, err, title = "Task Loop")
-			forklib.panic("exception raised by process loop") # programming error in LogicalProcess.loop
+		except BaseException as critical_loop_exception:
+			self.error(self.loop, critical_loop_exception, title = "Task Loop")
+			raise
+			raise forklib.Panic("exception escaped process loop") # programming error in Process.loop
 
 	def terminate(self, exit = None):
 		"""
 		Terminate the context. If no contexts remain, exit the process.
 		"""
+
 		self._exit_stack.__exit__(None, None, None)
 
 		del core.__process_index__[self]
@@ -612,9 +466,9 @@ class LogicalProcess(object):
 			else:
 				self.invocation.exit(exit)
 
-	def __init__(self, identifier, invocation = None):
+	def __init__(self, identity, invocation = None):
 		# Context Wide Resources
-		self.identifier = identifier
+		self.identity = identity
 		self.invocation = invocation # exit resource and invocation parameters
 
 		# track number of loop and designate maintenance frequency
@@ -639,106 +493,122 @@ class LogicalProcess(object):
 
 	def _init_system_events(self):
 		self.system_event_connections = {}
+		self.system_event_connect(('signal', 'terminal.query'), None, self.report)
 
 	def _init_fabric(self):
 		self.fabric = Fabric(self)
 
 	def _init_taskq(self, Queue = collections.deque):
-		self._tq = (Queue(), Queue())
-		self._tq_state = (0, 1)
+		self.loading_queue = Queue()
+		self.processing_queue = Queue()
+		#self._tq = (Queue(), Queue())
+		#self._tq_state = (0, 1)
 		self._tq_maintenance = set()
 
-	def _init_traffic(self):
+	def _init_traffic(self, Interchange=traffic.library.Interchange):
 		execute = functools.partial(self.fabric.critical, self, traffic.adapter)
-		ix = traffic.library.Interchange(traffic.adapter, execute = execute)
-		forklib.fork_child_cleanup.add(ix)
+		ix = Interchange(traffic.adapter, execute = execute)
 		core.__traffic_index__[self] = ix
 
 	@property
 	def interchange(self):
+		global core
 		return core.__traffic_index__[self]
 
-	def io(self, program):
+	def io(self, unit):
 		"""
-		Context manage to allocate Transit resources for use by the given Program.
+		Context manager to allocate Transit resources for use by the given Unit.
 		"""
-		return self.interchange.xact(id = program)
+
+		return self.interchange.xact(id = unit)
 
 	def void(self):
 		"""
-		Tear down the existing logical process state. Usually internally used after a
+		Tear down the existing logical process state. Usually used internally after a
 		physical process fork.
 		"""
+
 		# normally called in fork
 		self._init_exit()
 		self._init_fabric()
 		self._init_taskq()
 		self._init_system_events()
 		self.kernel.void()
+		self.kernel = None
 		self.interchange.void()
 
 	def __repr__(self):
-		return "{0}(identifier = {1!r})".format(self.__class__.__name__, self.identifier)
+		return "{0}(identity = {1!r})".format(self.__class__.__name__, self.identity)
 
-	def report(self, target):
+	actuated = True
+	terminated = False
+	terminating = None
+	interrupted = None
+	def structure(self):
+		"""
+		Structure information for the &Unit device entry.
+		"""
+		sr = ()
+
+		# processing_queue is normally empty whenever report is called.
+		ntasks = sum(map(len, (self.loading_queue, self.processing_queue)))
+		ngthreads = len(self.fabric.gpt)
+		nftasks = self.fabric.general_purpose_queue.qsize()
+		nunits = len(core.__process_index__[self]) - 1
+
+		p = [
+			('pid', forklib.current_process_id),
+			('tasks', ntasks),
+			('threads', ngthreads),
+			('general tasks', nftasks),
+			('units', nunits),
+			('executable', sys.executable),
+		]
+
+		python = os.environ.get('PYTHON')
+		p.append(('python', python))
+
+		return (p, sr)
+
+	def report(self, target=sys.stderr):
 		"""
 		Send an overview of the logical process state to the given target.
 		"""
-		response = "CONTEXT: [{0}]\n".format
-		txt = response(self.identifier)
-		txt += ' {0}: {1}\n'.format('TASKS', sum(map(len,self._tq)))
-		txt += ' {0}: threads {1}, queue {2}\n'.format('FABRIC', len(self.fabric.gpt), self.fabric.general_purpose_queue.qsize())
 
-		nprograms = len(core.__process_index__[self]) - 1
-		programs = ' '.join(set([y.identifier for x, y in core.__process_index__[self].items()]))
-		txt += ' {0}: {1} {2}\n'.format('PROGRAMS', nprograms, programs)
-		target(txt)
+		txt = ""
+
+		units = set(core.__process_index__[self].values())
+		for unit in units:
+			txt += '\n'.join(core.format(unit.identity, unit))
+
+		target.write(txt)
+		target.write('\n')
+		target.flush()
 
 	def maintain(self, task):
 		"""
 		Add a task that is repeatedly executed after each task cycle.
 		"""
+
 		if task in self._tq_maintenance:
 			self._tq_maintenance.discard(task)
 		else:
 			self._tq_maintenance.add(task)
 
-	def schedule(context, measure, task):
+	def error(self, context, exception, title = "Unspecified Execution Area"):
 		"""
-		Schedule the task for execution after the period of time &measure elapses.
+		Exception handler for the &Process instance.
+
+		This handler is called for unhandled exceptions.
 		"""
-		scheduler = libharm.Harmony()
 
-		p = scheduler.period()
-		t = (measure, task)
-		scheduler.put(t)
-		if p is None or p > measure:
-			context.kernel.alarm(scheduler.period() // 10000)
-		return t
-
-		def transact(scheduler, context):
-			"""
-			Process the alarm event that occurred in the given context.
-			"""
-			current = scheduler.get()
-			context.enqueue(*[event for (time, event) in current])
-
-			# schedule the next period
-			p = scheduler.period()
-			if p is not None:
-				context.kernel.alarm(p // 10000)
-
-	def exception(self, context, error, title = "Unspecified Execution Area"):
-		"""
-		Exception handler for the @LogicalProcess instance.
-
-		Normally, *all* unhandled exceptions should be sent here for reporting.
-		"""
-		error.__traceback__ = error.__traceback__.tb_next
+		exc = exception
+		exc.__traceback__ = exc.__traceback__.tb_next
 
 		# exception reporting facility
-		formatting = traceback.format_exception(error.__class__, error, error.__traceback__)
+		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
 		formatting = ''.join(formatting)
+
 		self.log("[Exception from %s: %r]\n%s" %(title, context, formatting))
 
 	def maintenance(self):
@@ -749,86 +619,115 @@ class LogicalProcess(object):
 			try:
 				task() # maintenance task
 			except BaseException as e:
-				self.exception(task, e, title = 'Maintenance',)
+				self.error(task, e, title = 'Maintenance',)
 
-	def loop(self, _swap = {
-			(0, 1) : (1, 0),
-			(1, 0) : (0, 1),
-		},
-		len = len,
-	):
-		cwq = None # current working queue
-		nwq = None # next working queue
+	def loop(self, len=len, partial=functools.partial, BaseException=BaseException):
+		"""
+		Internal loop that processes the task queue. Executed by &boot in a thread
+		managed by &fabric.
+		"""
 
-		while self._tq is not None:
+		cwq = self.processing_queue # current working queue; should be empty at start
+		nwq = self.loading_queue # next working queue
+		sec = self.system_event_connections
+
+		task_queue_interval = 2
+		default_interval = sys.getswitchinterval() / 5
+		setswitchinterval = sys.setswitchinterval
+
+		# discourage switching while processing task queue.
+		setswitchinterval(2)
+
+		while 1:
 			self.cycles += 1 # bump cycle
 
-			# The consumed queue becomes the loading and the loading will be consumed.
-			self._tq_state = _swap[self._tq_state]
+			# The processing queue becomes the loading and the loading becomes processing.
+			self.processing_queue, self.loading_queue = cwq, nwq = nwq, cwq
+			append = nwq.append
 
-			cwq = self._tq[self._tq_state[0]]
-			nwq = self._tq[self._tq_state[1]]
+			while cwq:
+				# consume queue
+				try:
+					pop = cwq.popleft
+					while cwq:
+						task = pop()
+						task() # perform the enqueued task
+				except BaseException as e:
+					self.error(task, e, title = 'Task',)
 
-			# The swap is performed this way to avoid unnecessary locks.
-			# The setting of the _tq_state changes the queue that will be
-			# loaded by .enqueue(...).
+			# This appears undesirable, but the alternative
+			# is to run force for each process local I/O event.
+			# Presuming that some I/O has occurred while processing
+			# the queue is not actually much of a stretch.
+			self.interchange.activity()
 
-			if cwq:
-				while cwq:
-					# consume queue
-					try:
-						pop = cwq.popleft
-						while cwq:
-							task = pop()
-							task() # perform the enqueued task
-					except BaseException as e:
-						self.exception(task, e, title = 'Task',)
-			else:
-				# no items in queue. wait for signal from Context.enqueue()
-				events = ()
-				waiting = (len(nwq) == 0 and len(cwq) == 0)
+			events = ()
+			waiting = (len(nwq) == 0 and len(cwq) == 0)
 
-				if self._tq_maintenance and (waiting or self.cycle % self.maintenance_frequency == 0):
-					# it's going to wait, so run maintenance
-					# XXX need to be able to peek at the kqueue events
-					self.maintenance()
+			if self._tq_maintenance and (waiting or self.cycle % self.maintenance_frequency == 0):
+				# it's going to wait, so run maintenance
+				# XXX need to be able to peek at the kqueue events
+				self.maintenance()
+
+			try:
+				# Change the interval to encourage switching in Python threads.
+				setswitchinterval(default_interval)
 
 				with self.kernel:
+					# Sets a flag inside the kernel structure indicating
+					# that a wait is about to occur; if the flag isn't
+					# set, a user event is not sent to the kqueue as it
+					# is unnecessary.
+
 					if waiting:
 						events = self.kernel.wait()
 					else:
 						# the next working queue has items, so don't bother waiting.
 						events = self.kernel.wait(0)
+			finally:
+				setswitchinterval(2)
 
-				# process signals and child exit events
-				sec = self.system_event_connections
-				for event in events:
-					if event[0] == 'process':
-						args = (libhazmat.process_delta(event[1]),)
-					else:
-						args = ()
+			# process unix signals and child exit events
+			for event in events:
+				remove_entry = False
 
-					if event in sec:
-						callback = sec[event][1]
-						self._enqueue(functools.partial(callback, *args))
-					else:
-						# note unhandled system events
-						pass
+				if event[0] == 'process':
+					event = ('process', event[1])
+					args = (event[1], libhazmat.process_delta(event[1]),)
+					remove_entry = True
+				elif event[0] == 'alarm':
+					append(event[1])
+					continue
+				else:
+					args = ()
 
-				# for event
-			# else
-		# while
+				if event in sec:
+					callback = sec[event][1] # system_event_connections
+					if remove_entry:
+						# process events only occur once
+						del sec[event]
+
+					append(partial(callback, *args))
+				else:
+					# note unhandled system events
+					print('unhandled event', event)
+
+			# for event
+		# while True
 
 	def system_event_connect(self, event, resource, callback):
 		"""
 		Connect the given callback to system event, &event.
+		System events are given string identifiers.
 		"""
+
 		self.system_event_connections[event] = (resource, callback)
 
 	def system_event_disconnect(self, event):
 		"""
 		Disconnect the given callback from the system event.
 		"""
+
 		if event not in self.system_event_connections:
 			return False
 
@@ -836,33 +735,89 @@ class LogicalProcess(object):
 		return True
 
 	def _enqueue(self, *tasks):
-		self._tq[self._tq_state[1]].extend(tasks)
+		self.loading_queue.extend(tasks)
 
-	def cut(self, *tasks, selection = (0, 1)):
+	def cut(self, *tasks):
 		"""
 		Impose the tasks by prepending them to the next working queue.
 
-		Used to enqueue tasks with "high" priority.
+		Used to enqueue tasks with "high" priority. Subsequent cuts will
+		precede the earlier ones, so it is not appropriate to use in cases were
+		order is significant.
 		"""
-		self._tq[self._tq_state[1]].extendleft(tasks)
+
+		self.loading_queue.extendleft(tasks)
 		self.kernel.force()
 
 	def enqueue(self, *tasks):
 		"""
 		Enqueue a task to be ran in the `Tasks` instance's thread.
 		"""
-		self._tq[self._tq_state[1]].extend(tasks)
+
+		self.loading_queue.extend(tasks)
 		self.kernel.force()
 
-def execute(**programs):
+# core exports
+endpoint = core.endpoint
+Port = core.Port
+Endpoint = core.Endpoint
+Local = core.Local
+Projection = core.Projection
+Layer = core.Layer # Base class for all layer contexts
+Interface = core.Interface
+
+Resource = core.Resource
+Extension = core.Extension
+Device = core.Device
+
+Transformer = core.Transformer
+Functional = core.Functional
+Reactor = core.Reactor # Transformer
+Parallel = core.Parallel
+Generator = core.Generator
+
+Collect = core.Collect
+Iterate = core.Iterate
+Spawn = core.Spawn
+
+Terminal = core.Terminal
+Trace = core.Trace
+
+Processor = core.Processor
+Unit = core.Unit
+Sector = core.Sector
+Library = core.Library
+Executable = core.Executable
+Control = core.Control
+Subprocess = core.Subprocess
+
+# Common Processors inside Sectors
+Coroutine = core.Coroutine
+Flow = core.Flow
+Thread = core.Thread
+Call = core.Call
+Protocol = core.Protocol
+
+Null = core.Null
+
+def execute(*identity, **units):
 	"""
 	Initialize a working directory and spawn a logical process to represent the
 	invocation from the [operating] system.
 
 	This is the appropriate way to invoke an fault.io process from an executable module.
 
-		io.library.execute(program_name = (initialize_program,))
+		io.library.execute(unit_name = (unit_initialization,))
+
+	Creates a &Unit instance that is passed to the initialization function where
+	it's hierarchy is then populated with &Sector instances.
 	"""
-	lp = LogicalProcess.spawn(forklib.Invocation.system(), programs)
+
+	if identity:
+		ident, = identity
+	else:
+		ident = 'root'
+
+	sp = Process.spawn(forklib.Invocation.system(), units, identity=ident)
 	# import root function
-	forklib.control(lp.boot)
+	forklib.control(sp.boot)

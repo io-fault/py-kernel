@@ -39,21 +39,29 @@ typedef struct kevent kevent_t; /* kernel event description */
  * SIGINT is handled fork.library.control() with signal.signal.
  * SIGUSR2 is *explicitly* used to trigger interjections.
  *
- * *All* Context instances will receive signals.
+ * *All* Kernel instances will receive signals.
  */
 #define KQ_SIGNALS() \
 	SIGNAME(SIGTERM) \
-	SIGNAME(SIGHUP) \
 	SIGNAME(SIGCONT) \
-	SIGNAME(SIGINFO) \
 	SIGNAME(SIGWINCH) \
-	SIGNAME(SIGUSR1)
+	SIGNAME(SIGINFO) \
+	SIGNAME(SIGHUP) \
+	SIGNAME(SIGUSR1) \
+	SIGNAME(SIGURG)
+
+/*
+ * SIGPOLL is POSIX+XSI and is apparently ignored on Darwin.
+ * SIGURG is apparently widely available.
+ * SIGIO doesn't exist on Linux.
+ * SIGINFO is only available on Darwin and BSD.
+ */
 
 /*
  * SIGNAME(SIGUSR2)
  *
  * SIGUSR2 is used to interrupt the main thread. This is used
- * to allow system.interject() to operate.
+ * to allow system.interject() to operate while in a system call.
  */
 
 #ifndef HAVE_STDINT_H
@@ -429,7 +437,7 @@ note_unit(int unit)
 
 		case 'u':
 		case ms:
-			note = NOTE_USECONDS;
+			note = NOTE_USECONDS; /* microseconds */
 		break;
 
 		case 's':
@@ -555,21 +563,28 @@ signal_string(int sig)
 			return "delta";
 		break;
 
+		case SIGURG:
+			return "urgent";
+		break
+
 		#ifdef SIGINFO
 			case SIGINFO:
 				return "terminal.query";
 			break;
 		#endif
 
-		case SIGWINCH:
-			return "terminal.delta";
-		break;
+		#ifdef SIGWINCH
+			case SIGWINCH:
+				return "terminal.delta";
+			break;
+		#endif
 
 		case SIGUSR1:
 			return "tunnel";
 		break;
 
 		case SIGUSR2:
+			/* Should be ignored; used to interrupt blocking system calls in the main thread. */
 			return "trip";
 		break;
 
@@ -633,6 +648,7 @@ interface_wait(PyObj self, PyObj args)
 		PyErr_SetFromErrno(PyExc_OSError);
 		return(NULL);
 	}
+	error = 0;
 
 	/*
 	 * Process the collected events.
@@ -661,6 +677,7 @@ interface_wait(PyObj self, PyObj args)
 					if (PySet_Discard(kif->kif_kset, link) < 0)
 					{
 						/* note internal error */
+						error = 1;
 					}
 				}
 			break;
@@ -681,11 +698,14 @@ interface_wait(PyObj self, PyObj args)
 						if (PySet_Discard(kif->kif_kset, link) < 0)
 						{
 							/* error */
+							error = 1;
 						}
 						else if (PySet_Discard(kif->kif_cancellations, link) < 0)
 						{
 							/* error */
+							error = 1;
 						}
+
 						continue;
 					break;
 					case 0:
@@ -693,6 +713,7 @@ interface_wait(PyObj self, PyObj args)
 					break;
 					default:
 						/* -1 error */
+						error = 1;
 					break;
 				}
 
@@ -703,6 +724,7 @@ interface_wait(PyObj self, PyObj args)
 					if (PySet_Discard(kif->kif_kset, link) < 0)
 					{
 						/* error */
+						error = 1;
 					}
 				}
 				else
@@ -727,6 +749,11 @@ interface_wait(PyObj self, PyObj args)
 			break;
 		}
 
+		if (ob == NULL || error != 0)
+		{
+			Py_DECREF(rob);
+			return(NULL);
+		}
 		PyList_Append(rob, ob);
 	}
 
@@ -742,6 +769,8 @@ interface_wait(PyObj self, PyObj args)
 		if (!PySet_Clear(kif->kif_cancellations))
 		{
 			/* error */
+			Py_DECREF(rob);
+			return(NULL);
 		}
 	}
 
