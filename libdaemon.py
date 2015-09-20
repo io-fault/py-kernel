@@ -326,14 +326,17 @@ class Control(library.Control):
 		dprint = builtins.print
 
 		def errprint(*args, **kw):
-			global forklib
+			'Override for print to default to standard error and qualify origin in output.'
+			global forklib, sys
 			nonlocal dprint, self
 
 			kw.setdefault('file', sys.stderr)
+			kw.setdefault('flush', True)
+			sid = self.context.association().identity
 			fid = self.fork_id
 			pid = forklib.current_process_id
 
-			dprint("[builtins.print(%d:%d)]:"%(fid,pid), *args, **kw)
+			dprint("[builtins.print(%s:%d/%d)]:"%(sid,fid,pid), *args, **kw)
 
 		builtins.print=errprint
 
