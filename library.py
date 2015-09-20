@@ -790,6 +790,7 @@ Library = core.Library
 Executable = core.Executable
 Control = core.Control
 Subprocess = core.Subprocess
+Scheduler = core.Scheduler
 
 # Common Processors inside Sectors
 Coroutine = core.Coroutine
