@@ -253,6 +253,13 @@ class Sector(Processor, metaclass = abc.ABCMeta):
 		"""
 		A &Processor controlled by the &Sector that provides scheduling
 		support for controlled &Processor instances referenced by the &Sector.
+
+		This &Processor does *not* block the exit of the &Sector;
+		rather it will be interrupted and remain as a property on the Sector
+		until its garbage collected.
+
+		Using these schedulers implies that events should only occur if the
+		&Sector is Functioning.
 		"""
 
 class Unit(Processor, metaclass = abc.ABCMeta):
@@ -271,7 +278,7 @@ class Unit(Processor, metaclass = abc.ABCMeta):
 	@abc.abstractmethod
 	def roots(self):
 		"""
-		A sequence listing the initialization functions of the Program.
+		A sequence listing the initialization functions of the &Unit.
 
 		During initialization, the items of this sequence are called and given
 		the &Program instance as its sole parameter.
@@ -295,6 +302,26 @@ class Unit(Processor, metaclass = abc.ABCMeta):
 		The values are containers of resources that make up state of the &Program.
 		"""
 
+	@property
+	@abc.abstractmethod
+	def ports(self):
+		"""
+		The sets of interfaces used to gain work.
+
+		For servers, this is where the listening Interfaces are managed.
+
+		Exists in the hierarchy as "/dev/ports".
+		"""
+
+	@property
+	@abc.abstracmethod
+	def scheduler(self):
+		"""
+		The root &Scheduler instance used by all controlled Resources.
+
+		Exists in the hierarchy as "/dev/scheduler".
+		"""
+
 class Flow(Processor, metaclass=abc.ABCMeta):
 	"""
 	A sequence of &Transformer instances.
@@ -305,12 +332,14 @@ class Flow(Processor, metaclass=abc.ABCMeta):
 		"""
 		Initiate the termination of the &Flow; causes the &Flow to be drained
 		then terminated by signalling the &Resource.controller of its exit.
+
+		Flow termination is dependent on &drain completion.
 		"""
 
 	@abc.abstractmethod
 	def drain(self, callback=None):
 		"""
-		Instruct the &Transformer sequence to drain any buffered events.
+		Instruct the &Transformer sequence to drain any retained events.
 
 		Used when a checkpoint has been reached in a protocol, and as the
 		signalling mechanism for completing termination.
