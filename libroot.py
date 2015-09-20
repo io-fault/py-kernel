@@ -2,15 +2,18 @@
 faultd. The root daemon for service management and scheduled processes.
 
 faultd manages a scheduling daemon, a set of service processes and a set of service
-Sectors assigned to a particular group with its own configurable distribution level.
+Sectors assigned to a particular group with its own configurable concurrency level.
 
-Multiple instances of a faultd daemon may exist, but usually only one is necessary.
+Multiple instances of a faultd daemon may exist, but usually only one per-user is necessary.
 The $HOME/.faultd directory is used by default, but can be adjusted by a command
 line parameter. The daemon directory supplies all the necessary configuration,
 so few options are available from system invocation.
 
-The daemon directory structure is a set of services managed by the instance with
-"scheduled" and "root" reserved for the management of the primary scheduler
+It is important that the faultd directory exist on the same partition as the
+Python executable. Hardlinks are used in order to provide accurate process names.
+
+The daemon directory structure is a set of service directories managed by the instance with
+"scheduled" and "root" reserved for the management of the administrative scheduler
 and the spawning daemon itself.
 
 # undermines controld http interface?
@@ -424,9 +427,8 @@ class ServiceManager(library.Processor):
 			# stderr stopgap; probably move to a log file managed by this class.
 			f = library.Flow()
 			def gah(s):
-				print(s.decode('utf-8'))
+				sys.stderr.write(s.decode('utf-8'))
 				sys.stderr.flush()
-				sys.stdout.flush()
 			pt = library.Functional(gah)
 			f.requisite(*(library.core.meter_input(stderr) + (pt,)))
 
