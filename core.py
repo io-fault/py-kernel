@@ -1432,7 +1432,6 @@ class Sector(Processor):
 
 		self.exits.add(processor)
 
-	# XXX: support role titles.. status?
 	def dispatch(self, processor : Processor):
 		"""
 		Dispatch the given &processor inside the Sector.
@@ -1444,8 +1443,9 @@ class Sector(Processor):
 
 		processor.subresource(self)
 		self.processors[processor.__class__].add(processor)
+		processor.actuate()
 
-		return processor.actuate()
+		return processor
 
 	def coroutine(self, gf):
 		"""
@@ -1559,6 +1559,26 @@ class SectorModule(Sector):
 			except KeyError:
 				raise AttributeError(attr)
 
+	class API(object):
+		"""
+		API Parameter builder for API class exports.
+
+		Supports the @api decorator.
+		"""
+
+		def __init__(self, sector):
+			self.__sector = sector
+			self.__params = {}
+			self.__class = None
+
+		def version(self, vspec):
+			self.__params['version'] = vspec
+			return self
+
+		def __call__(self, commit):
+			# commit the API class to its configured slot
+			self.__class = commit
+
 	# Requisites
 	exports = None
 	autostart = None
@@ -1588,6 +1608,7 @@ class SectorModule(Sector):
 		"""
 
 		mod.export = self.add_export
+		mod.api = self.API(self)
 		mod.boot = self.add_autostart
 		mod.lib = self.context.association().libraries
 		mod.sector = weakref.ref(self)
@@ -1847,6 +1868,7 @@ class Scheduler(Processor):
 					sched = controller.scheduler
 					if sched is not None:
 						break
+				controller = controller.controller
 			else:
 				# Use [unit]/dev/scheduler
 				sched = self.context.association().scheduler
@@ -1895,6 +1917,11 @@ class Scheduler(Processor):
 			np = self.state.period()
 			if np < p:
 				self.update()
+
+	def cancel(self, task):
+		"Cancel the execution of the task."
+
+		self.state.cancel(task)
 
 	def transition(self):
 		"""
