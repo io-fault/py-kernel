@@ -2159,7 +2159,7 @@ class Interface(Sector):
 				for x in xact.listen(self.funnel, fds.values()):
 					add(x)
 					self.dispatch(x)
-					x.process(None)
+					x.process(None) # Start allocating.
 
 		return self
 
@@ -2495,7 +2495,7 @@ class Detour(Transformer):
 class Functional(Transformer):
 	"A transformer that emits the result of a provided function."
 
-	def __init__(self, function):
+	def __init__(self, function=None):
 		self.function = function
 
 	def process(self, event):
@@ -2515,6 +2515,9 @@ class Composition(Functional):
 
 	Compositions are preferable to distinct Transformers for their
 	mutable capabilities. This allows protocol switches to be performed
+
+	Used heavily in meter_input and meter_output in order to allow protocol
+	substitutions.
 	"""
 
 	def structure(self):
@@ -2524,22 +2527,17 @@ class Composition(Functional):
 		]
 		return (p, ())
 
-	def __init__(self):
-		super().__init__()
-		self.sequence = ()
-		self.function = lambda x: x
+	def actuate(self):
+		if self.function is None:
+			self.compose()
 
-	def clear(self):
-		"Clear the composition leaving a simple reflection."
-
-		del self.functions[:]
-		self.function = lambda x: x
-
-	def compose(self, *sequence):
-		"Compose the given callables"
+	from ..fork import core
+	def compose(self, *sequence, Compose=core.compose):
+		"Substitute the composition of the Transformation."
 
 		self.sequence = sequence
-		self.function = libhazmat.compose(*sequence)
+		self.function = Compose(*sequence)
+	del core
 
 class Meter(Reactor):
 	"""
@@ -2711,7 +2709,7 @@ def meter_input(detour, allocate=Allocator.allocate_byte_array):
 	meter = Allocator(allocate)
 	g = Sensor(meter)
 
-	return (meter, detour, Functional.generator(g))
+	return (meter, detour, Functional.generator(g), Composition())
 
 def meter_output(detour):
 	"Create the necessary Transformers for metered output."
@@ -2719,7 +2717,7 @@ def meter_output(detour):
 	meter = Throttle()
 	g = Sensor(meter)
 
-	return (meter, detour, Functional.generator(g))
+	return (Composition(), meter, detour, Functional.generator(g))
 
 class Condition(object):
 	"""
@@ -3212,6 +3210,7 @@ class Iterate(Reactor):
 		self.terminal = terminal
 
 	def actuate(self):
+		super().actuate()
 		self.obstructed = False
 		self.iterator = ()
 
@@ -3342,7 +3341,7 @@ class Serialize(Extension):
 
 		self.output = None
 
-	def requisite(self, flow):
+	def requisite(self, flow, state=None):
 		# no inheritance; protocols refer to flows, they do not control them
 		self.output = flow
 	affix=requisite
@@ -3626,22 +3625,14 @@ class QueueProtocol(Protocol):
 		output.atexit(self.dependency_exit)
 	affix = requisite
 
-	def actuate(self):
-		"Provoke events from the input by invoking &process with &None."
-
-		super().actuate()
-
-		# Kill Protocol
-		self.distribute.input.process(None)
-
-		return self
-
 	def dependency_exit(self, flow):
 		"Called when either the input or output flow exits."
 
 		if self.exits:
-			self.terminate()
+			self.terminated = True
+			self.terminating = False
 			self.controller.exited(self)
+
 		self.exits += 1
 
 class ParallelProtocol(Protocol):
@@ -3824,7 +3815,7 @@ class Locks(Device):
 	Locks Device.
 
 	Manages the set of synchronization primitives used by a process. Usually
-	used by sector daemons that have plural distribution (forking deployments).
+	used by sector daemons to manage advisory locks.
 	"""
 
 	device_entry = 'locks'

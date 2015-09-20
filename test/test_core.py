@@ -3,6 +3,8 @@ from .. import core as library
 
 # used to emulate io.library.Context
 class TContext(object):
+	process = None
+
 	def __init__(self):
 		self.tasks = []
 
@@ -18,6 +20,12 @@ class TContext(object):
 		for x in self.tasks:
 			x()
 		del self.tasks[:l]
+
+	def defer(self, mt):
+		pass
+
+	def cancel(self, task):
+		pass
 
 class TTransit(object):
 	link = None
@@ -75,8 +83,9 @@ def test_ModuleSector(test):
 
 	test/ImportError ^ (lambda: library.Library.from_fullname(mnf))
 
-	u = library.Unit("none")
+	u = library.Unit()
 	ctx = TContext()
+	u.requisite("none", (), context=ctx)
 	ctx.associate(u)
 	u.context = ctx
 	test/ctx.association() == u
@@ -266,7 +275,8 @@ def test_iterate(test):
 	c = library.Collect.list()
 	i = library.Iterate()
 	f = library.Flow()
-	f.affix(i, c)
+	f.requisite(i, c)
+	f.actuate()
 
 	f.process(range(100))
 	test/c.storage == list(range(100))
@@ -277,7 +287,8 @@ def test_collect(test):
 	c = library.Collect.dict()
 	i = library.Iterate()
 	f = library.Flow()
-	f.affix(i, c)
+	f.requisite(i, c)
+	f.actuate()
 
 	f.process([
 		(1, "value1"),
@@ -293,7 +304,8 @@ def test_collect(test):
 	c = library.Collect.set()
 	i = library.Iterate()
 	f = library.Flow()
-	f.affix(i, c)
+	f.requisite(i, c)
+	f.actuate()
 
 	f.process([
 		1, 2, 3, 3, 3, 4, 5
@@ -305,7 +317,7 @@ def test_allocator(test):
 	t = TTransit()
 
 	f = library.Flow()
-	f.affix(*library.meter_input(t))
+	f.requisite(*library.meter_input(t))
 	meter = f.sequence[0]
 
 	test/t.link == f.sequence[1]
@@ -370,7 +382,6 @@ def test_throttle(test):
 	# here, we're primarily interesting in successful rotations.
 
 def test_Serialize(test):
-	""
 
 	Type = library.Serialize
 
@@ -382,26 +393,36 @@ def test_Serialize(test):
 		finally:
 			transport(('stop', layer))
 
+	S = library.Sector()
+
 	# output flow
 	f = library.Flow()
 	c = library.Collect.list()
-	f.affix(c)
+	f.requisite(c)
+	f.subresource(S)
 
 	# pair of inputs
 	fi = library.Flow()
 	i = library.Iterate()
-	fi.affix(i)
+	fi.requisite(i)
+	fi.actuate()
+	fi.subresource(S)
 
 	fib = library.Flow()
 	i2 = library.Iterate()
-	fib.affix(i2)
+	fib.requisite(i2)
+	fib.actuate()
+	fib.subresource(S)
 
 	fic = library.Flow()
 	i3 = library.Iterate()
-	fic.affix(i3)
+	fic.requisite(i3)
+	fic.actuate()
+	fic.subresource(S)
 
 	qs = Type(state_generator)
-	qs.affix(f)
+	qs.requisite(f)
+	qs.subresource(S)
 
 	qs.enqueue(1)
 	qs.enqueue(2)
@@ -462,7 +483,6 @@ def test_Serialize(test):
 	test/c.storage == [('start', 3)] + list(range(0, -10, -1)) + [('stop', 3)]
 
 def test_Distribute(test):
-	""
 
 	closed = []
 	accepted = []
@@ -556,7 +576,7 @@ def test_QueueProtocol(test):
 	# queue protocol
 	pass
 
-def test_Coroutine(self):
+def test_Coroutine(test):
 	"""
 	Evaluate the functions of a &library.Coroutine process;
 	notably the continuations and callback registration.
@@ -596,6 +616,34 @@ def test_Coroutine(self):
 
 	# test that immediate's atexit caused primary to continue
 	test/output == ['yield exited']
+
+def test_Composition(test):
+	effect = []
+
+	C = library.Composition()
+	C.actuate()
+	def add(x):
+		return x+1
+
+	C.emit = effect.append
+	C.process(None)
+	test/effect[-1] == None
+
+	C.compose(add, add, add)
+	C.process(1)
+	test/effect[-1] == 4
+
+	C.compose(add, add)
+	C.process(1)
+	test/effect[-1] == 3
+
+	C.compose(add)
+	C.process(1)
+	test/effect[-1] == 2
+
+	C.compose()
+	C.process(1)
+	test/effect[-1] == 1
 
 if __name__ == '__main__':
 	import sys; from ...development import libtest

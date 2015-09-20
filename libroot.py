@@ -323,7 +323,10 @@ class HTTP(library.Sector):
 				io = xact.acquire_socket(fd)
 				p, fi, fo = http.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
 
-				cxn.affix(p, fi, fo)
+				#cxn.requisite(p, fi, fo)
+				cxn.dispatch(fo)
+				cxn.dispatch(fi)
+				cxn.dispatch(p)
 				cxn.protocol = p
 				fi.process(None)
 
