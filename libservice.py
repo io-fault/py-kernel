@@ -1,7 +1,7 @@
 """
-faultd service
+Service interface.
 
-Manages io-daemons and arbitrary processes.
+Manages the service state stored on disk.
 
 [ Data ]
 
