@@ -1,8 +1,7 @@
 """
 Command Execution Unit
 
-Provides the necessary infrastructure for implementing and executing
-command scripts.
+Support for modules intended to be fault.io based scripts.
 """
 
 import sys
@@ -10,9 +9,10 @@ import inspect
 
 from . import library
 
-def init(unit):
+def initialize(unit):
 	"""
 	Initialize the unit with a new sector running the command's main.
+	If main is a generator, it will be invoked as a coroutine.
 	"""
 
 	# main/only sector; no (daemon) control interfaces
@@ -38,9 +38,12 @@ def init(unit):
 
 	unit.context.enqueue(s.actuate)
 
-def execute():
+def execute(name='__main__'):
 	"""
-	Ran by script.
+	Ran by script depending on libcommand:
+
+		if __name__ == '__main__':
+			libcommand.execute()
 	"""
 
-	library.execute(command=(init,))
+	library.execute(command=(initialize,))
