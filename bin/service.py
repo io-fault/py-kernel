@@ -57,7 +57,7 @@ def command_define(srv, *params):
 	srv.executable = exe
 	srv.parameters = params
 
-	if srv.type == "sectors":
+	if srv.type in ("root", "sectors"):
 		srv.libexec(recreate=True)
 
 	srv.store()
@@ -193,9 +193,7 @@ def command_report(srv):
 		Interfaces: {ifs}
 		Documentation:
 
-			{docs}
-
-	""".format(**locals())
+			{docs}\n\n""".format(**locals())
 
 	sys.stderr.write(report)
 
@@ -212,6 +210,14 @@ def command_execute(srv):
 
 	assert False
 
+def command_update(srv):
+	"Recreate the hardlink for root and sectors."
+
+	srv.load()
+
+	if srv.type in ("root", "sectors"):
+		srv.libexec(recreate=True)
+
 command_synopsis = {
 	'create': "type:(sectors|daemon|command) executable [parameters ...]",
 	'env-add': "[VARNAME1 VALUE1 VARNAME2 VALUE2 ...]",
@@ -223,6 +229,7 @@ command_map = {
 	'void': command_void,
 	'create': command_create,
 	'command': command_define,
+	'update': command_update,
 	'type': command_set_type,
 	'concurrency': command_set_concurrency,
 
@@ -275,9 +282,12 @@ def menu(route, syn=command_synopsis):
 	sl = route.subnodes()[0]
 	service_head = "\n\nServices [%s][%d]:\n\n\t" %(route.fullpath, len(sl),)
 	service_list = '\n\t'.join([x.identity for x in sl]) or '[None]'
-	service_list += '\n'
 
-	return head + descr + command_head + command_help + service_head + service_list
+	return ''.join([
+		head, descr, command_head,
+		command_help, service_head,
+		service_list, '\n\n'
+	])
 
 def main(*args, fiod=None):
 
