@@ -436,6 +436,7 @@ class Styled(object):
 
 	def terminal(self):
 		"Return a tuple suitable for fault.terminal."
+
 		return (
 			self.text,
 			self.styles,

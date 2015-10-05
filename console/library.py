@@ -110,6 +110,9 @@ class Fields(core.Refraction):
 		'The curent vertical index as a single IRange instance.'
 		return IRange((self.vertical_index, self.vertical_index))
 
+	def log(self, message):
+		self.context.process.log(message)
+
 	def focus(self):
 		super().focus()
 		self.update_horizontal_indicators()
@@ -2306,14 +2309,16 @@ class Status(Fields):
 		"Called when a different refraction has become the focus."
 		self.refraction_type = new.__class__
 
-		title = libfields.Styled(self.refraction_type.__name__ or "unknown")
-		title.foreground = libterminal.pastels['blue']
+		title = libfields.Styled(
+			self.refraction_type.__name__ or "unknown",
+			fg = libterminal.pastels['blue']
+		)
 
 		self.units = [
 			libfields.Sequence([
 				title,
 				libfields.Styled(": "),
-				libfields.Styled(getattr(new, 'source', '<No Source>')),
+				libfields.Styled(getattr(new, 'source', '<No Source>') or "none"),
 			])
 		]
 		return self.refresh()
@@ -2974,6 +2979,7 @@ class Console(iolib.Reactor):
 			self.display.caret_hide(),
 			self.display.disable_line_wrap(),
 			b''.join(self.adjust(self.dimensions)),
+			self.display.enable_mouse()
 		]
 
 		initialize.extend(self.status.refraction_changed(self.transcript))
@@ -2994,6 +3000,7 @@ class Console(iolib.Reactor):
 		self.emit(initialize)
 
 		initial = \
+			("If you cannot do things my way, I'll just have to find another user.\n\n") + \
 			("fault.io system console\n\n") + \
 			("") + \
 			("Terminal must support meta-key in order for console to function properly.\n") + \
@@ -3005,8 +3012,11 @@ class Console(iolib.Reactor):
 			(" close: Close the current refraction without saving. (prompt command)\n") + \
 			(" Meta-j: Use current pane to display the Next Refraction\n") + \
 			(" Meta-k: Use current pane to display the Previous Refraction\n") + \
-			("\nThis refraction is the console's Transcript; the in-memory log of the process.\n\n") + \
-			("If you cannot do things my way, I'll just have to find another user.\n\n")
+			("Mouse Support\n") + \
+			(" Primary Click: Control and Edit Mode will move cursor.\n") + \
+			(" Secondary Click: Opens Contextual Menu when in focus pane; otherwise focuses unfocused pane.\n") + \
+			(" Scroll: Scrolls the pane regardless of focus state.\n") + \
+			("\nThis refraction is the console's Transcript; the in-memory log of the process.\n\n")
 
 		self.transcript.write(initial)
 		self.panes[1].focus()
