@@ -1,8 +1,5 @@
 """
-Transformer access to security layers.
-
-Includes support for TLS 1.2, 1.1, and 1.0 using OpenSSL.
-
+core.Transports support for PKI based security layer.
 """
 
 import functools
@@ -10,76 +7,39 @@ import functools
 from . import core
 from ..cryptography import openssl
 
-class Transport(core.Transformer):
+# Asynchronous TLS is fairly complicated when adapted to fault.io Flows.
+# The primary issues being termination management where there are
+# underlying components that can cause interrupts in the security layer.
+# The TLS Transformer should be terminated first independently of the actual Detour.
 
-	@staticmethod
-	def input(transport):
-		return (transport.write_enciphered, transport.read_deciphered)
-
-	@staticmethod
-	def output(transport):
-		return (transport.write_deciphered, transport.read_enciphered)
-
-	def __init__(self, transport, polarity):
-		self.transport = transport
-		self.emission = None
-		self.polarity = polarity
-
-	@property
-	def emit(self):
-		return self.emission
-
-	@emit.setter
-	def emit(self, val):
-		self.emission = val
-
-		if self.polarity == 1:
-			pair = self.input()
-		else:
-			pair = self.output()
-
-		self.transition = functools.partial(transport, val, *pair)
-
-	def coordinate(self, output):
-		"Coordinate the input side (&self) with the output side (&output)."
-
-		self.xget = output.get
-		self.xput = output.put
-
-	def opposite(self):
-		"Inject events into the opposite Flow of the connection."
-
-		pass
-
-	@staticmethod
-	def transition(transport, emit, put, get, events, alloc=functools.partial(bytearray,1024*4)):
-		mv = memoryview
-
-		for x in events:
-			put(x) # put data into openssl BIO
-
-		emits = []
-		add = emits.append
-
-		xb = alloc()
-		size = get(xb)
-
-		while size: # XXX: compare to buffer size
-			add(mv(xb)[:size])
-			xb = alloc()
-			size = get(xb)
-
-		emit(emits)
-
-	def process(self, events):
-
-		self.transition(events, self.emit, self.put, self.get)
-
-class Context(object):
+def operations(transport):
 	"""
-	Secure input or output using given @security_state.
+	Construct the input and output operations for use with a &core.Transports instance.
 	"""
 
-	def __init__(self, context):
-		self.context = context
+	input = (
+		transport.decipher, transport.pending_input, transport.pending_output,
+	)
+
+	output = (
+		transport.encipher, transport.pending_output, transport.pending_input,
+	)
+
+	return (input, output)
+
+_public_context = None
+
+def public(certificates=()):
+	"""
+	Initialize and return a TLS security context for use with the publicly available
+	certificates.
+
+	This does *not* consider the system's configured certificates.
+	"""
+
+	global _public_context
+	if _public_context is None:
+		_public_context = openssl.Context(certificates=certificates+())
+
+	return _public_context
 

@@ -27,6 +27,7 @@ from ..fork import libhazmat
 from ..routes import library as routeslib
 from ..internet import library as netlib
 from ..chronometry import library as timelib
+from ..computation import library as complib
 
 # Indirect association of SystemProcess objects and LogicalProcess's
 __process_index__ = dict()
@@ -166,16 +167,6 @@ def controllers(resource):
 		obj = obj.controller
 
 	return stack
-
-class Port(int):
-	"A reference to a *kernel* port; usually a file descriptor."
-
-	__slots__ = ()
-
-	type = 'file descriptor'
-
-	def __str__(self):
-		return "spi://" + int.__str__(self)
 
 class Local(tuple):
 	"A reference to a unix domain file system socket."
@@ -357,6 +348,7 @@ endpoint_classes = {
 	'local': Local.create,
 	'ip4': netlib.Endpoint.create_ip4,
 	'ip6': netlib.Endpoint.create_ip6,
+	'domain': netlib.Reference.from_domain,
 	'internal': None, # relay push; local to process
 	'coprocess': None, # process-group abstraction interface
 }
@@ -473,10 +465,12 @@ class Transaction(object):
 
 		return meter_input(rd), meter_output(wd)
 
-	def connect(self, protocol, address, port):
+	def connect(self, protocol, address, port, transports = ()):
 		"""
 		Allocate Transformer resources associated with connections to the endpoint
 		by the parameters: &protocol, &address, &port.
+
+		Connect does not forward bind parameters.
 		"""
 
 		locator = ('octets', protocol)
@@ -487,7 +481,7 @@ class Transaction(object):
 		rd.requisite(r)
 		wd.requisite(w)
 
-		return meter_input(rd), meter_output(wd)
+		return meter_input(rd, transports=transports), meter_output(wd, transports=transports)
 
 	def acquire(self, dir, *fds):
 		"""
@@ -556,8 +550,35 @@ class Transaction(object):
 
 			yield flow
 
+	def append(self, path):
+		"""
+		Allocate a Detour appending data to the given file.
+		"""
+
+		t = self.traffic(('octets', 'file', 'append'), path)
+		d = Detour()
+		d.requisite(t)
+
+		return meter_output(d)
+
+	def flow(self, *sequences, chain=itertools.chain):
+		"""
+		Create a flow and designate the sequences of Transformers
+		as its requisites (pipeline).
+
+		Each arguments must be sequences of transformers.
+		"""
+		global Flow
+
+		f = Flow()
+		f.subresource(self.sector)
+		f.requisite(*chain(*sequences))
+
+		return f
+
 	def flows(self, count=2, range=range):
 		"Construct flows identifying the transaction's processor as its controller."
+		global Flow
 
 		u = self.unit
 		for x in range(count):
@@ -1030,6 +1051,14 @@ class Processor(Resource):
 			props.append(('exceptions', len(self.exceptions)))
 			sr = [(ident, ExceptionStructure(ident, exc)) for ident, exc in self.exceptions]
 
+		p = [
+			x for x in [
+				('terminator', self.terminator),
+				('interruptor', self.interruptor),
+			] if x[1] is not None
+		]
+		props.extend(p)
+
 		return (props, sr)
 
 class Call(Processor):
@@ -1487,14 +1516,14 @@ class Sector(Processor):
 			if controller is not None:
 				controller.exited(self)
 
-	def xact(self):
+	def allocate(self):
 		"""
 		Create a Resource Allocation Transaction for creating sockets and spawning processes.
 		"""
 
 		global Transaction
 		return Transaction(self)
-	allocate = xact
+	xact = allocate
 
 class Control(Sector):
 	"""
@@ -1818,6 +1847,26 @@ class Commands(Processor):
 	def actuate(self):
 		super().actuate()
 
+class Recurrence(object):
+	"""
+	Timer maintenance for recurring tasks.
+
+	Usually used for short term recurrences such as animations and human status updates.
+	"""
+
+	__slots__ = ('target', 'scheduler')
+
+	def __init__(self, scheduler, target):
+		self.scheduler = weakref.proxy(scheduler)
+		self.target = target
+
+	def occur(self):
+		"Invoke a recurrence and use its return to schedule its next iteration."
+
+		next_delay = self.target()
+		if next_delay is not None:
+			self.scheduler.defer(next_delay, self.occur)
+
 class Scheduler(Processor):
 	"""
 	Delayed execution of arbitrary callables.
@@ -1923,6 +1972,13 @@ class Scheduler(Processor):
 
 		self.state.cancel(task)
 
+	def recurrence(self, callback):
+		"Begin a recurring task."
+
+		r = Recurrence(self, callback)
+		r.occur()
+		return r
+
 	def transition(self):
 		"""
 		Execute the next task given that the period has elapsed.
@@ -2021,22 +2077,23 @@ class Thread(Processor):
 	"""
 	A dedicated thread for a processor.
 
-	Normally used in conjunction with blocking calls the produce other
-	processors or events for &Flow instances.
+	Normally used to process blocking calls from queued
 	"""
 
-	def __init__(self, callable, parameters):
-		super().__init__()
+	def requisite(self, callable):
 		self.callable = callable
-		self.parameters = parameters
 
 	def actuate(self):
 		"""
 		Execute the dedicated thread for the transformer.
 		"""
 
-		self.context.execute(self, self.callable, *((self,) + self.parameters))
+		super().actuate()
+		self.context.execute(self, self.callable, self)
 		return self
+
+	def process(self):
+		pass
 
 class Coroutine(Processor):
 	"""
@@ -2127,6 +2184,7 @@ class Interface(Sector):
 		"""
 		/slot
 			The slot to acquire from the &Ports instance assigned to "/dev/ports".
+
 		/spawn
 			The function used to initialize the subsector created to handle a connection.
 		"""
@@ -2176,7 +2234,7 @@ class Transformer(Resource):
 
 	[ Properties ]
 
-	/retains
+	/&retains
 		Whether or not the Transformer holds events for some purpose.
 		Essentially used to communicate whether or not &drain performs
 		some operation.
@@ -2234,6 +2292,220 @@ class Autonomous(Transformer):
 	@property
 	def process(self):
 		pass
+
+class Reflection(Transformer):
+	"""
+	Transformer that performs no modifications to the processed events.
+
+	Reflections are Transformers that usually create some side effect based
+	on the processed events.
+	"""
+
+class Transports(Transformer):
+	"""
+	Transformer whose purpose is to encode and decode events in order
+	to facilitate the desired conceptual Transport.
+
+	Transports represents a stack of protocol layers and manages their
+	initialization and termination so that the outermost layer is
+	terminated before the inner layers, and vice versa for initialization.
+
+	Transports are primarily used to manage TLS.
+	"""
+
+	@property
+	def opposite(self):
+		"The transformer of the opposite direction for the Transports pair."
+		return self.opposite_transformer()
+
+	def requisite(self, opposite):
+		"Opposite transformer is needed to propagate opposing reactions."
+
+		self.opposite_transformer = weakref.ref(opposite)
+
+	def configure(self, polarity, stack, *operations):
+		"""
+		Assign the sequence of layer operations.
+
+		The layer operations are pairs consisting of the operations for the
+		read transports and write transports. The positioning is subjective,
+		so if the input Transformer is being configured, the first item in
+		the pair should be the input operations.
+		"""
+
+		self.polarity = polarity
+		self.stack = list(stack)
+		self.operations = [x[0] for x in operations]
+
+		opp = self.opposite
+		opp.polarity = -polarity
+		opp.stack = stack
+		opp.operations = [x[1] for x in reversed(operations)]
+
+	callbacks = None
+	def atshutdown(self, callback):
+		if self.callbacks is None:
+			self.callbacks = set()
+
+		self.callbacks.add(callback)
+
+	def drained(self):
+		callbacks = self.callbacks
+		del self.callbacks
+
+		for drain_complete_cb in callbacks:
+			drain_complete_cb()
+
+	def drain(self):
+		"""
+		Drain the security layer.
+
+		Buffers are left as empty as possible, so flow termination is the only
+		condition that leaves a requirement for drain completion.
+
+		Drain is how &Transport manages properly sequenced termination
+		for the security layer; TLS must be terminated prior to their
+		corresponding transports (Detours).
+		"""
+
+		if self.stack:
+			flow = self.controller
+			if flow.terminating:
+				# signal transport that termination needs to occur
+				self.stack[0].terminate(self.polarity)
+				# drain is complete when shutdown is received
+				return self.atshutdown
+
+		# Not terminating, no flushes necessary.
+		return None
+
+	def process(self, events, depth=0):
+		opposite_has_work = False
+
+		for ops in self.operations:
+			# ops tuple:
+			# 0: transfer data into and out of the transport
+			# 1: Current direction has transfers
+			# 2: Opposite direction has transfers
+			# (Empty transfers can progress data)
+
+			# put all events into the transport layer's buffer.
+			events = ops[0](events)
+
+			if opposite_has_work is False and ops[2]():
+				opposite_has_work = True
+		else:
+			# final event set gets transferred
+			# XXX: keep as sequence of buffers
+			if events:
+				self.emit(events)
+
+		if self.stack[0].terminated:
+			# fully terminated. pop item.
+
+			if self.polarity > 0:
+				# recv/input
+				del self.operations[-1]
+				del self.opposite.operations[0]
+			else:
+				# send/output
+				del self.opposite.operations[-1]
+				del self.operations[0]
+
+			del self.stack[-1]
+
+			if not self.stack and self.controller.terminating:
+				# signal completion so termination can continue
+				self.drained()
+				if self.opposite.controller.terminating:
+					self.opposite.drained()
+
+		if opposite_has_work:
+			# Use recursion on purpose to allow
+			# the maximum stack depth to block an infinite loop.
+			self.opposite.process(())
+
+	if 0:
+		def transition(self, get,
+				alloc=functools.partial(bytearray,1024*4),
+				memoryview=memoryview,
+				partial=functools.partial,
+			):
+
+			# Local Transfer Possible
+			# For the input side, this means has_reads
+			# For the output side, this means has_writes
+			emits = []
+			add = emits.append
+
+			xb = alloc()
+			size = get(xb)
+
+			while size:
+				add(memoryview(xb)[:size])
+				xb = alloc()
+				size = get(xb)
+
+			return b''.join(emits)
+
+		def process(self, events, depth=0):
+			opposite_has_work = False
+
+			for ops in self.operations:
+				# ops tuple:
+				# 0: put into state
+				# 1: get out of state (handled by transition)
+				# 2: Current direction has transfers
+				# 3: Opposite direction has transfers
+
+				# put all events into the transport layer's buffer.
+				if events:
+					size = ops[0](events)
+				#for x in events:
+					#put(x)
+
+				if ops[2]():
+					events = self.transition(ops[1])
+				else:
+					# Empty out events in the case that
+					# there was nothing to be forwarded.
+
+					# This is fairly critical in cases where a subsequent
+					# layer has state that requires attention, but
+					# no data should be propagated to it.
+					events = b''
+
+				if opposite_has_work is False and ops[3]():
+					opposite_has_work = True
+			else:
+				# final event set gets transferred
+				if events:
+					self.emit(events)
+
+			if self.stack[0].terminated:
+				# fully terminated. pop item.
+
+				if self.polarity > 0:
+					# recv/input
+					del self.operations[-1]
+					del self.opposite.operations[0]
+				else:
+					# send/output
+					del self.opposite.operations[-1]
+					del self.operations[0]
+
+				del self.stack[-1]
+
+				if not self.stack and self.controller.terminating:
+					# signal completion so termination can continue
+					self.drained()
+					if self.opposite.controller.terminating:
+						self.opposite.drained()
+
+			if opposite_has_work and not depth:
+				# Use recursion on purpose to allow
+				# the maximum stack depth to block an infinite loop.
+				self.opposite.process(b'', depth=0)
 
 class Terminal(Transformer):
 	"""
@@ -2433,9 +2705,18 @@ class Detour(Transformer):
 		else:
 			port, ep = self.status
 
-		s = '<%s.%s(%s) [%s] at %s>' %(
+		if self.transit is None:
+			res = "(no transit)"
+		else:
+			if self.transit.resource is None:
+				res = "none"
+			else:
+				res = str(len(self.transit.resource))
+
+		s = '<%s.%s(%s) RL:%s [%s] at %s>' %(
 			mn, qn,
 			str(ep),
+			res,
 			str(port),
 			hex(id(self))
 		)
@@ -2444,6 +2725,7 @@ class Detour(Transformer):
 
 	def requisite(self, transit=None):
 		self.transit = transit
+		#transit.resize_exoresource(1024*128)
 		self.acquire = transit.acquire
 		transit.link = self
 	affix=requisite
@@ -2531,13 +2813,11 @@ class Composition(Functional):
 		if self.function is None:
 			self.compose()
 
-	from ..fork import core
-	def compose(self, *sequence, Compose=core.compose):
+	def compose(self, *sequence, Compose=complib.compose):
 		"Substitute the composition of the Transformation."
 
 		self.sequence = sequence
 		self.function = Compose(*sequence)
-	del core
 
 class Meter(Reactor):
 	"""
@@ -2546,19 +2826,14 @@ class Meter(Reactor):
 
 	measure = len
 
-	def transition(self):
+	def transition(self, len=len):
 		alloc = self.next()
 		self.emit(alloc)
-		self.transferring = self.measure(alloc)
+		self.transferring = len(alloc)
 		self.transferred = 0
 
 	def measure(self, event, len=len):
 		return len(event)
-
-	def exited(self, event):
-		"""
-		Called by a &Sensor to notify the Meter of a completion.
-		"""
 
 	def exited(self, event):
 		measure = self.measure(event)
@@ -2654,10 +2929,10 @@ class Throttle(Meter):
 		"Queue entries exceeds limit."
 		return len(self.queue) > self.limit
 
-	def __init__(self, Queue = collections.deque):
+	def __init__(self, Queue=collections.deque):
 		super().__init__()
 		self.queue = Queue()
-		self.next = self.queue.pop
+		self.next = self.queue.popleft
 		self.transferring = 0
 		self.transferred = 0
 
@@ -2681,7 +2956,7 @@ class Throttle(Meter):
 		Enqueue a sequence of events for processing by the following Transformer.
 		"""
 
-		self.queue.append(event)
+		self.queue.extend(event)
 
 		if self.transferring == 0:
 			# nothing transferring, so the process resource is available.
@@ -2701,23 +2976,29 @@ def Sensor(transformer):
 
 	while True:
 		exited(event)
-		event = (yield event)
+		event = (yield (event,))
 
-def meter_input(detour, allocate=Allocator.allocate_byte_array):
+def meter_input(detour, transports=False, allocate=Allocator.allocate_byte_array):
 	"Create the necessary Transformers for metered input."
 
 	meter = Allocator(allocate)
 	g = Sensor(meter)
 
-	return (meter, detour, Functional.generator(g), Composition())
+	if transports:
+		return (meter, detour, Functional.generator(g), Transports(), Composition())
+	else:
+		return (meter, detour, Functional.generator(g), Composition())
 
-def meter_output(detour):
+def meter_output(detour, transports=False):
 	"Create the necessary Transformers for metered output."
 
 	meter = Throttle()
 	g = Sensor(meter)
 
-	return (Composition(), meter, detour, Functional.generator(g))
+	if transports:
+		return (Composition(), Transports(), meter, detour, Functional.generator(g))
+	else:
+		return (Composition(), meter, detour, Functional.generator(g))
 
 class Condition(object):
 	"""
@@ -3002,8 +3283,10 @@ class Flow(Processor):
 			if callback is not None:
 				self.draining.add(callback)
 
-			clear_when = Condition(self, ('draining',))
-			self.obstruct(self.__class__.drain, None, clear_when)
+			if not self.terminating:
+				# Don't obstruct if terminating.
+				clear_when = Condition(self, ('draining',))
+				self.obstruct(self.__class__.drain, None, clear_when)
 
 			# initiate drain
 			return self.drains(0)
@@ -3032,7 +3315,8 @@ class Flow(Processor):
 				after_drain_callback()
 
 			del self.draining # not draining
-			self.clear(self.__class__.drain)
+			if not self.terminating and not self.terminated:
+				self.clear(self.__class__.drain)
 
 		return True
 
@@ -3042,6 +3326,7 @@ class Flow(Processor):
 
 		Called after a terminal &drain to set the terminal state..
 		"""
+		global Inexorable
 		assert self.terminating is not False
 
 		self.terminated = True
@@ -3050,6 +3335,7 @@ class Flow(Processor):
 		for x in self.sequence:
 			x.terminate()
 
+		self.obstruct(self.__class__.terminate, None, Inexorable)
 		self.controller.exited(self)
 
 	def terminate(self, by=None):
@@ -3057,7 +3343,6 @@ class Flow(Processor):
 		Drain the Flow and finish termination by signalling the controller
 		of its exit.
 		"""
-		global Inexorable
 
 		if self.terminated or self.terminating:
 			return False
@@ -3066,7 +3351,6 @@ class Flow(Processor):
 		self.terminated = False
 		self.terminating = True
 
-		self.obstruct(self.__class__.terminate, None, Inexorable)
 		self.drain(self.finish) # set the drainage obstruction
 
 		return True
@@ -3214,14 +3498,22 @@ class Iterate(Reactor):
 		self.obstructed = False
 		self.iterator = ()
 
-	def process(self, it, iter=iter):
+	def process(self, it, source=None, iter=iter, chain=itertools.chain):
 		"""
 		Process the iterator replacing the current if any.
 		Each iteration is treated as an individal event, so &Iterate
 		is equivalent to: `map(Iterate.emit, it)`.
 		"""
 
-		self.iterator = iter(it)
+		if self.iterator == ():
+			# new iterator
+			self.iterator = iter(it)
+			if self.obstructed:
+				self.controller.clear(self)
+		else:
+			# concatenate the iterators
+			self.iterator = chain(self.iterator, iter(it))
+
 		if not self.obstructed:
 			self.transition()
 
@@ -3273,23 +3565,48 @@ class Collect(Terminal):
 	def process(self, obj):
 		self.operation(obj)
 
-class Trace(Transformer):
+class Trace(Reflection):
 	"""
-	Reflection &Transformer that prints events to standard error(by default).
+	Reflection that allows a set of operations to derive meta data from the Flow.
 	"""
 
-	def __init__(self, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
-		self.title = title
-		self.log = log
-		self.flush = flush
+	def __init__(self):
+		super().__init__()
+		self.monitors = dict()
+
+	def monitor(self, identity, callback):
+		"""
+		Assign a monitor to the Meta Reflection.
+
+		/identity
+			Arbitrary hashable.
+		/callback
+			Unary callable.
+		"""
+
+		self.monitors[identity] = callback
 
 	def process(self, event):
+		for x in self.monitors.values():
+			x(event)
+
+		self.emit(event)
+
+	@staticmethod
+	def log(event, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
+		"Trace monitor for printing events."
 		if self.title:
-			trace = ('EVENT TRACE[' + self.title + ']:' + repr(event)+'\n')
+			trace = ('EVENT TRACE[' + title + ']:' + repr(event)+'\n')
 		else:
 			trace = ('EVENT TRACE: ' + repr(event)+'\n')
 
-		self.flush()
+		if self.condition is not None and self.condition:
+			self.log(trace)
+			self.flush()
+		else:
+			self.log(trace)
+			self.flush()
+
 		self.emit(event)
 
 class Spawn(Terminal):
@@ -3539,9 +3856,14 @@ class Distribute(Extension):
 		"End of Layer context content. Flush queue and remove entries."
 
 		if layer.content and layer in self.flows:
-			# flush q if possible
-			self.drain(layer)
-			del self.queues[layer]
+			# flush q if necessary
+			if layer in self.queues:
+				# This branch doesn't happen
+				# in cases where the head of the line
+				# has already connected a flow. (queue is removed)
+				self.drain(layer)
+				del self.queues[layer]
+
 			flow = self.flows.pop(layer)
 		else:
 			flow = None

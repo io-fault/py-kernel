@@ -9,6 +9,7 @@ import itertools
 import json
 import pprint
 
+from ..computation import library as complib
 from ..internet import libhttp
 from ..internet import libmedia
 from ..chronometry import library as timelib
@@ -146,6 +147,11 @@ class Layer(core.Layer):
 		self.headers = dict()
 		self.inititation = None
 		self.header_sequence = []
+
+	def __str__(self):
+		init = " ".join(x.decode('utf-8') for x in self.initiation)
+		heads = "\n\t".join(x.decode('utf-8') + ': ' + y.decode('utf-8') for (x,y) in self.header_sequence)
+		return init + "\n\t" + heads
 
 	def initiate(self, rline):
 		"Called when the request or response was received from a remote endpoint."
@@ -297,7 +303,7 @@ def v1_input(
 					break
 			else:
 				# need more for headers
-				events = iter((yield))
+				events = iter(itertools.chain(*(yield)))
 
 		# got request or status line and headers for this request
 		assert len(lrline) == 3
@@ -343,7 +349,7 @@ def v1_input(
 				else:
 					if body:
 						# send a copy of the body onward
-						transport(layer, body)
+						transport(layer, (body,))
 
 						body = []
 						local_state[content] = body.append
@@ -351,7 +357,7 @@ def v1_input(
 
 			else:
 				# need more for EOM
-				events = iter((yield))
+				events = iter(itertools.chain(*(yield)))
 			# for x in events
 		else:
 			# pop transaction
@@ -372,7 +378,7 @@ def v1_input(
 				excess += data
 
 		# XXX: currently no way to access the excess
-		events = (yield)
+		events = iter(itertools.chain(*(yield)))
 
 # The distinction between Client1 and Server1 is necessary for managing
 # 
@@ -380,13 +386,17 @@ def v1_input(
 def flows(xact, input, output):
 	fi, fo = xact.flows()
 
-	pi = core.Functional(libhttp.disassembly().send)
-	fi.affix(*(input + (pi,)))
-	pi.actuate()
+	#pi = core.Functional(libhttp.disassembly().send)
+	#fi.affix(*(input + (pi,)))
+	fi.requisite(*input)
+	fi.sequence[-1].compose(complib.unroll(libhttp.disassembly().send, Sequence=tuple))
+	#pi.actuate()
 
-	po = core.Functional(libhttp.assembly().send)
-	fo.affix(*((po,) + output))
-	po.actuate()
+	#po = core.Functional(libhttp.assembly().send)
+	#fo.affix(*((po,) + output))
+	fo.requisite(*output)
+	fo.sequence[0].compose(complib.plural(libhttp.assembly().send))
+	#po.actuate()
 
 	return fi, fo
 
@@ -394,22 +404,29 @@ def init_sector(xact):
 	si, so = xact.acquire_socket(fd)
 	return flows(xact, si, so)
 
-def client_v1(input, output,
-		suffix=(Response, Request, v1_input, v1_output)
-	):
+def client_v1(xact, accept, closed, input, output, transports=()):
 	"""
 	Given input and output Flows, construct and connect a Protocol instance
 	for an HTTP 1.x client.
 	"""
 
-	# Protcol I/O flows provide a Composition transformer.
-	input.sequence[-1].push(libhttp.disassembly().send)
-	output.sequence[0].push(libhttp.assembly().send)
+	global Response, Request, v1_input, v1_output
 
-	p = core.QueueProtocol()
-	p.requisite(input, output, xact.sector.reception_open, xact.sector.reception_close, *suffix)
+	fi, fo = flows(xact, input, output)
+	if transports:
+		# Before the Composition
+		ti = fi.sequence[-2]
+		# After the Composition
+		to = fo.sequence[1]
+		ti.requisite(to)
+		to.requisite(ti)
+		ti.configure(1, (transports[0],), transports[1])
 
-	return p
+	p = core.QueueProtocol(Response, Request, v1_input, v1_output)
+	#p.requisite(input, output, xact.sector.reception_open, xact.sector.reception_close, *suffix)
+	p.requisite(accept, closed, fi, fo)
+
+	return p, fi, fo
 
 def server_v1(xact, accept, closed, input, output):
 	fi, fo = flows(xact, input, output)
@@ -424,11 +441,74 @@ class Interface(core.Interface):
 	An HTTP interface Sector. Provides the foundations for constructing
 	an HTTP 2.0, 1.1, and 1.0 interface.
 
-	Interfaces represent a set of client or server connections.
+	Interfaces represent the programmed access to a set of client or server connections.
 	"""
 
-	def accept(self, packet):
-		pass
+class Client(core.Sector):
+	"""
+	Client Connection Sector.
+
+	Represents a single client conneciton.
+	"""
+
+	def http_transaction_open(self, layer, partial=functools.partial, tuple=tuple):
+		ep, request = self.response_endpoints[0]
+		del self.response_endpoints[0]
+
+		ep(self, request, layer, functools.partial(self.protocol.distribute.connect, layer))
+
+	def http_transaction_close(self, layer, flow):
+		# called when the input flow of the request is closed
+		# by the state generator.
+		if flow is not None:
+			flow.terminate()
+
+	def http_request(self, endpoint, layer, flow = None):
+		"""
+		Emit an HTTP request.
+
+		The endpoint is the callable that will be invoked when the
+		response arrives. The &endpoint should have the signature:
+
+			def endpoint(sector, request, response, connect_input):
+				...
+
+		Where &connect_input is a callable that specifies the receiving
+		Flow.
+		"""
+
+		self.response_endpoints.append((endpoint, layer))
+
+		out = self.protocol.serialize
+		out.enqueue(layer)
+		out.connect(layer, flow)
+
+	@classmethod
+	def open(Class, sector, endpoint, transports=None):
+		"""
+		Open an HTTP connection inside the Sector.
+		"""
+
+		cxn = Class()
+		sector.dispatch(cxn)
+
+		with cxn.xact() as xact:
+			io = xact.connect(
+				endpoint.protocol, endpoint.address, endpoint.port,
+				transports = transports,
+			)
+
+			p, fi, fo = client_v1(xact,
+				cxn.http_transaction_open,
+				cxn.http_transaction_close,
+				*io, transports=transports)
+
+			cxn.protocol = p
+			cxn.process((p, fi, fo))
+			cxn.response_endpoints = []
+			fi.process(None)
+
+		return cxn
 
 # Media Support (Accept header) for Python types.
 

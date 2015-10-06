@@ -759,7 +759,7 @@ class Process(object):
 
 # core exports
 endpoint = core.endpoint
-Port = core.Port
+#Port = core.Port
 Endpoint = core.Endpoint
 Local = core.Local
 Projection = core.Projection
