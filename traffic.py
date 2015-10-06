@@ -21,13 +21,15 @@ def deliver_io_events(junction, events):
 	their associated &Detour Transformers.
 	"""
 
+	popevent = events.popleft
+
 	while events:
 		detour = link = delta = flow = None
 		# the double loop here is keep the primary loop inside
 		# the try/except
 		try:
 			while events:
-				event = events.popleft()
+				event = popevent()
 
 				link, delta = event
 				detour = link
@@ -62,7 +64,6 @@ def deliver_io_events(junction, events):
 					# to a programming error in io.
 					junction.link.error((junction, event), exception)
 				else:
-					print('FAULTED')
 					flow = detour.controller
 					flow.fault(exception, detour)
 					flow.context.process.error(flow, exception, title="I/O")
