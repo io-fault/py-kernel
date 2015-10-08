@@ -102,7 +102,7 @@ def status(time=None, next=timelib.Measure.of(second=1)):
 
 		if seconds:
 			rate = (units / time.select('second'))
-			print("%s @ %f KB/sec" %(x, rate / 1024,))
+			print("\r%s @ %f KB/sec       " %(x, rate / 1024,), end='')
 
 	return next
 

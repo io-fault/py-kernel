@@ -2408,7 +2408,7 @@ class Transports(Transformer):
 		# Termination must be checked everytime.
 		if self.stack[0].terminated and not termination:
 			# *fully* terminated. pop item after allowing the opposite to complete
-			print('NOTED TERMINATE')
+
 			# This needs to be done as the transport needs the ability
 			# to flush any remaining events in the opposite direction.
 			opp = self.opposite
