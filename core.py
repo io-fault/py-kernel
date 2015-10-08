@@ -149,8 +149,12 @@ def format(identity, resource, tabs="\t".__mul__):
 			rc_id = modname + '.' + rc.__qualname__
 
 			actuated = "->" if resource.actuated else "-"
-			terminated = "|" if resource.terminated else ""
+			if getattr(resource, 'terminating', None):
+				terminated = "." if resource.terminating else ""
+			else:
+				terminated = "|" if resource.terminated else ""
 			interrupted = "!" if resource.interrupted else ""
+
 			yield '%s/%s [%s] %s%s%s' %(
 				tabs(depth), identity, rc_id,
 				actuated, terminated, interrupted
@@ -2334,7 +2338,7 @@ class Transports(Transformer):
 		"""
 
 		self.polarity = polarity
-		self.stack = list(stack)
+		stack = self.stack = list(stack)
 		self.operations = [x[0] for x in operations]
 
 		opp = self.opposite
@@ -2351,10 +2355,10 @@ class Transports(Transformer):
 
 	def drained(self):
 		callbacks = self.callbacks
-		del self.callbacks
-
-		for drain_complete_cb in callbacks:
-			drain_complete_cb()
+		if callbacks is not None:
+			del self.callbacks
+			for drain_complete_cb in callbacks:
+				drain_complete_cb()
 
 	def drain(self):
 		"""
@@ -2373,13 +2377,15 @@ class Transports(Transformer):
 			if flow.terminating:
 				# signal transport that termination needs to occur
 				self.stack[0].terminate(self.polarity)
+				self.process(())
 				# drain is complete when shutdown is received
 				return self.atshutdown
 
 		# Not terminating, no flushes necessary.
+		# XXX: zero transfer?
 		return None
 
-	def process(self, events, depth=0):
+	def process(self, events, termination=False):
 		opposite_has_work = False
 
 		for ops in self.operations:
@@ -2397,115 +2403,48 @@ class Transports(Transformer):
 		else:
 			# final event set gets transferred
 			# XXX: keep as sequence of buffers
-			if events:
-				self.emit(events)
+			self.emit(events)
 
-		if self.stack[0].terminated:
-			# fully terminated. pop item.
+		# Termination must be checked everytime.
+		if self.stack[0].terminated and not termination:
+			# *fully* terminated. pop item after allowing the opposite to complete
+			print('NOTED TERMINATE')
+			# This needs to be done as the transport needs the ability
+			# to flush any remaining events in the opposite direction.
+			opp = self.opposite
+			# (Avoid an infinite loop using the termination parameter.)
+			opp.process((), termination=True)
 
+			del self.stack[0]
+			# operations is perspective sensitive
 			if self.polarity > 0:
 				# recv/input
 				del self.operations[-1]
-				del self.opposite.operations[0]
+				del opp.operations[0]
 			else:
 				# send/output
-				del self.opposite.operations[-1]
 				del self.operations[0]
+				del opp.operations[-1]
 
-			del self.stack[-1]
+			if not self.stack:
+				# signal drain completion or initiate termination
+				# of the next transport layer
+				if opp.controller.terminating:
+					opp.drained()
+				if self.controller.terminating:
+					self.drained()
+			else:
+				# Otherwise, the next stack needs to terminated,
+				# if the controller is terminating.
+				if opp.controller.terminating:
+					opp.stack[0].terminate(-self.polarity)
+				if self.controller.terminating:
+					self.stack[0].terminate(self.polarity)
 
-			if not self.stack and self.controller.terminating:
-				# signal completion so termination can continue
-				self.drained()
-				if self.opposite.controller.terminating:
-					self.opposite.drained()
-
-		if opposite_has_work:
+		elif opposite_has_work and not termination:
 			# Use recursion on purpose to allow
 			# the maximum stack depth to block an infinite loop.
 			self.opposite.process(())
-
-	if 0:
-		def transition(self, get,
-				alloc=functools.partial(bytearray,1024*4),
-				memoryview=memoryview,
-				partial=functools.partial,
-			):
-
-			# Local Transfer Possible
-			# For the input side, this means has_reads
-			# For the output side, this means has_writes
-			emits = []
-			add = emits.append
-
-			xb = alloc()
-			size = get(xb)
-
-			while size:
-				add(memoryview(xb)[:size])
-				xb = alloc()
-				size = get(xb)
-
-			return b''.join(emits)
-
-		def process(self, events, depth=0):
-			opposite_has_work = False
-
-			for ops in self.operations:
-				# ops tuple:
-				# 0: put into state
-				# 1: get out of state (handled by transition)
-				# 2: Current direction has transfers
-				# 3: Opposite direction has transfers
-
-				# put all events into the transport layer's buffer.
-				if events:
-					size = ops[0](events)
-				#for x in events:
-					#put(x)
-
-				if ops[2]():
-					events = self.transition(ops[1])
-				else:
-					# Empty out events in the case that
-					# there was nothing to be forwarded.
-
-					# This is fairly critical in cases where a subsequent
-					# layer has state that requires attention, but
-					# no data should be propagated to it.
-					events = b''
-
-				if opposite_has_work is False and ops[3]():
-					opposite_has_work = True
-			else:
-				# final event set gets transferred
-				if events:
-					self.emit(events)
-
-			if self.stack[0].terminated:
-				# fully terminated. pop item.
-
-				if self.polarity > 0:
-					# recv/input
-					del self.operations[-1]
-					del self.opposite.operations[0]
-				else:
-					# send/output
-					del self.opposite.operations[-1]
-					del self.operations[0]
-
-				del self.stack[-1]
-
-				if not self.stack and self.controller.terminating:
-					# signal completion so termination can continue
-					self.drained()
-					if self.opposite.controller.terminating:
-						self.opposite.drained()
-
-			if opposite_has_work and not depth:
-				# Use recursion on purpose to allow
-				# the maximum stack depth to block an infinite loop.
-				self.opposite.process(b'', depth=0)
 
 class Terminal(Transformer):
 	"""
@@ -2753,6 +2692,8 @@ class Detour(Transformer):
 		# Called when the termination condition is received,
 		# but *after* any transfers have been injected.
 
+		# io.traffic calls this.
+
 		if self.transit is None:
 			# terminate has already been ran; status is present
 			pass
@@ -2772,6 +2713,8 @@ class Detour(Transformer):
 			flow.controller.exited(flow)
 
 	def process(self, event):
+		# This method is actually overwritten on actuate.
+		# process is set to Transit.acquire.
 		self.acquire(event)
 
 class Functional(Transformer):
@@ -2822,34 +2765,42 @@ class Composition(Functional):
 class Meter(Reactor):
 	"""
 	Base class for constructing meter Transformers.
+
+	Meters are used to measure throughput of a Flow. Primarily used
+	in conjunction with a sensor to identify when a Detour has finished
+	transferring data to the kernel.
+
+	Meters are also Reactors; they manage obstructions in order to control
+	the Flow given excessive resource usage.
 	"""
+
+	def __init__(self):
+		super().__init__()
+		self.transferring = None
+		self.transferred = 0
 
 	measure = len
 
 	def transition(self, len=len):
+		# filter empty transfers
+		measure = 0
+
 		alloc = self.next()
-		self.emit(alloc)
-		self.transferring = len(alloc)
+		measure = self.transferring = self.measure(alloc)
 		self.transferred = 0
 
-	def measure(self, event, len=len):
-		return len(event)
+		self.emit(alloc)
 
 	def exited(self, event):
+		# Called by the Sensor.
+
 		measure = self.measure(event)
 		self.transferred += measure
 
-		if self.transferred == self.transferring:
+		if self.transferring is None or self.transferred == self.transferring:
 			self.transferred = 0
-			self.transferring = 0
+			self.transferring = None
 			self.transition()
-
-	def report(self):
-		"""
-		Acquire a snapshot of the meter's data.
-		"""
-
-		pass
 
 class Allocator(Meter):
 	"""
@@ -2864,11 +2815,9 @@ class Allocator(Meter):
 	def __init__(self, allocate=allocate_byte_array):
 		super().__init__()
 		self.allocate = allocate
-		self.transferring = 0
-		self.transferred = 0
 		self.resource_size = allocate[1]
 
-		self.obstructed = False
+		self.obstructed = False # the *controller* is being arbitrary obstructed
 		self.transitioned = False
 
 	def transition(self):
@@ -2895,6 +2844,8 @@ class Allocator(Meter):
 			super().transition()
 
 	def suspend(self, flow):
+		# It mostly waits for resume events to make a decision
+		# about what should be done next.
 		self.obstructed = True
 
 class Throttle(Meter):
@@ -2933,19 +2884,24 @@ class Throttle(Meter):
 		super().__init__()
 		self.queue = Queue()
 		self.next = self.queue.popleft
-		self.transferring = 0
-		self.transferred = 0
+		self.obstructing = False # *this* transformer is obstructing
 
 	def transition(self):
 		# in order for a drain to be complete, we must transition on an empty queue.
 		if self.queue:
+			# pop
 			super().transition()
-		elif self.draining is not False:
-			self.draining()
-			del self.draining # become class defined False
+		else:
+			if self.draining is not False:
+				self.draining()
+				del self.draining # become class defined False
+
+		if self.obstructing and not self.queue:
+			self.obstructing = False
+			self.controller.clear(self)
 
 	def drain(self):
-		if self.queue or self.transferring != self.transferred:
+		if self.queue or self.transferring is not None:
 			return functools.partial(self.__setattr__, 'draining')
 		else:
 			# queue is empty
@@ -2958,12 +2914,13 @@ class Throttle(Meter):
 
 		self.queue.extend(event)
 
-		if self.transferring == 0:
-			# nothing transferring, so the process resource is available.
+		if self.transferring is None:
+			# nothing transferring, so there should be no transfer resources (Transit/Detour)
 			self.transition()
 		else:
 			global Condition
 			if len(self.queue) > self.limit:
+				self.obstructing = True
 				self.controller.obstruct(self, None,
 					Condition(self, ('overflow',))
 				)
@@ -3821,7 +3778,8 @@ class Distribute(Extension):
 	affix=requisite
 
 	def process(self, events, source = None):
-		self.state.send(events)
+		self.controller.context.enqueue(functools.partial(self.state.send, events))
+		#self.state.send(events)
 
 	def connect(self, layer, flow):
 		"Associate the flow with the Layer Context allowing transfers into the flow."
@@ -3895,8 +3853,6 @@ class QueueProtocol(Protocol):
 	"""
 
 	def structure(self):
-		""
-
 		p = [
 			('distribute.input', self.distribute.input),
 			('serialized.output', self.serialize.output),

@@ -461,7 +461,7 @@ class Client(core.Sector):
 		# called when the input flow of the request is closed
 		# by the state generator.
 		if flow is not None:
-			flow.terminate()
+			flow.terminate(by=self.http_transaction_close)
 
 	def http_request(self, endpoint, layer, flow = None):
 		"""

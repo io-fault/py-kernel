@@ -35,7 +35,7 @@ with open('/x/realm/ssl/certs/ca-bundle.crt', 'rb') as f:
 	security_context = security.openssl.Context(certificates=[f.read()])
 
 def response_collected(sector, request, response, flow):
-	pass
+	print('response collected')
 
 def response_endpoint(sector, request, response, connect, transports=()):
 	print(response)
@@ -107,7 +107,6 @@ def status(time=None, next=timelib.Measure.of(second=1)):
 	return next
 
 def initialize(unit):
-	os.umask(0o137)
 	library.core.Ports.load(unit)
 
 	proc = unit.context.process
@@ -146,5 +145,6 @@ def initialize(unit):
 	unit.scheduler.recurrence(status)
 
 if __name__ == '__main__':
+	os.umask(0o137)
 	from .. import library
 	library.execute(control = (initialize,))
