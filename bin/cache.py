@@ -37,8 +37,9 @@ with open('/x/realm/ssl/certs/ca-bundle.crt', 'rb') as f:
 def response_collected(sector, request, response, flow):
 	print('response collected')
 
-def response_endpoint(sector, request, response, connect, transports=()):
+def response_endpoint(sector, request, response, connect, transports=(), tls=None):
 	print(response)
+	print(tls.peer_certificate.subject)
 	ri = request.resource_indicator
 	if ri["path"]:
 		path = routeslib.File.from_path(ri["path"][-1])
@@ -77,7 +78,7 @@ def request(struct):
 	return req
 
 def dispatch(sector, url):
-	struct, endpoint = url
+	struct, endpoint = url # libri.parse(x), internet.library.Endpoint(y)
 
 	req = request(struct)
 
@@ -85,9 +86,10 @@ def dispatch(sector, url):
 		tls = security_context.connect()
 		hc = http.Client.open(sector, endpoint, transports=(tls, security.operations(tls)))
 	else:
+		tls = None
 		hc = http.Client.open(sector, endpoint, security_context.rallocate())
 
-	hc.http_request(response_endpoint, req, None)
+	hc.http_request(functools.partial(response_endpoint, tls=tls), req, None)
 
 def process_exit(sector):
 	"""
