@@ -6,8 +6,12 @@ import locale
 import codecs
 import keyword
 import itertools
+import weakref
 
-from ...terminal import library as libterminal
+from ...chronometry import library as timelib
+from ...filesystem import library as fslib # autosave/session persistence
+
+from ...terminal import library as libterminal # terminal display
 from ...terminal import symbols
 from ...status import library as libstatus
 
@@ -18,35 +22,13 @@ from . import libquery
 from . import lines as lineslib
 
 from . import core
+from . import palette
+
 IRange = core.IRange
-
-range_color_palette = {
-	'start-inclusive': 0x00CC00,
-	'stop-inclusive': 0xFF8700, # orange (between yellow and red)
-
-	'offset-active': 0xF0F000, # yellow, actual position
-	'offset-inactive': 0,
-
-	'start-exclusive': 0x005F00,
-	'stop-exclusive': 0xFF0000,
-}
-
-color_reference = {
-	'teal': 0x005f5f,
-	'orange': 0xff8700,
-	'purple': 0x875fff,
-	'cream': 0xffd787,
-	'brick': 0x5f0000,
-}
-
-# colors used for range highlighting
-color_highlights = [
-	0x878700,
-]
 
 contexts = (
 	'system', # the operating system 
-	'program', # the program the editor is running in
+	'unit', # the program the editor is running in
 	'control', # the session control; the prompt
 	'session', # the state of the set of projects being managed
 	'project', # the project referring to the container (may be None)
@@ -95,6 +77,20 @@ actions = dict(
 	),
 )
 
+class Session(iolib.Processor):
+	"""
+	A set of buffers and execution contexts accessed by a Console.
+
+	Session provides a storage abstraction, persistent cache, and retention policy.
+	"""
+
+	def __init__(self, route):
+		self.route = route
+		self.transcript = None
+		self.connections = weakref.WeakValueDictionary()
+		self.refractions = {}
+		self.persistence = None #libfs.Dictionary()
+
 class Fields(core.Refraction):
 	"""
 	A &fields based refraction that maintains focus and field selection state.
@@ -125,6 +121,51 @@ class Fields(core.Refraction):
 		unit = self.units[vi]
 		path, field, state = line.find(self.horizontal.get())
 		return (vi, unit, path, field)
+
+	def new(self,
+		Class = lineslib.profile('text')[0],
+		indentation = libfields.Indentation.acquire(0),
+		Sequence = libfields.Sequence,
+		String = libfields.String
+	):
+		"""
+		Create and return new Field Sequence.
+		"""
+		return Sequence((indentation, Class(String(""))))
+
+	def open_vertical(self, il, position, quantity, temporary=False, len=len):
+		"Create a quantity of new lines at the cursor &position."
+
+		vi = self.vertical_index
+		nunits = len(self.units)
+		new = min(vi + position, nunits)
+
+		if new < nunits:
+			relation = self.units[new][1].__class__
+		elif nunits:
+			if vi >= nunits:
+				relation = self.units[vi-1][1].__class__
+			else:
+				relation = self.units[vi][1].__class__
+		else:
+			relation = self.document_line_class
+
+		self.units[new:new] = [self.new(relation, il) for x in range(quantity)]
+		start = new
+
+		v = self.vertical
+		v.expand(new - v.get(), quantity)
+		v.set(start)
+		self.vector_last_axis = v
+
+		self.horizontal.configure(il.length(), 0)
+
+		self.clear_horizontal_indicators()
+		self.update_unit()
+		self.update_window()
+		self.display(max(0, new-quantity), None)
+
+		return ((self.truncate_vertical, (new, new+quantity)), IRange((new, new+quantity-1)))
 
 	def block(self, index, ilevel = None, minimum = 0, maximum = None):
 		"""
@@ -476,7 +517,7 @@ class Fields(core.Refraction):
 	def visible_tab(v, size = 4):
 		return (('-' * (size-1)) + '|') * v
 
-	def comment(self, q, iterator, color = color_reference['brick']):
+	def comment(self, q, iterator, color = palette.theme['comment']):
 		"Draw the comment."
 		yield (q.value(), (), color)
 		for path, x in iterator:
@@ -494,9 +535,10 @@ class Fields(core.Refraction):
 		Indent=libfields.Indentation,
 		Constant=libfields.Constant,
 		has_content=libfields.has_content,
+		quotation=palette.theme['quotation'],
 		isinstance=isinstance,
 		len=len, hasattr=hasattr,
-		iter=iter, next=next
+		iter=iter, next=next,
 	):
 		"Draw an individual unit for rendering."
 
@@ -542,7 +584,7 @@ class Fields(core.Refraction):
 				yield from self.quotation(x, i)
 				continue
 			elif val.isdigit() or (val.startswith('0x') and val[2:].isdigit()):
-				yield (x.value(), (), color_reference['teal'])
+				yield (x.value(), (), quotation)
 				continue
 			elif x is self.separator:
 				fs += 1
@@ -581,7 +623,7 @@ class Fields(core.Refraction):
 		vc = symbols.combining['right']['vertical-line'],
 		fs = symbols.combining['full']['forward-slash'],
 		xc = symbols.combining['high']['wedge-right'],
-		range_color_palette = range_color_palette,
+		range_color_palette = palette.range_colors,
 	):
 		invert = True
 		mode = self.keyboard.current[0]
@@ -1301,6 +1343,50 @@ class Fields(core.Refraction):
 		self.vector_last_axis = v
 		self.movement = True
 
+	def event_select_single(self, event):
+		"Modify the horizontal range to field beneath the position indicator."
+		line = self.unit[1]
+		fields = list(self.unit.subfields())
+		offset = self.horizontal.get()
+
+		current = 0
+		index = 0
+		for path, field in fields:
+			l = field.length()
+			if offset - l < current:
+				break
+			index += 1
+			current += l
+
+		# index is the current field
+		nfields = len(fields)
+		start = index
+
+		for i in range(index, nfields):
+			path, f = fields[i]
+			if f.merge == False and f not in line.routers:
+				break
+		else:
+			# series query while on edge of line.
+			return
+
+		stop = self.unit.offset(*fields[i])
+
+		for i in range(index, -1, -1):
+			path, f = fields[i]
+			if isinstance(f, libfields.Indentation):
+				i = 1
+				break
+			if f.merge == False and f not in line.routers:
+				i += 1
+				break
+		start = self.unit.offset(*fields[i])
+
+		self.horizontal_query = 'series'
+		h = self.vector_last_axis = self.horizontal
+
+		h.restore((start, offset, stop))
+
 	def event_select_series(self, event):
 		"Expand the horizontal range to include fields separated by an access, routing, delimiter."
 		line = self.unit[1]
@@ -1371,15 +1457,6 @@ class Fields(core.Refraction):
 
 		self.movement = True
 
-	def seek(self, vertical_index):
-		"Go to a specific vertical index."
-		v = self.vector.vertical
-		d, o, m = v.snapshot()
-		self.clear_horizontal_indicators()
-		v.restore((d, vertical_index, m))
-		self.update_vertical_state()
-		self.movement = True
-
 	def event_navigation_move_bol(self, event):
 		self.clear_horizontal_indicators()
 		offset = self.indentation_adjustments(self.unit)
@@ -1431,13 +1508,13 @@ class Fields(core.Refraction):
 		self.movement = True
 
 	# line [history] forward/backward
-	def event_window_vertical_forward(self, event, quantity = 1):
+	def event_window_vertical_forward(self, event, quantity=1, point=None):
 		self.clear_horizontal_indicators()
 		self.window.vertical.move(quantity)
 		self.movement = True
 		self.scrolled()
 
-	def event_window_vertical_backward(self, event, quantity = 1):
+	def event_window_vertical_backward(self, event, quantity=1, point=None):
 		self.clear_horizontal_indicators()
 		self.window.vertical.move(-quantity)
 		self.movement = True
@@ -1703,44 +1780,6 @@ class Fields(core.Refraction):
 		else:
 			raise Exception("unknown axis")
 
-	def new(self,
-		Class = lineslib.profile('text')[0],
-		indentation = libfields.Indentation.acquire(0),
-		Sequence = libfields.Sequence,
-		String = libfields.String
-	):
-		return Sequence((indentation, Class(String(""))))
-
-	def open_vertical(self, il, position, quantity, temporary = False, len = len):
-		"Create a quantity of new lines at the cursor position."
-		vi = self.vertical_index
-		nunits = len(self.units)
-		new = min(vi + position, nunits)
-
-		if new < nunits:
-			relation = self.units[new][1].__class__
-		elif nunits:
-			relation = self.units[vi][1].__class__
-		else:
-			relation = self.document_line_class
-
-		self.units[new:new] = [self.new(relation, il) for x in range(quantity)]
-		start = new
-
-		v = self.vertical
-		v.expand(new - v.get(), quantity)
-		v.set(start)
-		self.vector_last_axis = v
-
-		self.horizontal.configure(il.length(), 0)
-
-		self.clear_horizontal_indicators()
-		self.update_unit()
-		self.update_window()
-		self.display(max(0, new-quantity), None)
-
-		return ((self.truncate_vertical, (new, new+quantity)), IRange((new, new+quantity-1)))
-
 	def clear_horizontal_state(self):
 		"Zero out the horizontal cursor."
 		self.horizontal.configure(0,0,0)
@@ -1763,6 +1802,7 @@ class Fields(core.Refraction):
 
 	def event_open_ahead(self, event, quantity = 1):
 		"Open a new vertical ahead of the current vertical position."
+
 		if len(self.units) == 0:
 			return self.event_open_behind(event, quantity)
 
@@ -1956,14 +1996,17 @@ class Fields(core.Refraction):
 		self.display(*r.exclusive())
 
 	def event_delta_delete_backward_adjacent_class(self, event,
-		classify=libquery.classify
-	):
-		"Delete the characters before the position until the class changes."
+			classify=libquery.classify
+		):
+		"""
+		Delete the characters before the position indicator
+		until the class changes. Or, delete the previous word.
+		"""
 		pass
 
 	def event_delta_delete_forward_adjacent_class(self, event,
-		classify=libquery.classify
-	):
+			classify=libquery.classify
+		):
 		"Delete the characters after the position until the class changes."
 		pass
 
@@ -2020,35 +2063,6 @@ class Fields(core.Refraction):
 	def event_delta_insert_space(self, event):
 		"Insert a literal space."
 		self.insert_characterslibfields.Delimiter((' '))
-
-	def indent(self, sequence, quantity = 1, ignore_empty = False,
-		IClass = libfields.Indentation.acquire
-	):
-		"""
-		Increase or decrease the indentation level of the given sequence.
-
-		The sequence is prefixed with a constant corresponding to the tab-level,
-		and replaced when increased.
-		"""
-		h = self.vector.horizontal
-
-		l = 0
-		if not sequence or not isinstance(sequence[0], libfields.Indentation):
-			new = init = IClass(quantity)
-			sequence.prefix(init)
-		else:
-			init = sequence[0]
-			l = init.length()
-			level = init + quantity
-			if level < 0:
-				level = 0
-			new = sequence[0] = IClass(level)
-
-		# contract or expand based on tabsize
-		h.datum += (new.length() - l)
-		if h.datum < 0:
-			h.datum = 0
-		h.constrain()
 
 	def event_delta_indent_increment(self, event, quantity = 1):
 		if self.distributing and not libfields.has_content(self.unit):
@@ -2119,7 +2133,8 @@ class Fields(core.Refraction):
 		remainder = str(self.unit[1])[position:]
 
 		r = IRange.single(self.vertical_index)
-		self.log(self.unit[1].delete(position, position+len(remainder)), r)
+		if remainder:
+			self.log(self.unit[1].delete(position, position+len(remainder)), r)
 
 		inverse = self.open_vertical(self.get_indentation_level(), 1, 1)
 		self.log(*inverse)
@@ -2151,14 +2166,63 @@ class Fields(core.Refraction):
 
 	def unit_class(self, index, len = len):
 		"Get the corresponding line class for the index."
+
 		nunits = len(self.units)
 		if nunits and index >= 0 and index < nunits:
 			return self.units[index][1].__class__
 		else:
 			return self.document_line_class
 
+	def event_paste_after(self, event):
+		self.paste(self.vertical_index+1)
+
+	def event_paste_before(self, event):
+		self.paste(self.vertical_index)
+
+	def event_paste_into(self, event):
+		pass
+
+	def seek(self, vertical_index):
+		"Go to a specific vertical index."
+		v = self.vector.vertical
+		d, o, m = v.snapshot()
+		self.clear_horizontal_indicators()
+		v.restore((d, vertical_index, m))
+		self.update_vertical_state()
+		self.movement = True
+
+	def indent(self, sequence, quantity = 1, ignore_empty = False,
+		IClass = libfields.Indentation.acquire
+	):
+		"""
+		Increase or decrease the indentation level of the given sequence.
+
+		The sequence is prefixed with a constant corresponding to the tab-level,
+		and replaced when increased.
+		"""
+		h = self.vector.horizontal
+
+		l = 0
+		if not sequence or not isinstance(sequence[0], libfields.Indentation):
+			new = init = IClass(quantity)
+			sequence.prefix(init)
+		else:
+			init = sequence[0]
+			l = init.length()
+			level = init + quantity
+			if level < 0:
+				level = 0
+			new = sequence[0] = IClass(level)
+
+		# contract or expand based on tabsize
+		h.datum += (new.length() - l)
+		if h.datum < 0:
+			h.datum = 0
+		h.constrain()
+
 	def write(self, index, string, line_separator = '\n', Sequence = libfields.Sequence):
 		"Create new lines to write the string into."
+
 		sl = str(string).split(line_separator)
 		nl = len(sl)
 
@@ -2182,15 +2246,6 @@ class Fields(core.Refraction):
 	def paste(self, index, cache = None):
 		typ, s = self.controller.cache.get(cache)
 		return self.write(index, s)
-
-	def event_paste_after(self, event):
-		self.paste(self.vertical_index+1)
-
-	def event_paste_before(self, event):
-		self.paste(self.vertical_index)
-
-	def event_paste_into(self, event):
-		pass
 
 	def focus(self):
 		super().focus()
@@ -2245,6 +2300,10 @@ class Lines(Fields):
 
 		return size
 
+	def event_edit_return(self, event):
+		"Splits the line at the cursor position."
+		return self.event_delta_split(event)
+
 import subprocess
 class Shell(Lines):
 	"Fault Shell"
@@ -2254,7 +2313,6 @@ class Shell(Lines):
 
 		self.command_history = []
 		self.command_history_position = None
-
 		self.current_prompt = 0
 
 	def execute(self, event):
@@ -2295,6 +2353,7 @@ class Shell(Lines):
 
 class Status(Fields):
 	"The status line above the console prompt."
+
 	def __init__(self):
 		super().__init__()
 		self.units = [
@@ -2321,6 +2380,7 @@ class Status(Fields):
 				libfields.Styled(getattr(new, 'source', '<No Source>') or "none"),
 			])
 		]
+
 		return self.refresh()
 
 class Prompt(Lines):
@@ -2357,6 +2417,7 @@ class Prompt(Lines):
 		l = list(itertools.chain.from_iterable(
 			zip(fields, itertools.repeat(self.separator, len(fields)))
 		))
+
 		# remove additional field separator
 		del l[-1]
 		self.unit[1].sequences = l
@@ -2405,7 +2466,7 @@ class Prompt(Lines):
 		new = Shell()
 		new.source = "<memory>"
 		new.units = libfields.Segments([])
-		new.affix(self.controller)
+		new.requisite(self.controller)
 		console.panes.append(new)
 		console.display_refraction(console.pane, new)
 		console.focus_pane()
@@ -2601,6 +2662,7 @@ def output(transformer, queue, tty):
 	write = tty.write
 	flush = tty.flush
 	get = queue.get
+
 	while True:
 		try:
 			while True:
@@ -2616,6 +2678,7 @@ def input(transformer, queue, tty):
 	"""
 	enqueue = transformer.context.enqueue
 	emit = transformer.emit
+	now = timelib.now
 	escape_state = 0
 
 	# using incremental decoder to handle partial writes.
@@ -2623,11 +2686,15 @@ def input(transformer, queue, tty):
 
 	chars = ""
 	while True:
-		data = os.read(tty.fileno(), 1024)
+		data = os.read(tty.fileno(), 1024*2)
 		chars += state.decode(data)
-		events = libterminal.construct_character_events(chars)
+		try:
+			events = libterminal.construct_character_events(chars)
+		except ValueError:
+			# read more
+			continue
 
-		enqueue(functools.partial(emit, events))
+		enqueue(functools.partial(emit, (now(), events)))
 		chars = ""
 
 class Console(iolib.Reactor):
@@ -2639,11 +2706,18 @@ class Console(iolib.Reactor):
 	"""
 
 	def __init__(self):
+		super().__init__()
+
 		self.tty = None
 		self.cache = core.Cache() # user cache / clipboard index
 		self.cache.allocate(None)
 		self.display = libterminal.Display() # used to draw the frame.
+
+		# Session refractions.
+		self.session = Session(None) # connected session
 		self.transcript = Transcript() # the always available in memory buffer
+
+		# Per-console refractions
 		self.status = Status() # the status line
 		self.prompt = Prompt() # prompt below status
 
@@ -2663,7 +2737,7 @@ class Console(iolib.Reactor):
 		self.pane = 1 # focus pane (visible)
 		self.refraction = self.panes[1] # focus refraction; receives events
 
-	def affix(self, tty):
+	def requisite(self, tty):
 		self.tty = tty
 		self.dimensions = self.get_display_dimensions()
 
@@ -2671,6 +2745,13 @@ class Console(iolib.Reactor):
 		self.status.view = libterminal.View(self.areas['status'])
 		for x, a in zip(self.panes, self.areas['panes']):
 			x.connect(libterminal.View(a))
+
+	def connect(self, session):
+		"""
+		Connect the console to the given session.
+		"""
+
+		return NotImplemented
 
 	def display_refraction(self, pane, refraction):
 		"""
@@ -2743,6 +2824,24 @@ class Console(iolib.Reactor):
 			p.adjust((left, 0), (min(right - left, (width-1) - left), pheight))
 
 		return self.frame()
+
+	def locate_refraction(self, point):
+		"Return the refraction that contains the given point."
+
+		x, y = point
+		width, height = self.dimensions
+
+		# status and prompt consume the entire horizontal
+		if y == height:
+			return self.prompt
+		elif y == height-1:
+			return self.status
+
+		size = width // len(self.visible)
+		pane_index = x // size
+		po = pane_index * size
+
+		return self.visible[x // size]
 
 	def frame(self, color = 0x222222, nomap = str.maketrans({})):
 		"""
@@ -3025,9 +3124,6 @@ class Console(iolib.Reactor):
 			self.prompt.command_open(x)
 		self.transcript.write("opened by: " + sys.executable + " " + name + " " + " ".join(args) + "\n")
 
-	def event_process_exit(self, event):
-		self.context.process.terminate(1)
-
 	def focus(self, refraction):
 		"Focus the given refraction, blurring the current. Does nothing if already focused."
 		assert refraction in (self.status, self.prompt) or refraction in self.visible
@@ -3052,6 +3148,33 @@ class Console(iolib.Reactor):
 		Focus the [target] pane.
 		"""
 		return self.focus(self.visible[self.pane])
+
+	def switch_pane(self, pane):
+		"""
+		Focus the given pane.
+
+		The new focus pane will only receive a &Refraction.focus call iff
+		the old pane's refraction is the current receiver, &Console.refraction.
+		"""
+		if pane == self.pane:
+			return
+
+		old = self.visible[self.pane]
+		new = self.visible[pane]
+
+		if self.refraction is old:
+			old.blur()
+			self.pane = pane
+			self.refraction = new
+			new.focus()
+			self.emit(self.status.refraction_changed(new))
+		else:
+			self.pane = pane
+
+		return new
+
+	def event_process_exit(self, event):
+		self.context.process.terminate(1)
 
 	def event_toggle_prompt(self, event):
 		"""
@@ -3106,31 +3229,7 @@ class Console(iolib.Reactor):
 		self.display_refraction(pid, p)
 		self.focus_pane()
 
-	def switch_pane(self, pane):
-		"""
-		Focus the given pane.
-
-		The new focus pane will only receive a &Refraction.focus call iff
-		the old pane's refraction is the current receiver, &Console.refraction.
-		"""
-		if pane == self.pane:
-			return
-
-		old = self.visible[self.pane]
-		new = self.visible[pane]
-
-		if self.refraction is old:
-			old.blur()
-			self.pane = pane
-			self.refraction = new
-			new.focus()
-			self.emit(self.status.refraction_changed(new))
-		else:
-			self.pane = pane
-
-		return new
-
-	def event_console_rotate_pane(self, event):
+	def event_console_rotate_pane_forward(self, event):
 		"""
 		Select the next pane horizontally. If on the last pane, select the first one.
 		"""
@@ -3139,22 +3238,39 @@ class Console(iolib.Reactor):
 			p = 0
 		self.focus(self.switch_pane(p))
 
+	def event_console_rotate_pane_backward(self, event):
+		"""
+		Select the previous pane horizontally. If on the first pane, select the last one.
+		"""
+		p = self.pane - 1
+		if p < 0:
+			p = len(self.visible) - 1 
+		self.focus(self.switch_pane(p))
+
 	@staticmethod
 	@functools.lru_cache(8)
 	def event_method(target, event):
 		return 'event_' + '_'.join(event)
 
-	def process(self, keys, trap = core.keyboard.trap.event, list = list):
+	def process(self, event, trap = core.keyboard.trap.event, list=list, tuple=tuple):
 		"Process key events received from the device."
+
 		# receives Key() instances and emits display events
 		context = self.context
 		process = context.process
 
-		events = list()
+		effects = list()
+		ts, keys = event
 
 		for k in keys:
 			# refraction can change from individual keystrokes.
 			refraction = self.refraction
+
+			# mouse events may be directed to a different pane
+			if k.type == 'mouse':
+				# position is a point (pair)
+				refraction = self.locate_refraction(k.identity[0])
+
 			# discover if a pane has focus
 			if refraction in self.visible:
 				pi = self.visible.index(refraction)
@@ -3192,11 +3308,11 @@ class Console(iolib.Reactor):
 
 		for x in tuple(self.refreshing):
 			if x.pane is not None and x in self.visible:
-				events.extend(refraction.refresh())
+				effects.extend(refraction.refresh())
 			x.scrolling = False
 			self.refreshing.discard(x)
 
-		self.emit(events)
+		self.emit(effects)
 
 	def get_display_dimensions(self):
 		"""
@@ -3204,24 +3320,48 @@ class Console(iolib.Reactor):
 		"""
 		return libterminal.device.dimensions(self.tty.fileno())
 
-def initialize(program):
+def create(controller):
 	"""
-	Initialize the given program with a console.
+	Create a console as a subresource of the given controller.
+	Returns the new Sector.
+	"""
+
+	# sector representing a set of sessions
+	s = iolib.Sector()
+
+	console_flow = iolib.Flow() # terminal input -> console -> terminal output
+	console_flow.subresource(unit)
+
+	c = Console()
+	tty = open(libterminal.device.path, 'r+b')
+	console_flow.requisite(iolib.Parallel(input, (tty,)), c, iolib.Parallel(output, (tty,)))
+
+	console_flow.sequence[1].requisite(tty)
+	console_flow.sequence[0].actuate()
+	console_flow.sequence[-1].actuate()
+
+	return s
+
+def initialize(unit):
+	"""
+	Initialize the given unit with a console.
+
+	XXX: deprecating
 	"""
 	libterminal.restore_at_exit() # cursor will be hidden and raw is enabled
 
 	console_flow = iolib.Flow() # terminal input -> console -> terminal output
-	console_flow.subresource(program)
-	program.place(console_flow, 'console-operation')
+	console_flow.subresource(unit)
+	unit.place(console_flow, 'console-operation')
 
 	c = Console()
 	tty = open(libterminal.device.path, 'r+b')
-	console_flow.affix(iolib.Parallel(input, (tty,)), c, iolib.Parallel(output, (tty,)))
+	console_flow.requisite(iolib.Parallel(input, (tty,)), c, iolib.Parallel(output, (tty,)))
 
-	console_flow.sequence[1].affix(tty)
+	console_flow.sequence[1].requisite(tty)
 	console_flow.sequence[0].actuate()
 	console_flow.sequence[-1].actuate()
 
-	program.place(c, 'console') # the Console() instance
+	unit.place(c, 'console') # the Console() instance
 	os.environ['FIO_SYSTEM_CONSOLE'] = str(os.getpid())
 	c.actuate()

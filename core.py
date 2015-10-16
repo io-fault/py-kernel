@@ -2487,11 +2487,20 @@ class Reactor(Transformer):
 
 class Parallel(Transformer):
 	"""
-	A dedicated thread for a Transformer. Often used for injects events
+	A dedicated thread for a Transformer. Often used for producing arbitrary injection events
 	produced by blocking calls.
 
 	Term Parallel being used as the actual function is ran in parallel to
 	the &Flow in which it is participating in.
+
+	The requisite function should have the following signature:
+
+		def thread_function(transformer, queue, *optional):
+			...
+
+	The queue provides access to the events that were received by the Transformer,
+	and the &transformer argument allows the thread to cause obstructions by
+	accessing its controller.
 	"""
 
 	def __init__(self, callable, parameters):
@@ -2500,14 +2509,18 @@ class Parallel(Transformer):
 		global queue
 		self.callable = callable
 		self.parameters = parameters
-		self.queue = queue.Queue()
-		self.put = self.queue.put
+
+	def requisite(self, callable, *parameters):
+		self.callable = callable
+		self.parameters = parameters
 
 	def actuate(self):
 		"""
 		Execute the dedicated thread for the transformer.
 		"""
 
+		self.queue = queue.Queue()
+		self.put = self.queue.put
 		self.context.execute(self, self.callable, *((self, self.queue) + self.parameters))
 		return self
 

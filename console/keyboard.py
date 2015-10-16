@@ -50,15 +50,15 @@ trap.assign(('escaped', '`', 0), 'console', ('toggle', 'prompt'))
 trap.assign(('escaped', 'j', 0), 'console', ('pane', 'rotate', 'refraction'), (1,))
 trap.assign(('escaped', 'k', 0), 'console', ('pane', 'rotate', 'refraction'), (-1,))
 
-trap.assign(('control', 'tab', meta), 'console', ('console', 'rotate', 'pane'))
-trap.assign(('control', 'tab', shiftmeta), 'console', ('navigation', 'backward'))
+trap.assign(('control', 'tab', meta), 'console', ('console', 'rotate', 'pane', 'forward'))
+trap.assign(('control', 'tab', shiftmeta), 'console', ('console', 'rotate', 'pane', 'backward'))
 trap.assign(('escaped', 'o', 0), 'console', ('prepare', 'open'))
 
 # refraction control mapping
 control = Mapping(('refraction', ('navigation', 'jump', 'character'), ()))
 ca = control.assign
 
-# map
+# distribution of commands across the vertical range.
 ca(literal('y'), 'refraction', ('distribute', 'one'))
 ca(caps('y'), 'refraction', ('distribute', 'sequence'))
 
@@ -74,11 +74,11 @@ ca(literal('f'), 'refraction', ('navigation', 'horizontal', 'forward'))
 ca(literal('d'), 'refraction', ('navigation', 'horizontal', 'backward'))
 ca(caps('f'), 'refraction', ('navigation', 'horizontal', 'stop'))
 ca(caps('d'), 'refraction', ('navigation', 'horizontal', 'start'))
-ca(controlk('f'), 'refraction', ())
-ca(controlk('d'), 'refraction', ())
+ca(controlk('f'), 'refraction', ('navigation',))
+ca(controlk('d'), 'refraction', ('navigation',))
 
 ca(literal('s'), 'refraction', ('select', 'series',))
-ca(caps('s'), 'refraction', ('select', 'series', 'backward')) # spare
+ca(caps('s'), 'refraction', ('select', 'single')) # spare
 ca(controlk('s'), 'refraction', ('console', 'search'))
 
 ca(literal('e'), 'refraction', ('navigation', 'vertical', 'sections'))
@@ -150,8 +150,8 @@ ca(nav('right'), 'refraction', ('window', 'horizontal', 'backward'))
 ca(nav('down'), 'refraction', ('window', 'vertical', 'forward'))
 ca(nav('up'), 'refraction', ('window', 'vertical', 'backward'))
 
-ca(literal('m'), 'refraction', ('menu', 'primary')) # move to field index
-ca(caps('m'), 'refraction', ('menu', 'secondary')) # move to line number
+ca(literal('m'), 'refraction', ('menu', 'primary'))
+ca(caps('m'), 'refraction', ('menu', 'secondary'))
 
 ca(literal('i'), 'refraction', ('transition', 'edit'),)
 ca(caps('i'), 'refraction', ('delta', 'split'),) # split field

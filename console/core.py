@@ -202,14 +202,28 @@ class Refraction(iolib.Resource):
 	def event_method(target, event):
 		return 'event_' + '_'.join(event)
 
-	def route(self, event):
+	def route(self, event, scrollmap={'scroll-up':'backward', 'scroll-down':'forward'}):
 		"Route the event to the target given the current processing state."
-		mapping, event = self.keyboard.event(event)
-		if event is None:
-			# report no such binding
-			return None
 
-		return (mapping, event)
+		if event.type == 'mouse':
+			point, mevent, activation = event.identity
+
+			if mevent in scrollmap:
+				return (None, ('refraction',
+					('window', 'vertical', scrollmap[mevent]), (1, point,)
+				))
+			elif isinstance(mevent, int):
+				mevent = 'button' + str(mevent)
+
+			mapping = None
+			event = ('refraction', ('mouse', mevent), point)
+		else:
+			mapping, event = self.keyboard.event(event)
+			if event is None:
+				# report no such binding
+				return None
+
+			return (mapping, event)
 
 	def key(self, console, event, getattr=getattr, range=range):
 		"Process the given key event."
