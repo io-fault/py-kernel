@@ -1,11 +1,13 @@
 """
 Field entry management package.
 """
+
 import abc
 import operator
 import keyword
 import itertools
 import functools
+
 from ...terminal import symbols
 
 class Field(metaclass = abc.ABCMeta):
@@ -222,160 +224,6 @@ def insert(seq, offset, insertion, empty = "", len = len):
 
 	return prefix
 
-operations = {
-	'insert': insert,
-	'delete': delete,
-}
-
-class Segments(object):
-	"""
-	Manage a series of sequences as if it were one sequence.
-	Primarily used to control maximum memory moves for each insertion.
-	"""
-	__slots__ = ('sequences', '_length')
-	Type = list
-	segment_size = 64
-
-	def __init__(self, iterable = None):
-		if iterable:
-			self.partition(iterable)
-		else:
-			self.sequences = self.Type()
-			self._length = 0
-
-	def __getitem__(self, item):
-		if isinstance(item, slice):
-			start = item.start or 0
-			stop = len(self) if item.stop is None else item.stop
-			return list(self.select(start, stop))
-		else:
-			start, stop = item, item+1
-			for x in self.select(start, stop):
-				return x
-
-	def __setitem__(self, item, value):
-		if isinstance(item, slice):
-			start = item.start or 0
-			stop = len(self) if item.stop is None else item.stop
-			if (stop - start) > 0:
-				self.delete(start, stop)
-			self.insert(start, value)
-		else:
-			start, stop = item, item+1
-			saddress = address(self.sequences, start, stop)
-			self.sequences[start[0]][start[1]] = value
-
-	def __delitem__(self, item):
-		if isinstance(item, slice):
-			start = item.start or 0
-			stop = len(self) if item.stop is None else item.stop
-		else:
-			start, stop = item, item+1
-		self.delete(start, stop)
-
-	def __len__(self):
-		return self._length
-
-	def __iadd__(self, sequence):
-		seqlen = len(sequence)
-		append(self.sequences, sequence)
-		self._length += seqlen
-
-	def select(self, start, stop, whole = slice(None)):
-		"""
-		Return an iterator to the requested slice.
-		"""
-		start, stop = address(self.sequences, start, stop)
-
-		n = stop[0] - start[0]
-		if not n:
-			# same sequence; simple slice
-			if self.sequences and start[0] < len(self.sequences):
-				return iter(self.sequences[start[0]][start[1] : stop[1]])
-			else:
-				# empty
-				return iter(())
-
-		slices = [(start[0], slice(start[1], None))]
-		slices.extend([(x, whole) for x in range(start[0]+1, stop[0])])
-		slices.append((stop[0], slice(0, stop[1])))
-
-		return itertools.chain.from_iterable([
-			iter(self.sequences[p][pslice]) for p, pslice in slices
-		])
-
-	def __iter__(self):
-		return itertools.chain.from_iterable(iter(x) for x in self.sequences)
-
-	def clear(self):
-		"""
-		Truncate the entire sequence.
-		"""
-		self.__init__()
-		self._length = 0
-
-	def partition(self, iterable = None, len = len):
-		"""
-		Organize the segments so that they have appropriate sizes.
-		"""
-		sequences = self.Type()
-		segment = None
-
-		if iterable is None:
-			this = iter(self)
-		else:
-			this = iter(iterable)
-
-		islice = itertools.islice
-		add = sequences.append
-		newlen = 0
-		while True:
-			buf = self.Type(islice(this, self.segment_size))
-			buflen = len(buf)
-			add(buf)
-			newlen += buflen
-			if buflen < self.segment_size:
-				# islice found the end of the iterator
-				break
-
-		self.sequences = sequences
-		self._length = newlen
-
-	def prepend(self, sequence):
-		seqlen = len(sequence)
-		self.sequences = prepend(self.sequences, sequence)
-		self._length += seqlen
-
-	def append(self, sequence):
-		offset = len(self)
-		newlen = len(sequence)
-
-		self.sequences.append(sequence)
-
-		self._length += newlen
-
-	def insert(self, offset, sequence):
-		seqlen = len(sequence)
-		self.sequences = insert(self.sequences, offset, sequence)
-		self._length += seqlen
-
-	def delete(self, start, stop):
-		# normalize and restrict slice size as needed.
-		l = len(self)
-		stop = max(stop, 0)
-		start = max(start, 0)
-		if stop > l:
-			stop = l
-		if start > l:
-			start = l
-		if start > stop:
-			l = start
-			start = stop
-			stop = l
-
-		delete(self.sequences, start, stop)
-		self._length -= (stop - start)
-
 @Field.register
 class String(str):
 	"""
@@ -420,7 +268,7 @@ class Delimiter(String):
 
 @Field.register
 class Styled(object):
-	"Styled text field."
+	"Explicitly styled text field."
 
 	__slots__ = ('text', 'styles', 'foreground', 'background')
 
@@ -449,6 +297,8 @@ class Text(object):
 	"""
 	Mutable text object using manipulation instructions
 	and checkpoints to represent a single string.
+
+	Normally subclassed for specific languages for highlighting.
 	"""
 	__slots__ = ('sequences',)
 	empty_entry = String("")
@@ -478,12 +328,6 @@ class Text(object):
 		r.sequences = sequence
 		return r
 
-	def apply(self, operations):
-		"""
-		Apply a series of operations to the Text field.
-		"""
-		pass
-
 	def set(self, characters):
 		"""
 		Set the field characters. Used loading fields.
@@ -499,7 +343,7 @@ class Text(object):
 		"""
 		return self.set([self.empty_entry])
 
-	def insert(self, offset, string, op = insert, len = len):
+	def insert(self, offset, string, op=insert, len=len):
 		strlen = len(string)
 		self.sequences = op(self.sequences, offset, string, empty = self.empty_entry)
 		end = offset + strlen
@@ -736,7 +580,7 @@ class Sequence(list):
 
 		return (self.deletion, [x[1] for x in seq])
 
-	def delete(self, *fields, get0 = operator.itemgetter(0)):
+	def delete(self, *fields, get0=operator.itemgetter(0)):
 		"""
 		Delete a set of fields from the sequence.
 		"""
@@ -758,20 +602,20 @@ class Sequence(list):
 		'Display string of the sequence of fields.'
 		return ''.join(map(str, self.value()))
 
-	def length(self, lenmethod = operator.methodcaller('length')):
+	def length(self, lenmethod=operator.methodcaller('length')):
 		"""
 		The sum of the *display* length of the contained fields.
 		"""
 		return sum(map(lenmethod, self))
 	characters = length
 
-	def cells(self, lenmethod = operator.methodcaller('cells')):
+	def cells(self, lenmethod=operator.methodcaller('cells')):
 		"""
 		Sum of &cells of all the subfields.
 		"""
 		return sum(map(lenmethod, self))
 
-	def subfields(self, path = (), range = range, len = len, isinstance = isinstance):
+	def subfields(self, path=(), range=range, len=len, isinstance=isinstance):
 		"""
 		Map the nested sequences into a serialized form.
 

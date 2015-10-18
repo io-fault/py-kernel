@@ -14,6 +14,7 @@ from ...filesystem import library as fslib # autosave/session persistence
 from ...terminal import library as libterminal # terminal display
 from ...terminal import symbols
 from ...status import library as libstatus
+from ...computation import library as complib
 
 from .. import library as iolib
 
@@ -385,7 +386,7 @@ class Fields(core.Refraction):
 	def __init__(self):
 		super().__init__()
 
-		self.units = libfields.Segments() # the sequence of buffered Fields.
+		self.units = complib.Segments() # the sequence of buffered Fields.
 
 		# cached access to line and specific field
 		self.unit = None # controlling unit; object containing line
@@ -676,7 +677,7 @@ class Fields(core.Refraction):
 
 		Used to draw the horizontal range background.
 
-		Nearly identical to libfields.Segments.select()
+		Nearly identical to complib.Segments.select()
 		"""
 		llen = len(line)
 		astart = positions[0]
@@ -1025,6 +1026,7 @@ class Fields(core.Refraction):
 			point = stop
 		else:
 			point = start
+		point = pos
 
 		i = iter(sequence)
 
@@ -2281,7 +2283,7 @@ class Lines(Fields):
 		self.document_line_class = line_class
 
 		initial = self.new(line_class)
-		self.units = libfields.Segments([initial])
+		self.units = complib.Segments([initial])
 		self.unit = initial
 		nunits = len(self.units)
 		self.vector.vertical.configure(0, nunits, 0)
@@ -2465,7 +2467,7 @@ class Prompt(Lines):
 		console = self.controller
 		new = Shell()
 		new.source = "<memory>"
-		new.units = libfields.Segments([])
+		new.units = complib.Segments([])
 		new.requisite(self.controller)
 		console.panes.append(new)
 		console.display_refraction(console.pane, new)
@@ -2509,7 +2511,7 @@ class Prompt(Lines):
 					append(seq((indentation, txt(line))))
 
 		new.source = path
-		new.units = libfields.Segments(i)
+		new.units = complib.Segments(i)
 
 		new.subresource(self.controller)
 		console.panes.append(new)
