@@ -821,8 +821,8 @@ class Fields(core.Refraction):
 
 	def render_horizontal_indicators(
 		self, unit, horizontal,
-		names = ('start', 'position', 'stop',),
-		#range_color = 0x262626,
+		names=('start', 'position', 'stop'),
+		#range_color=0x262626,
 		range_color=None,
 		starmap=itertools.starmap,
 		cells=libterminal.cells,
@@ -1014,13 +1014,16 @@ class Fields(core.Refraction):
 		"Determines whether the field as having insignifianct content."
 		return isinstance(field, (libfields.Formatting, libfields.Constant)) or str(field) == " "
 
-	def rotate(self, direction, horizontal, unit, sequence, quantity, filtered = None):
+	def rotate(self, direction, horizontal, unit, sequence, quantity,
+			filtered=None, iter=iter
+		):
 		"""
 		Select the next *significant* field, skipping the given quantity.
 
 		The optional &filtered parameter will be given candidate fields
 		that can be skipped.
 		"""
+
 		start, pos, stop = horizontal.snapshot()
 		if direction > 0:
 			point = stop
@@ -1100,14 +1103,19 @@ class Fields(core.Refraction):
 
 	def truncate_vertical(self, start, stop):
 		"Remove a vertical range from the refraction."
+
 		# delete range
 		units = self.units[start:stop]
 		self.units.delete(start, stop)
 
 		self.display(start, None)
-		# handle case where the window extend beyond the document.
+
+		# handle case where the window extends beyond the document.
+		# lines that once had content are now empty, so they need
+		# to be cleared if the visible units is less than the view's height.
 		nunits = len(self.units)
-		if nunits < self.view.height:
+		vunits = nunits - self.window.vertical.get()
+		if vunits < self.view.height:
 			# erase any lines not updated beyond the EOF
 			v = self.view
 			wl = self.window_line(nunits)

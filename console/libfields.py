@@ -156,8 +156,9 @@ def delete(seq, start, stop, empty = "", len = len, range = range):
 			seq[stop_index] = s.__class__(s[stop_roffset:])
 
 		# clear everything between start+1 and stop
-		for i in range(start_index+1, stop_index):
-			seq[i] = empty
+		del seq[start_index+1:stop_index]
+		#for i in range(start_index+1, stop_index):
+		#	seq[i] = empty
 
 	return seq
 
@@ -227,7 +228,7 @@ def insert(seq, offset, insertion, empty = "", len = len):
 @Field.register
 class String(str):
 	"""
-	A simple string field. The contents are immutable and it identifies itself as full.
+	A constant string field. The contents are immutable and it identifies itself as full.
 	"""
 	__slots__ = ()
 	merge = True
@@ -295,12 +296,13 @@ class Styled(object):
 @Field.register
 class Text(object):
 	"""
-	Mutable text object using manipulation instructions
-	and checkpoints to represent a single string.
+	Mutable string field.
 
 	Normally subclassed for specific languages for highlighting.
 	"""
+
 	__slots__ = ('sequences',)
+
 	empty_entry = String("")
 	constants = ()
 	classifications = ()
@@ -444,6 +446,7 @@ class FieldSeparator(Delimiter):
 	"""
 	__slots__ = Delimiter.__slots__
 	classifications = ()
+
 field_separator = FieldSeparator(':')
 
 @Field.register
@@ -452,7 +455,9 @@ class Formatting(int):
 	A field that represents a sequence of tabs.
 	Cannot be used inside &Text fields.
 	"""
+
 	__slots__ = ()
+
 	character = ''
 	identity = 'empty'
 	size = 0
@@ -495,7 +500,9 @@ class Spacing(Formatting):
 	"""
 	A field that represents a series of spaces.
 	"""
+
 	__slots__ = ()
+
 	character = ' '
 	identity = 'space'
 	size = 1
@@ -622,6 +629,7 @@ class Sequence(list):
 		The tuples produced are pairs containing the field and path to the field.
 		The path being the sequence of sequences containing the field.
 		"""
+
 		if self in path:
 			# recursive
 			raise Exception('recursive fields')
