@@ -520,12 +520,14 @@ class Fields(core.Refraction):
 
 	def comment(self, q, iterator, color = palette.theme['comment']):
 		"Draw the comment."
+
 		yield (q.value(), (), color)
 		for path, x in iterator:
 			yield (x.value(), (), color)
 
 	def quotation(self, q, iterator, color = 0x666666):
 		"Draw the quotation."
+
 		yield (q.value(), (), color)
 		for path, x in iterator:
 			yield (x.value(), (), color)
@@ -953,10 +955,14 @@ class Fields(core.Refraction):
 		self.update_vertical_state()
 
 	def render(self, start, stop,
-		len=len, max=max, min=min,
-		list=list, range=range, zip=zip,
-	):
-		"Render the given line range into the terminal view."
+			len=len, max=max, min=min,
+			list=list, range=range, zip=zip,
+		):
+		"""
+		Render the given line range into the terminal view.
+
+		Returns the relative line range to be rendered.
+		"""
 
 		origin, top, bottom = self.window.vertical.snapshot()
 		ub = len(self.units)
@@ -989,6 +995,7 @@ class Fields(core.Refraction):
 
 	def display(self, start, stop, list=list):
 		"Send the given line range to the display."
+
 		self.controller.emit(list(self.view.render(*self.render(start, stop))))
 
 	def refresh(self, start=0, list=list):
@@ -2868,7 +2875,7 @@ class Console(iolib.Reactor):
 
 		# horizontal
 		yield seek((0, vh))
-		yield style(symbols.lines['horizontal'] * self.dimensions[0], color = color)
+		yield style(symbols.lines['horizontal'] * self.dimensions[0], textcolor = color)
 
 		# verticals
 		seq = symbols.lines['vertical'] + '\n\b'
@@ -2876,7 +2883,7 @@ class Console(iolib.Reactor):
 		bottom = symbols.intersections['bottom']
 		bottom_left = symbols.corners['bottom-left']
 		bottom_right = symbols.corners['bottom-right']
-		seq = style((seq * vh) + bottom, color = color, control_map = nomap)
+		seq = style((seq * vh) + bottom, textcolor = color, control_map = nomap)
 
 		# initial vertical
 		yield seek((0, 0)) + seq
@@ -2891,12 +2898,12 @@ class Console(iolib.Reactor):
 
 		# edge of screen; no need to backspace
 		seq = symbols.lines['vertical'] + '\n'
-		seq = style((seq * vh) + bottom, color = color, control_map = nomap)
+		seq = style((seq * vh) + bottom, textcolor = color, control_map = nomap)
 
 		yield seek((width, 0)) + seq
 		# corners
-		yield seek((width, height - 3)) + style(bottom_right, color = color, control_map = nomap)
-		yield seek((0, height - 3)) + style(bottom_left, color = color, control_map = nomap)
+		yield seek((width, height - 3)) + style(bottom_right, textcolor = color, control_map = nomap)
+		yield seek((0, height - 3)) + style(bottom_left, textcolor = color, control_map = nomap)
 
 	def set_position_indicators(self, refraction,
 		colors=(0x008800, 0xF0F000, 0x880000),
@@ -2940,7 +2947,7 @@ class Console(iolib.Reactor):
 							pointer = wedge
 
 						events += seek((side, y))
-						events += style(pointer, color = color)
+						events += style(pointer, textcolor = color)
 
 			# adjust for horizontal sets
 			h_offset += 1 # avoid intersection with vertical
@@ -2963,7 +2970,7 @@ class Console(iolib.Reactor):
 					x += h_offset
 
 				events += seek((x, v_limit))
-				events += style(pointer, color = color)
+				events += style(pointer, textcolor = color)
 
 		# record the setting for subsequent clears
 		refraction.snapshot = (vec.snapshot(), win.snapshot())
@@ -2996,7 +3003,7 @@ class Console(iolib.Reactor):
 
 		# verticals is None when it's a prompt
 		if verticals is not None:
-			r = style(v_line, color = color)
+			r = style(v_line, textcolor = color)
 
 			for v in verticals:
 				for y in vec[1]:
@@ -3043,7 +3050,7 @@ class Console(iolib.Reactor):
 				sym = h_line
 
 			events += seek((x, v_limit))
-			events += style(sym, color = color)
+			events += style(sym, textcolor = color)
 
 		refraction.snapshot = None
 		return events
