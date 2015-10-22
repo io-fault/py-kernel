@@ -1206,101 +1206,113 @@ class Fields(core.Refraction):
 
 		self.checkpoint()
 
-	def event_delta_transpose(self, event):
-		"Relocate the current range with the queued."
-		axis = self.last_axis
+	def event_delta_transpose_vertical(self, event):
+		self.clear_horizontal_indicators()
+		s1 = self.vertical.snapshot()
+
+		self.event_navigation_range_dequeue(None)
+
+		s2 = self.vertical.snapshot()
+
+		# make s2 come second
+		if s2[0] < s1[0]:
+			s = s1
+			s1 = s2
+			s2 = s
+
+		adjust = s2[2] - s2[0]
+
+		self.translocate_vertical(None, self.units, s1[0], s2[0], s2[2])
+		self.translocate_vertical(None, self.units, s2[0]+adjust, s1[0]+adjust, s1[2]+adjust)
+
+		self.movement = True
+		self.checkpoint()
+
+	def event_delta_transpose_horizontal(self, event):
 		self.clear_horizontal_indicators()
 
+		axis, dominate, current, range = self.range_queue.popleft()
 		if axis == 'vertical':
-			s1 = self.vertical.snapshot()
+			return
 
-			self.event_navigation_range_dequeue(None)
+		# adjustments to position for same line
+		adjust = 0
 
-			s2 = self.vertical.snapshot()
+		s1_unit = self.units[dominate]
+		s1_adjust = self.indentation_adjustments(self.unit)
+		s1_range = tuple(map((-s1_adjust).__add__, range.exclusive()))
 
-			# make s2 come second
-			if s2[0] < s1[0]:
-				s = s1
-				s1 = s2
-				s2 = s
+		s2_unit = self.unit
+		s2_adjust = self.indentation_adjustments(self.unit)
+		start, position, stop = map((-s2_adjust).__add__, self.horizontal.snapshot())
+		s2_range = (start, stop)
 
-			adjust = s2[2] - s2[0]
+		if s1_unit == s2_unit:
+			# same line
+			if s1_range[0] > s2_range[0]:
+				# normalize the range position: s1 comes before s2.
+				s1_range, s2_range = s2_range, s1_range
 
-			self.translocate_vertical(None, self.units, s1[0], s2[0], s2[2])
-			self.translocate_vertical(None, self.units, s2[0]+adjust, s1[0]+adjust, s1[2]+adjust)
+			s1_range = (s1_range[0], min(s1_range[1], s2_range[0]))
+			s2_range = (max(s1_range[1], s2_range[0]), s2_range[1])
+
+			s = str(s1_unit[1])
+			s1_text = s[s1_range[0]:s1_range[1]]
+			s2_text = s[s2_range[0]:s2_range[1]]
+
+			replacement = ''.join([
+				s[:s1_range[0]],
+				s2_text,
+				s[s1_range[1]:s2_range[0]],
+				s1_text,
+				s[s2_range[1]:]
+			])
+
+			inverse = s1_unit[1].set([replacement])
+			ir = IRange.single(self.vertical_index)
+			self.log(inverse, ir)
+			s1_unit[1].reformat()
+
+			adjust = - ((s1_range[1] - s1_range[0]) - (s2_range[1] - s2_range[0]))
+			self.movement = True
+			self.display(*ir.exclusive())
+		else:
+			s1_text = str(s1_unit[1])[s1_range[0]:s1_range[1]]
+			inverse = s1_unit[1].delete(s1_range[0], s1_range[1])
+			s1_changelines = IRange.single(dominate)
+			self.log(inverse, s1_changelines)
+
+			s2_text = str(s2_unit[1])[s2_range[0]:s2_range[1]]
+			inverse = s2_unit[1].delete(s2_range[0], s2_range[1])
+			s2_changelines = IRange.single(self.vertical_index)
+			self.log(inverse, s2_changelines)
+
+			inverse = s1_unit[1].insert(s1_range[0], s2_text)
+			self.log(inverse, s1_changelines)
+			inverse = s2_unit[1].insert(s2_range[0], s1_text)
+			self.log(inverse, s2_changelines)
+
+			s1_unit[1].reformat()
+			s2_unit[1].reformat()
 
 			self.movement = True
+			self.display(*s1_changelines.exclusive())
+			self.display(*s2_changelines.exclusive())
+
+		self.horizontal.configure(adjust + s2_adjust + s2_range[0], s1_range[1] - s1_range[0])
+		self.checkpoint()
+
+	def event_delta_transpose(self, event):
+		"Relocate the current range with the queued."
+
+		axis = self.last_axis
+
+		if axis == 'vertical':
+			self.event_delta_transpose_vertical(event)
 		elif axis == 'horizontal':
-			axis, dominate, current, range = self.range_queue.popleft()
-			if axis == 'vertical':
-				return
-
-			s1_unit = self.units[dominate]
-			s1_adjust = self.indentation_adjustments(self.unit)
-			s1_range = tuple(map((-s1_adjust).__add__, range.exclusive()))
-
-			s2_unit = self.unit
-			s2_adjust = self.indentation_adjustments(self.unit)
-			start, position, stop = map((-s2_adjust).__add__, self.horizontal.snapshot())
-			s2_range = (start, stop)
-
-			if s1_unit == s2_unit:
-				# same line
-				if s1_range[0] > s2_range[0]:
-					r = s1_range
-					s1_range = s2_range
-					s2_range = r
-
-				s1_range = (s1_range[0], min(s1_range[1], s2_range[0]))
-				s2_range = (max(s1_range[1], s2_range[0]), s2_range[1])
-
-				s = str(s1_unit[1])
-				s1_text = s[s1_range[0]:s1_range[1]]
-				s2_text = s[s2_range[0]:s2_range[1]]
-
-				replacement = ''.join([
-					s[:s1_range[0]],
-					s2_text,
-					s[s1_range[1]:s2_range[0]],
-					s1_text,
-					s[s2_range[1]:]
-				])
-
-				inverse = s1_unit[1].set([replacement])
-				ir = IRange.single(self.vertical_index)
-				self.log(inverse, ir)
-				s1_unit[1].reformat()
-
-				self.movement = True
-				self.clear_horizontal_indicators()
-				self.display(*ir.exclusive())
-			else:
-				s1_text = str(s1_unit[1])[s1_range[0]:s1_range[1]]
-				inverse = s1_unit[1].delete(s1_range[0], s1_range[1])
-				s1_changelines = IRange.single(dominate)
-				self.log(inverse, s1_changelines)
-
-				s2_text = str(s2_unit[1])[s2_range[0]:s2_range[1]]
-				inverse = s2_unit[1].delete(s2_range[0], s2_range[1])
-				s2_changelines = IRange.single(self.vertical_index)
-				self.log(inverse, s2_changelines)
-
-				inverse = s1_unit[1].insert(s1_range[0], s2_text)
-				self.log(inverse, s1_changelines)
-				inverse = s2_unit[1].insert(s2_range[0], s1_text)
-				self.log(inverse, s2_changelines)
-
-				s1_unit[1].reformat()
-				s2_unit[1].reformat()
-
-				self.movement = True
-				self.clear_horizontal_indicators()
-				self.display(*s1_changelines.exclusive())
-				self.display(*s2_changelines.exclusive())
+			self.event_delta_transpose_horizontal(event)
 		else:
 			pass
-
-		self.checkpoint()
 
 	def event_delta_truncate(self, event):
 		"Remove the range of the last axis."
