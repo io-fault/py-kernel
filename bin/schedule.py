@@ -6,8 +6,10 @@ Manages the administrative scheduler provided by fault.io service sets (faultd).
 
 import sys
 import os
+import functools
+from .. import http
 
-class HTTP(http.HTTP):
+class HTTP(http.Interface):
 	"""
 	Control Client
 	"""
