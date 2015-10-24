@@ -24,7 +24,6 @@ class Scheduled(object):
 def defer(*args):
 	print('okay...')
 
-@boot
 def main(sector):
 	primary_schedule = library.Scheduler()
 

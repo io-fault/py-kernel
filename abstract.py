@@ -314,7 +314,7 @@ class Unit(Processor, metaclass = abc.ABCMeta):
 		"""
 
 	@property
-	@abc.abstracmethod
+	@abc.abstractmethod
 	def scheduler(self):
 		"""
 		The root &Scheduler instance used by all controlled Resources.

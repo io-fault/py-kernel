@@ -1,8 +1,9 @@
 """
 unit executable test
 """
+from .. import library as iolib
 
-@export
+#@export
 def xexport(sector):
 	pass
 
@@ -17,7 +18,7 @@ def client_handler(sector, input, output):
 		sector.dispatch(handler, request, input, p.connect)
 
 # addressable?
-@boot
+#@boot
 def coroutine(sector):
 	"executed on actuate"
 

@@ -2,11 +2,11 @@
 unit library test module
 """
 
-@export
+#@export
 def func(sector):
 	return sector
 
-@export
+#@export
 def libs(sector):
 	# test provided globals
 	return lib

@@ -1,4 +1,4 @@
-from .. import lines
+from ..console import lines
 
 def test_python(test):
 	lines.profile('python')

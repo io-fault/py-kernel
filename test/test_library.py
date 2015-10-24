@@ -1,6 +1,6 @@
 from .. import library
 
-def foo(sector, lib, timeout=defaulttimeout):
+def foo(sector, lib, timeout=3):
 	receiver = lib.fs.append("path")
 
 	http = lib.http.allocate() # http context
@@ -8,12 +8,12 @@ def foo(sector, lib, timeout=defaulttimeout):
 
 	if xact.failed:
 		# try next
-		continue
+		pass
 	else:
 		yield receiver
 
 	proc = lib.dns.query("A", "host.com")
-	yield sector.timeout(dns_timeout, proc):
+	yield sector.timeout(dns_timeout, proc)
 
 	qr = proc.product
 	for ip in qr:

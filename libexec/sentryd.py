@@ -96,8 +96,6 @@ class Sentry(object):
 	def __init__(self):
 		pass
 
-@boot
 def main(sector):
 	print('SENTRY!')
 	sys.stderr.flush()
-

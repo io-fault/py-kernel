@@ -1,4 +1,4 @@
-from .. import libfields as library
+from ..console import libfields as library
 
 def test_sequence(test):
 	return
