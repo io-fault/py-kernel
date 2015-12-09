@@ -1,5 +1,5 @@
 """
-Service interface.
+faultd service management interfaces.
 
 Manages the service state stored on disk.
 

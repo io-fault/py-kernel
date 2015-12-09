@@ -1,7 +1,5 @@
 """
-HTTP transformers and protocols.
-
-XXX: Trailers will be purely protocol level with a summary attached to the LayerContext.
+Internet HTTP support for io applications.
 """
 import functools
 import collections
@@ -221,7 +219,7 @@ def v1_output(
 		zip=zip,
 	):
 	"""
-	Send HTTP 1.0 or 1.1 events.
+	Generator function for maintaining the output state of a single HTTP transaction.
 
 	The protocol will construct a new generator for every Request/Response that is
 	to be emitted to the remote end. GeneratorExit is used to signal the termination
@@ -273,7 +271,7 @@ def v1_input(
 		iter=iter,
 	):
 	"""
-	Receive HTTP 1.0 or 1.1 input events for routing.
+	Generator function for maintaining the input state of a sequence of HTTP transactions.
 
 	Given a Transaction allocation function and a Transaction completion function,
 	receive
@@ -381,7 +379,6 @@ def v1_input(
 		events = iter(itertools.chain(*(yield)))
 
 # The distinction between Client1 and Server1 is necessary for managing
-# 
 
 def flows(xact, input, output):
 	fi, fo = xact.flows()
@@ -470,6 +467,7 @@ class Client(core.Sector):
 		The endpoint is the callable that will be invoked when the
 		response arrives. The &endpoint should have the signature:
 
+		#!/pl/python
 			def endpoint(sector, request, response, connect_input):
 				...
 
@@ -586,8 +584,7 @@ def resource(**kw):
 	"""
 	HTTP Resource Method Decorator
 
-	Usage:
-
+	#!/pl/python
 		@http.resource(limit=0, ...)
 		def method(sector, request, response, input):
 			pass
@@ -698,3 +695,12 @@ class Resource(object):
 			f.process([(data,)])
 		return f
 	__call__ = adapt
+
+class Transaction(object):
+	"""
+	An HTTP transaction managing the resource resolution state.
+
+	Instances maintain the current state of an HTTP transaction providing
+	visibility into the transaction process and maintenance of dependent
+	resources.
+	"""

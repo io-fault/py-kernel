@@ -1,7 +1,8 @@
 """
-Command Execution Unit
+System Command Execution &.library.Unit.
 
-Support for modules intended to be fault.io based scripts.
+Provides the construction of &.library.Unit instance for an
+application that is to be ran as a system command.
 """
 
 import sys
@@ -42,6 +43,7 @@ def execute(name='__main__'):
 	"""
 	Ran by script depending on libcommand:
 
+	#!/pl/python
 		if __name__ == '__main__':
 			libcommand.execute()
 	"""

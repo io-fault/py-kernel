@@ -2,11 +2,6 @@
 Core classes, exceptions, and data.
 
 Resources use a series of stages in order to perform initialization.
-
-	Creation is the instantiation of a Resource.
-	Installation is the process of designating the Resource's controller.
-	Parameterization is the assignment of dependencies.
-	Actuation is the runtime initialization.
 """
 
 import os
@@ -24,10 +19,10 @@ import itertools
 import traceback
 
 from ..fork import libhazmat
-from ..routes import library as routeslib
-from ..internet import library as netlib
-from ..chronometry import library as timelib
-from ..computation import library as complib
+from ..routes import library as libroutes
+from ..internet import library as libnet
+from ..chronometry import library as libtime
+from ..computation import library as libcomp
 
 # Indirect association of SystemProcess objects and LogicalProcess's
 __process_index__ = dict()
@@ -43,13 +38,22 @@ def set_controller_reference(self, obj, Ref = weakref.ref):
 	self.controller_reference = Ref(obj)
 
 @functools.lru_cache(32)
-def endpoint(typ, address, port):
+def endpoint(type:str, address:str, port:object):
 	"""
 	Endpoint constructor for fault.io applicaitons.
+
+	[ Samples ]
+
+	/IPv4
+		`fault.io.library.endpoint('ip4', '127.0.0.1', 80)`
+	/IPv6
+		`fault.io.library.endpoint('ip6', '::1', 80)`
+	/UNIX
+		`fault.io.library.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
 	global endpoint_classes
-	return endpoint_classes[typ](address, port)
+	return endpoint_classes[type](address, port)
 
 def perspectives(resource, mro=inspect.getmro):
 	"""
@@ -60,7 +64,7 @@ def perspectives(resource, mro=inspect.getmro):
 	then appended to a list describing the &Resource from the perspective
 	of each class.
 
-	Returns [(Class, properties, subresources), ...]
+	Returns `[(Class, properties, subresources), ...]`.
 	"""
 
 	l = []
@@ -196,7 +200,7 @@ class Local(tuple):
 
 	@property
 	def route(self):
-		return routeslib.File.from_absolute(self[0]) / self[1]
+		return libroutes.File.from_absolute(self[0]) / self[1]
 
 	@classmethod
 	def create(Class, directory, file):
@@ -290,7 +294,7 @@ class Endpoint(tuple):
 	@property
 	def validation(self):
 		"""
-		A unique identifier selecting an object within the &core.Object.
+		A unique identifier selecting an object within the &Resource.
 		Usually the result of an &id call of a particular object
 		"""
 
@@ -350,12 +354,85 @@ class Endpoint(tuple):
 
 endpoint_classes = {
 	'local': Local.create,
-	'ip4': netlib.Endpoint.create_ip4,
-	'ip6': netlib.Endpoint.create_ip6,
-	'domain': netlib.Reference.from_domain,
+	'ip4': libnet.Endpoint.create_ip4,
+	'ip6': libnet.Endpoint.create_ip6,
+	'domain': libnet.Reference.from_domain,
 	'internal': None, # relay push; local to process
 	'coprocess': None, # process-group abstraction interface
 }
+
+class Join(object):
+	"""
+	An object whose purpose is to join the completion of multiple
+	processors into a single event. Joins are used to simplify coroutines
+	whose progression depends on a set of processors instead of one.
+
+	[ Properties ]
+	/dependencies
+		The original set of processors.
+	/pending
+		The current state of pending exits that must
+		occur prior to the join-operation's completion.
+	/callback
+		The callable that is performed after the &pending
+		set has been emptied.
+	"""
+
+	__slots__ = ('dependencies', 'pending', 'callback')
+
+	def __init__(self, processors):
+		"""
+		Initialize the join with the given &processor set.
+		"""
+		self.dependencies = processors
+		self.pending = set(processors)
+		self.callback = None
+
+	def connect(self):
+		"""
+		Connect the &Processor.atexit calls of the configured
+		&dependencies to the &Join instance.
+		"""
+		for x in self.dependencies:
+			x.atexit(self.exited)
+
+		return self
+
+	def __iter__(self, iter=iter):
+		"""
+		Return an iterator to the configured dependencies.
+		"""
+		return iter(self.dependencies)
+
+	def exited(self, processor):
+		"""
+		Record the exit of the given &processor and execute
+		the &callback of the &Join if the &processor is the last
+		in the configured &pending set.
+		"""
+
+		self.pending.discard(processor)
+
+		if not self.pending:
+			# join complete
+			self.pending = None
+			# XXX: calculate exceptions?
+
+			cb = self.callback
+			self.callback = None
+			cb(self)
+
+	def atexit(self, callback):
+		"""
+		Assign the callback of the &Join.
+		If the &pending set is empty, the callback will be immediately executed,
+		otherwise, overwrite the currently configured callback.
+		"""
+		if self.pending is None:
+			callback(self)
+			return
+
+		self.callback = callback
 
 class ExceptionStructure(object):
 	"""
@@ -389,6 +466,8 @@ class Projection(object):
 	"""
 	A set of credentials and identities used by a &Sector to authorize actions by the entity.
 
+	[ Properties ]
+
 	/entity
 		The identity of the user, person, bot, or organization that is being represented.
 	/credentials
@@ -407,6 +486,12 @@ class Projection(object):
 	authorization = None
 	device = None
 
+	def __init__(self):
+		"""
+		Projections are simple data structures and requires no initialization
+		parameters.
+		"""
+
 class Layer(object):
 	"""
 	Base class for Networking Layer Contexts
@@ -418,8 +503,8 @@ class Transaction(object):
 
 	Used to manage undo operations for exception management and consolidate allocation interfaces.
 
-	Transactions provide access to system (kernel) resources. Opening files, connecting to hosts,
-	executing binaries.
+	Transactions provide access to system (kernel) resources.
+	Opening files, connecting to hosts, executing binaries.
 	"""
 
 	def __init__(self, sector):
@@ -547,7 +632,7 @@ class Transaction(object):
 			d.requisite(t)
 
 			flow = Flow()
-			flow.requisite(*meter(d, alloc))
+			flow.requisite(*meter(d, allocate=alloc))
 			flow.subresource(sector)
 			sector.dispatch(flow)
 			flow.connect(receiver)
@@ -592,7 +677,7 @@ class Transaction(object):
 
 	def system(self, invocation):
 		"""
-		Execute the &fork.library.KInvocation inheriting standard input, output, and error.
+		Execute the &..fork.library.KInvocation inheriting standard input, output, and error.
 
 		This is used almost exclusively by shell-type processes.
 		"""
@@ -603,14 +688,14 @@ class Transaction(object):
 
 		return sp
 
-	def pipeline(self, kpipeline, input = None, output = None):
+	def pipeline(self, kpipeline, input=None, output=None):
 		"""
-		Execute a &fork.library.KPipeline object building an IO instance
+		Execute a &..fork.library.KPipeline object building an IO instance
 		from the input and output file descriptors associated with the
 		first and last processes as described by its &fork.library.Pipeline.
 
 		Additionally, a mapping of standard errors will be produced.
-		Returns a tuple: (input, output, stderrs)
+		Returns a tuple, `(input, output, stderrs)`.
 
 		Where stderrs is a sequence of file descriptors of the standard error of each process
 		participating in the pipeline.
@@ -728,11 +813,15 @@ class Transaction(object):
 		Returns a pair, the new Flow and a callable that causes the Flow to begin
 		transferring memory segments.
 
+		[ Parameters ]
+
 		/path
 			Local filesystem path.
+
 		/range
 			A triple, (start, stop, size), or &None if the entire file should be used.
 			Where size is the size of the memory slices to emit.
+
 		/downstream
 			The set of &Transformer instances that follow the &Iterate instance.
 		"""
@@ -773,6 +862,10 @@ class Resource(object):
 			c = c.controller
 
 		return c
+
+	def __init__(self):
+		""
+		pass
 
 	def __repr__(self):
 		c = self.__class__
@@ -816,11 +909,11 @@ class Extension(Resource):
 
 class Device(Resource):
 	"""
-	A resource that is usually loaded by &Unit instances into "/dev".
+	A resource that is loaded by &Unit instances into (io.resource)`/dev`
 
-	Devices (name being a operating system kernel device *metaphor*)
-	often have special purposes that regular &Resource instances do not normally
-	fulfill.
+	Devices often have special purposes that regular &Resource instances do not
+	normally fulfill. The name is a metaphor for operating system kernel devices
+	as they are often associated with kernel features.
 	"""
 
 	@classmethod
@@ -835,54 +928,6 @@ class Device(Resource):
 
 		return dev
 
-# rs://unit/bin/sector_name/Module.Class/id(obj)
-class Join(object):
-	"""
-	A object whose only purpose is to join the completion of multiple
-	processors into a single event. Joins are used to simplify coroutines whose progression
-	depends on a set of processors instead of one.
-
-	Joins help manage the set of results and concurrent exceptions that may occur
-	while processing related but distinct processes.
-	"""
-
-	__slots__ = ('dependencies', 'pending', 'callback')
-
-	def __init__(self, processors):
-		self.dependencies = processors
-		self.pending = set(processors)
-		self.callback = None
-
-	def connect(self):
-		for x in self.dependencies:
-			x.atexit(self.exited)
-
-		return self
-
-	def __iter__(self, iter=iter):
-		return iter(self.dependencies)
-
-	def exited(self, processor):
-		"Record the exit."
-
-		self.pending.discard(processor)
-
-		if not self.pending:
-			# join complete
-			self.pending = None
-			# XXX: calculate exceptions?
-
-			cb = self.callback
-			self.callback = None
-			cb(self)
-
-	def atexit(self, callback):
-		if self.pending is None:
-			callback(self)
-			return
-
-		self.callback = callback
-
 class Processor(Resource):
 	"""
 	A resource that maintains an abstract computational state.
@@ -890,17 +935,20 @@ class Processor(Resource):
 	Processor resources essentially manage state machines and provide an
 	abstraction for initial and terminal states that are often used.
 
-	States: [Created] -> Actuate -> [Functioning]
-	Finally a Choice:
-		Terminating -> Terminated
-		Interrupted
+	State Sequence
+		# Created
+		# Actuate
+		# Functioning
+		# Terminating
+		# Terminated
+		# Interrupted
 
 	Where the functioning state designates that the implementation specific state
-	has been engaged. Often, actuation and termination intersect with implementation state.
+	has been engaged. Often, actuation and termination intersect with implementation states.
 
 	The interrupted state is special; its used as a frozen state of the machine and is normally
-	associated with an exception. The term interrupt is used as its analogous UNIX process
-	interrupts (SIGINT).
+	associated with an exception. The term interrupt is used as it is nearly analogous with UNIX
+	process interrupts (unix.signal)`SIGINT`.
 	"""
 
 	# XXX: Use bitmap and properties for general states.
@@ -1102,7 +1150,7 @@ class Unit(Processor):
 	associated with the &Process instance. There can be a set of &Unit instances
 	per process, but usually only one exists.
 
-	Units differ from most &core.Processor classes as it provides some additional
+	Units differ from most &.core.Processor classes as it provides some additional
 	interfaces for managing exit codes and assigned standard I/O interfaces
 	provided as part of the system process.
 
@@ -1112,13 +1160,13 @@ class Unit(Processor):
 
 	@property
 	def ports(self):
-		":/dev/ports accessor"
+		"(io.location)`/dev/ports` accessor"
 
 		return self.index[('dev','ports')]
 
 	@property
 	def scheduler(self):
-		":/dev/scheduler accessor"
+		"(io.location)`/dev/scheduler` accessor"
 
 		return self.index[('dev','scheduler')]
 
@@ -1134,13 +1182,13 @@ class Unit(Processor):
 
 		return self.index.get(('dev', entry))
 
-	def faulted(self, resource, path = None):
+	def faulted(self, resource:Resource, path=None) -> None:
 		"""
 		Place the sector into the faults directory using the hex identifier
 		as its name.
 
 		If the path, a sequence of strings, is provided, qualify the identity
-		with the string representation of the path ('/'.join(path)).
+		with the string representation of the path, `'/'.join(path)`.
 		"""
 
 		faultor = resource.sector
@@ -1183,6 +1231,13 @@ class Unit(Processor):
 		return (p, sr)
 
 	def __init__(self):
+		"""
+		Initialze the &Unit instance with the an empty hierarchy.
+
+		&Unit instances maintain state and it is inappropriate to call
+		the initialization function during its use. New instances should
+		always be created.
+		"""
 		global Libraries
 		super().__init__()
 
@@ -1212,7 +1267,9 @@ class Unit(Processor):
 		self.index[('dev',)] = None
 		self.index[('faults',)] = None
 
-	def requisite(self, identity, roots, process = None, context = None, Context = None):
+	def requisite(self,
+			identity : collections.Hashable,
+			roots, process = None, context = None, Context = None):
 		"""
 		Ran to finish &Unit initialization; extends the sequences of roots used
 		to initialize the root sectors.
@@ -1228,7 +1285,7 @@ class Unit(Processor):
 
 		self.roots.extend(roots)
 
-	def exited(self, processor):
+	def exited(self, processor : Processor):
 		"Processor exit handler."
 
 		addr = self.reverse_index.pop(processor)
@@ -1292,7 +1349,7 @@ class Unit(Processor):
 			else:
 				self.terminated = True
 
-	def place(self, obj, *destination):
+	def place(self, obj : collections.Hashable, *destination):
 		"""
 		Place the given object in the program at the specified location.
 		"""
@@ -1350,6 +1407,8 @@ class Sector(Processor):
 
 	Sectors are the primary &Processor class and have protocols for managing projections
 	of entities (users) and their authorizing credentials.
+
+	[ Properties ]
 
 	/projection
 		Determines the entity that is being represented by the process.
@@ -1531,11 +1590,11 @@ class Sector(Processor):
 
 class Control(Sector):
 	"""
-	A /control sector that provides an exit handler for the &Unit.
+	A control sector that provides an exit handler for the &Unit.
 	Control instances are used by daemon processes to manage the control interfaces
 	to the process.
 
-	By default, the Control &Sector exits as if there was no /control instance.
+	By default, the Control &Sector exits as if there was no control instance.
 	"""
 
 	def exit(self, unit):
@@ -1650,7 +1709,7 @@ class SectorModule(Sector):
 		mod.io = library
 
 	@classmethod
-	def from_fullname(Class, path, ir_from_fullname=routeslib.Import.from_fullname):
+	def from_fullname(Class, path, ir_from_fullname=libroutes.Import.from_fullname):
 		rob = Class()
 		rob.requisite(ir_from_fullname(path))
 		return rob
@@ -1807,17 +1866,17 @@ class Subprocess(Processor):
 class Commands(Processor):
 	"""
 	A conditionally executed series of subprocesses.
-
 	Similar to shell commands with control operators.
 
-	cmds = Commands()
-	cmds.requisite(index)
-	cmds.follow('cmd_index_name')
-	cmds.success('cmd2_index_name')
-	cmds.failed('failure_handler_name')
-	cmds.follow('indendent')
+	#!/pl/python
+		cmds = Commands()
+		cmds.requisite(index)
+		cmds.follow('cmd_index_name')
+		cmds.success('cmd2_index_name')
+		cmds.failed('failure_handler_name')
+		cmds.follow('indendent')
 
-	Successes are strongly grouped. (.failed() applies to series of successes)
+	Successes are strongly grouped. (&failed applies to series of successes)
 	"""
 
 	def requisite(self, index=None):
@@ -1884,7 +1943,7 @@ class Scheduler(Processor):
 
 	def structure(self):
 		sr = ()
-		now = timelib.now()
+		now = libtime.now()
 		items = list(self.state.schedule.items())
 		pit = self.state.meter.snapshot()
 		pit = now.__class__(pit)
@@ -1910,7 +1969,7 @@ class Scheduler(Processor):
 			)
 
 	def actuate(self):
-		self.state = timelib.Scheduler()
+		self.state = libtime.Scheduler()
 
 		# XXX: resolve the scheduler to use; Context or controlling-Sector
 		# XXX: scheduler resolution needs tests
@@ -1947,7 +2006,7 @@ class Scheduler(Processor):
 		sr = self.scheduled_reference = functools.partial(self.execute_weak_method, nr)
 		self.x_ops[0](self.state.period(), sr)
 
-	def schedule(self, pit, *tasks, now=timelib.now):
+	def schedule(self, pit, *tasks, now=libtime.now):
 		"""
 		Schedule the &tasks to be executed at the specified Point In Time, &pit.
 		"""
@@ -2017,7 +2076,7 @@ class Scheduler(Processor):
 			except BaseException as scheduling_exception:
 				self.fault(scheduling_exception)
 
-	def process(self, event, Point=timelib.core.Point, Measure=timelib.core.Measure):
+	def process(self, event, Point=libtime.core.Point, Measure=libtime.core.Measure):
 		"""
 		Schedule the set of tasks.
 		"""
@@ -2027,7 +2086,7 @@ class Scheduler(Processor):
 
 		for timing, task in event:
 			if isinstance(timing, Point):
-				measure = timelib.now().measure(timing)
+				measure = libtime.now().measure(timing)
 			elif isinstance(timing, Measure):
 				measure = timing
 			else:
@@ -2327,6 +2386,7 @@ class Transports(Transformer):
 
 		self.opposite_transformer = weakref.ref(opposite)
 
+	operations = ()
 	def configure(self, polarity, stack, *operations):
 		"""
 		Assign the sequence of layer operations.
@@ -2389,7 +2449,7 @@ class Transports(Transformer):
 		opposite_has_work = False
 
 		for ops in self.operations:
-			# ops tuple:
+			# ops tuple callables:
 			# 0: transfer data into and out of the transport
 			# 1: Current direction has transfers
 			# 2: Opposite direction has transfers
@@ -2769,7 +2829,7 @@ class Composition(Functional):
 		if self.function is None:
 			self.compose()
 
-	def compose(self, *sequence, Compose=complib.compose):
+	def compose(self, *sequence, Compose=libcomp.compose):
 		"Substitute the composition of the Transformation."
 
 		self.sequence = sequence
@@ -2985,6 +3045,17 @@ class Condition(object):
 	__slots__ = ('focus', 'path', 'parameter')
 
 	def __init__(self, focus, path, parameter = None):
+		"""
+		[Parameters]
+
+		/focus
+			The root object that is safe to reference
+		/path
+			The sequence of attributes to resolve relative to the &focus.
+		/parameter
+			Determines the condition is a method and should be given this
+			as its sole parameter. &None indicates that the condition is a property.
+		"""
 		self.focus = focus
 		self.path = path
 		self.parameter = parameter
@@ -3028,12 +3099,12 @@ class Flow(Processor):
 	anything that's a stream should be managed by &Flow instances in favor
 	of other event callback mechanisms.
 
-	XXX: Dev Notes.
-	Flow termination starts with a terminal drain;
-	the Flow is obstructed, a drain operation is initiated.
-	Completion of the drain causes the finish() method to be called
-	to run the terminate() methods on the transformers.
-	Once the transformers are terminated, the Flow exits.
+	! DEVELOPER:
+		Flow termination starts with a terminal drain;
+		the Flow is obstructed, a drain operation is initiated.
+		Completion of the drain causes the finish() method to be called
+		to run the terminate() methods on the transformers.
+		Once the transformers are terminated, the Flow exits.
 	"""
 
 	# XXX: add __slots__ to Flow
@@ -3548,10 +3619,13 @@ class Trace(Reflection):
 		"""
 		Assign a monitor to the Meta Reflection.
 
+		[ Parameters ]
+
 		/identity
-			Arbitrary hashable.
+			Arbitrary hashable used to refer to the callback.
+
 		/callback
-			Unary callable.
+			Unary callable that receives all events processed by Trace.
 		"""
 
 		self.monitors[identity] = callback
@@ -3934,12 +4008,17 @@ class ParallelProtocol(Protocol):
 import codecs
 def Encoding(
 		transformer,
-		encoding='utf-8', errors='replace',
+		encoding:str='utf-8',
+		errors:str='surrogateescape',
+
 		gid=codecs.getincrementaldecoder,
 		gie=codecs.getincrementalencoder,
 	):
 	"""
-	Encoding Transformation Generator
+	Encoding Transformation Generator.
+
+	Used with &Generator Transformers to create Transformers that perform
+	incremental decoding or encoding of &Flow throughput.
 	"""
 
 	emit = transformer.emit
@@ -3977,7 +4056,7 @@ class Circulation(Device):
 
 class Ports(Device):
 	"""
-	Ports Device.
+	Listening Ports Device.
 
 	&Ports manages the set of listening sockets used by a &Unit.
 	Ports consist of a mapping of set identifiers and the set of actual listening sockets.
@@ -3986,7 +4065,7 @@ class Ports(Device):
 	port sets. This is used to communicate socket inheritance across exec() calls.
 
 	The environment variables used to inherit interfaces across exec()
-	starts at FIOD_DEVICE_PORTS; it contains a list of slots used to hold the set
+	starts at &/env/FIOD_DEVICE_PORTS; it contains a list of slots used to hold the set
 	of listening sockets used to support the slot. Often, daemons will use
 	multiple slots in order to distinguish between secure and insecure.
 	"""

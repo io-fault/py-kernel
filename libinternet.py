@@ -1,9 +1,7 @@
 """
-Internet support module for fault.io applications.
+Internet support for io applications.
 
-DNS Lookup support.
-
-Warning: Currently, circumvents library.endpoint() instantiation.
+Provides DNS resolvers and endpoint construction facilities.
 """
 
 import socket # getaddrinfo
@@ -50,7 +48,7 @@ def endpoint(url, scheme=None, parse=libri.parse):
 
 	Returns the pair: (struct, endpoint)
 	Where struct is the parsed Resource Indicator, and endpoint
-	is a &fault.internet.library.Endpoint or &fault.internet.library.Reference.
+	is a &..internet.library.Endpoint or &..internet.library.Reference.
 	"""
 
 	struct = parse(url)

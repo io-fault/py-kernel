@@ -1,7 +1,13 @@
 """
-Support library for sectord.
+Daemon management infrastructure.
 
-faultd
+In order to manage a daemon's execution, control interfaces must be support to manage
+initialization and termination sequences.
+
+Additionally, libdaemon provides a message bus for communicating with other daemons of the
+same configuration.
+
+#!text
 	/sectors [/bin/ contains the unactuated module set; /control is sectord]
 	|- worker1 [/bin/ contains the actuated module set; /control is sectord with non-zero fork_id]
 	|- worker2
@@ -12,24 +18,34 @@ faultd
 	...
 	/root [psuedo service representing the root service]
 
-Features:
-	Set of forked processes or one if distribution is one.
-	Caucus provides arbitration for locks.
+[ Features ]
+
+	- Set of forked processes or one if distribution is one.
+	- Arbitration for locks.
 
 /control - Control Signalling Interface
-	/terminate - Power Down the [system] Process
-	/sleep - Cause the task queue to pause for the given interval
-	/inject - Introspection Interface; debugging; profiling
+	/terminate
+		Power Down the [system] Process
+	/sleep
+		Cause the task queue to pause for the given interval
+	/inject
+		Introspection Interface; debugging; profiling
 
 /circulate - Broadcasting Interface
-	/daemon - Channel to other Processes in the daemon. (maybe virtual/implicit)
-	/site - System Sets are closely connected (same system or network)
-	/graph - Set of sites; the entire graph
+	/daemon
+		Channel to other Processes in the daemon. (maybe virtual/implicit)
+	/site
+		System Sets are closely connected (same system or network)
+	/graph
+		Set of sites; the entire graph
 
 /message - Direct Messaging
 	/fork-id
+		.
 	/site/machine-id/fork-id
+		.
 	/graph/site-id/machine-id/fork-id
+		.
 """
 
 import os
@@ -379,4 +395,3 @@ class Control(library.Control):
 
 			for i in range(1, forks+1):
 				self.fork(i, initial=True)
-

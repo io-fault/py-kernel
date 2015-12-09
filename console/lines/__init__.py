@@ -5,11 +5,11 @@ import importlib
 from .. import libfields
 
 def parse(Class, line,
-	Indentation = libfields.Indentation.acquire,
-	len = len,
-	space = libfields.space,
-	String = libfields.String
-):
+		Indentation = libfields.Indentation.acquire,
+		len = len,
+		space = libfields.space,
+		String = libfields.String
+	):
 	"""
 	Parse a line of text into Fields.
 	"""
@@ -99,6 +99,7 @@ extensions = {
 	'.css': 'css',
 
 	'.xsl': 'xslt',
+	'.xslt': 'xslt',
 	'.xml': 'xml',
 	'.html': 'html',
 
@@ -174,6 +175,7 @@ def profile(name):
 		routers = mod.routers
 		quotations = mod.quotations
 		parse = classmethod(parse)
+		indentation = getattr(mod, 'indentation_width', 4)
 
 	r = cache[name] = (Subline, mod)
 	return r

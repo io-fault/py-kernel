@@ -1,9 +1,10 @@
 """
-Adapter for using the traffic library with &.library.Flow instances.
+Adapter for using the traffic library with &.library.Flow instances in io applications.
 
 Specifically geared for &library.Detour instances.
 
-XXX: Needs a semaphore to block before overflowing the queue.
+! WARNING:
+	Needs a semaphore to block before overflowing the queue.
 """
 
 import sys

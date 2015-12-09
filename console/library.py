@@ -13,7 +13,6 @@ from ...filesystem import library as fslib # autosave/session persistence
 
 from ...terminal import library as libterminal # terminal display
 from ...terminal import symbols
-from ...status import library as libstatus
 from ...computation import library as complib
 
 from .. import library as iolib

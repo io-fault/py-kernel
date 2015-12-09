@@ -1,7 +1,5 @@
 """
-Abstract Base Classes and common data structures.
-
-Defines the semantics of the &core classes.
+Abstract Base Classes for &.core implementations.
 """
 import abc
 
@@ -365,4 +363,3 @@ class Flow(Processor, metaclass=abc.ABCMeta):
 
 		If there are no remaining obstructions, signal any callbacks registered with &watch.
 		"""
-

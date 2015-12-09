@@ -1,5 +1,5 @@
 """
-Hierarchically organized asyncrhonous I/O library for Python.
+Public acccess to common Processing classes and process management classes.
 """
 
 import os
@@ -42,6 +42,10 @@ class Context(object):
 	inheritance = ('environment',)
 
 	def __init__(self, process):
+		"""
+		Initialize a &Context instance with the given &process.
+		"""
+
 		self.process = process
 		self.context = None # weak reference to the context that this context was based on
 		self.association = None
@@ -113,7 +117,7 @@ class Context(object):
 
 	def inherit(self, context):
 		"""
-		Inherit the context's exports.
+		Inherit the exports from the given &context.
 		"""
 
 		raise Exception("not implemented")
@@ -255,7 +259,7 @@ class Fabric(object):
 
 	def spawn(self, controller, callable, args, create_thread = libhazmat.create_thread):
 		"""
-		Add a thread to the context's fabric.
+		Add a thread to the fabric.
 		This expands the "parallel" capacity of a &Process.
 		"""
 
@@ -359,6 +363,16 @@ class Process(object):
 
 	Usually only one &Process is active per-process, but it can be reasonable to launch multiple
 	in order to perform operations that would otherwise expect its own space.
+
+	[System Events]
+
+	The &system_event_connect and &system_event_disconnect methods
+	are the mechanisms used to respond to child process exits signals.
+
+	[ Properties ]
+
+	/fabric
+		The &Fabric instance managing the threads controlled by the process.
 	"""
 
 	@staticmethod
@@ -377,7 +391,7 @@ class Process(object):
 	def spawn(Class, invocation, units, identity = 'root'):
 		"""
 		Construct a booted &Process using the given &invocation
-		with the specified &Unit's.
+		with the specified &Unit.
 		"""
 
 		proc = Class(identity, invocation = invocation)
@@ -396,7 +410,8 @@ class Process(object):
 	def log(self, data):
 		"""
 		Append only access to a *critical* process log. Usually points to &sys.stderr and
-		primarily used for process related issues. Normally inappropriate for &Unit's.
+		primarily used for process related issues. Normally inappropriate for &Unit
+		instances.
 		"""
 
 		self._logfile.write(data)
@@ -467,6 +482,14 @@ class Process(object):
 				self.invocation.exit(exit)
 
 	def __init__(self, identity, invocation = None):
+		"""
+		Initialize the &Process instance using the designated &identity.
+		The identity is essentially arbitrary, but must be hashable as it's
+		used to distinguish one &Process from another. However,
+		usually there is only one process, so "root" or "main" is often used.
+
+		Normally, &execute is used to manage the construction of the &Process instance.
+		"""
 		# Context Wide Resources
 		self.identity = identity
 		self.invocation = invocation # exit resource and invocation parameters
@@ -751,7 +774,7 @@ class Process(object):
 
 	def enqueue(self, *tasks):
 		"""
-		Enqueue a task to be ran in the `Tasks` instance's thread.
+		Enqueue a task to be ran.
 		"""
 
 		self.loading_queue.extend(tasks)
@@ -803,15 +826,15 @@ Null = core.Null
 
 def execute(*identity, **units):
 	"""
-	Initialize a working directory and spawn a logical process to represent the
-	invocation from the [operating] system.
+	Initialize a &Process to represent the invocation from the [operating] system.
 
 	This is the appropriate way to invoke an fault.io process from an executable module.
 
+	#!/pl/python
 		io.library.execute(unit_name = (unit_initialization,))
 
 	Creates a &Unit instance that is passed to the initialization function where
-	it's hierarchy is then populated with &Sector instances.
+	its hierarchy is then populated with &Sector instances.
 	"""
 
 	if identity:

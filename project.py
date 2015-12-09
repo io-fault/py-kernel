@@ -1,18 +1,12 @@
-'project information'
-
-#: Project name.
 name = 'io'
 fork = 'overflow'
-release = None
-abstract = 'process I/O management for fault scheduling applications'
-
-icon = '🔲'
-
-#: IRI based project identity. (project homepage)
 identity = 'https://fault.io/project/python/io'
+abstract = 'I/O control for hierarchical asynchronous processes'
+icon = '⚙'
+release = None
 
-#: Responsible Party
 controller = 'fault.io'
-
-#: Contact point for the Responsible Party
 contact = 'mailto:critical@fault.io'
+
+version_info = (0, 1, 0)
+version = '.'.join(map(str, version_info))

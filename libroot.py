@@ -1,8 +1,9 @@
 """
-faultd. The root daemon for service management and scheduled processes.
+Root process for service management and scheduled processes.
 
-faultd manages a scheduling daemon, a set of service processes and a set of service
-Sectors assigned to a particular group with its own configurable concurrency level.
+libroot provides the primary support for &.bin.faultd which manages a scheduling daemon,
+a set of service processes and a set of service Sectors assigned to a particular
+group with its own configurable concurrency level.
 
 Multiple instances of a faultd daemon may exist, but usually only one per-user is necessary.
 The $HOME/.faultd directory is used by default, but can be adjusted by a command
@@ -43,6 +44,7 @@ import os
 import sys
 import signal
 import functools
+import itertools
 
 from ..fork import library as forklib
 from ..routes import library as routeslib
@@ -302,7 +304,7 @@ class HTTP(library.Sector):
 			flow.terminate()
 
 	@classmethod
-	def http_accept(Class, spawn, packet):
+	def http_accept(Class, spawn, packet, chain=itertools.chain):
 		"""
 		Accept HTTP connections for interacting with the daemon.
 		"""
@@ -314,7 +316,7 @@ class HTTP(library.Sector):
 		services = sector.controller.services
 
 		# event is a iterable of socket file descriptors
-		for fd in event:
+		for fd in chain(*event):
 			cxn = Class()
 			cxn.services = services
 			sector.dispatch(cxn)
@@ -430,7 +432,8 @@ class ServiceManager(library.Processor):
 			# stderr stopgap; probably move to a log file managed by this class.
 			f = library.Flow()
 			def gah(s):
-				sys.stderr.write(s.decode('utf-8'))
+				for x in s:
+					sys.stderr.write(x.decode('utf-8'))
 				sys.stderr.flush()
 			pt = library.Functional(gah)
 			f.requisite(*(library.core.meter_input(stderr) + (pt,)))
@@ -510,9 +513,9 @@ class ServiceManager(library.Processor):
 
 class Control(library.Control):
 	"""
-	The '/control' sector of the root daemon (faultd) managing a set of services.
+	The (io.path)`/control` sector of the root daemon (faultd) managing a set of services.
 
-	Executes the managed services inside /bin/*; ignores
+	Executes the managed services inside (io.path)`/bin/*`; ignores
 	natural exit signals as it waits for administrative termination
 	signal.
 	"""
@@ -569,6 +572,7 @@ class Control(library.Control):
 		# bind http control interface
 		endpoint = library.endpoint('local', (srv.route/"if").fullpath, "0")
 		self.controller.ports.bind('http', endpoint)
+		# XXX: needs to be sourced from configuration
 		self.controller.ports.bind('http', library.endpoint('ip4', '127.0.0.1', 8181))
 
 		os.chdir(srv.route.fullpath)
