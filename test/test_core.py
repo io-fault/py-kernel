@@ -1,6 +1,13 @@
 import importlib.util
 from .. import core as library
 
+class ExitController(object):
+	def __init__(self):
+		self.exits = []
+
+	def exited(self, processor):
+		self.exits.append(processor)
+
 # used to emulate io.library.Context
 class TContext(object):
 	process = None
@@ -17,9 +24,10 @@ class TContext(object):
 
 	def __call__(self):
 		l = len(self.tasks)
-		for x in self.tasks:
-			x()
+		e = self.tasks[:l]
 		del self.tasks[:l]
+		for x in e:
+			x()
 
 	def defer(self, mt):
 		pass
@@ -29,6 +37,12 @@ class TContext(object):
 
 class TTransit(object):
 	link = None
+
+	# for representation during debugging
+	resource = None
+	port = '<test transit>'
+	def endpoint(self):
+		return None
 
 	def acquire(self, obj):
 		self.resource = obj
@@ -74,39 +88,6 @@ def test_Join(test):
 	f1, f2 = j
 	test/f1 == jp1
 	test/f2 == jp2
-
-def test_ModuleSector(test):
-	"Test the Library access interfaces."
-
-	lmod = __package__ + '.ultest'
-	mnf = __package__ + '.nomod'
-
-	test/ImportError ^ (lambda: library.Library.from_fullname(mnf))
-
-	u = library.Unit()
-	ctx = TContext()
-	u.requisite("none", (), context=ctx)
-	ctx.associate(u)
-	u.context = ctx
-	test/ctx.association() == u
-	u.actuate()
-
-	ul = library.Library.from_fullname(lmod)
-	u.place(ul, 'lib', 'test')
-	ul.context = ctx
-	ul.actuate()
-
-	test/u.libraries / library.Libraries
-	test/AttributeError ^ (lambda: u.libraries.nosuchlib)
-
-	test/u.libraries.test / library.Library.Access
-	test/AttributeError ^ (lambda: u.libraries.test.noattr)
-
-	t = ul.api()
-
-	test/t.func() == ul
-	test/t.libs() == u.libraries
-	test/t.libs().test == u.libraries.test
 
 # r1, r2 = (yield lib.dns.somejoin(...)) 
 
@@ -269,17 +250,29 @@ def test_join_obstructions(test):
 	f.obstruct(test, None) # no op
 	test/l == ['suspend', 'resume', 'suspend',]
 
-def test_iterate(test):
+def test_Iterate(test):
 	"Use the Collection Transformer to validate the iterator's functionality"
 
 	c = library.Collect.list()
 	i = library.Iterate()
 	f = library.Flow()
+	e = ExitController()
+	f.controller = e
 	f.requisite(i, c)
 	f.actuate()
 
 	f.process(range(100))
 	test/c.storage == list(range(100))
+	test/f.obstructed == True
+
+	f.process(range(100, -1, -1))
+	test/c.storage == (list(range(100)) + list(range(100, -1, -1)))
+
+	# trigger terminal
+	i.requisite(terminal=True)
+	f.process(())
+	test/f.terminated == True
+	test/e.exits << f
 
 def test_collect(test):
 	"Similar to test_iterate, but install all storage types"
@@ -315,14 +308,17 @@ def test_collect(test):
 
 def test_allocator(test):
 	t = TTransit()
+	d = library.Detour()
+	d.requisite(t)
 
 	f = library.Flow()
-	f.requisite(*library.meter_input(t))
+	f.requisite(*library.meter_input(d))
 	meter = f.sequence[0]
+	f.actuate()
 
 	test/t.link == f.sequence[1]
 	test/meter.transferred == 0
-
+	test/t.link == f.sequence[1]
 	f.sequence[0].transition()
 	fst_resource = t.resource
 
@@ -346,16 +342,20 @@ def test_allocator(test):
 
 def test_throttle(test):
 	t = TTransit()
+	d = library.Detour()
+	d.requisite(t)
 
 	f = library.Flow()
-	f.affix(*library.meter_output(t))
-	meter = f.sequence[0]
+	f.requisite(*library.meter_output(d))
+	meter = f.sequence[1]
+	f.actuate()
 
-	test/t.link == f.sequence[1]
+	test/t.link == f.sequence[2]
 	test/meter.transferred == 0
-	test/meter.transferring == 0
+	# nothing has been allocated
+	test/meter.transferring == None
 
-	f.process(b'foobar')
+	f.process((b'datas',))
 	fst_resource = t.resource
 
 	test/meter.transferring == len(t.resource)
@@ -372,7 +372,7 @@ def test_throttle(test):
 
 	test/meter.transferring == rlen
 
-	f.process(b'following')
+	f.process((b'following',))
 	t.link.inject(t.resource[rlen-1:])
 	test/meter.transferred == 0
 	test/id(t.resource) != id(fst_resource)
@@ -384,6 +384,7 @@ def test_throttle(test):
 def test_Serialize(test):
 
 	Type = library.Serialize
+	Context = TContext()
 
 	def state_generator(layer, transport):
 		transport(('start', layer))
@@ -394,36 +395,33 @@ def test_Serialize(test):
 			transport(('stop', layer))
 
 	S = library.Sector()
+	S.context = Context
 
 	# output flow
 	f = library.Flow()
 	c = library.Collect.list()
 	f.requisite(c)
-	f.subresource(S)
 
 	# pair of inputs
 	fi = library.Flow()
 	i = library.Iterate()
 	fi.requisite(i)
-	fi.actuate()
-	fi.subresource(S)
 
 	fib = library.Flow()
 	i2 = library.Iterate()
 	fib.requisite(i2)
-	fib.actuate()
-	fib.subresource(S)
 
 	fic = library.Flow()
 	i3 = library.Iterate()
 	fic.requisite(i3)
-	fic.actuate()
-	fic.subresource(S)
+
+	S.requisite(f, fi, fib, fic)
+	S.actuate()
 
 	qs = Type(state_generator)
-	qs.requisite(f)
-	qs.subresource(S)
+	qs.requisite(f) # output flow
 
+	# reserve slots
 	qs.enqueue(1)
 	qs.enqueue(2)
 	qs.connect(2, fib) # validate blocking of 1
@@ -441,7 +439,9 @@ def test_Serialize(test):
 	qs.connect(1, fi)
 
 	fic.process(range(0,-10,-1))
-	test/c.storage == [('start', 1)] # init message
+
+	# init message from qs.connect(1, fi)
+	test/c.storage == [('start', 1)]
 
 	c.storage.clear()
 	fi.process(range(0, -50, -1))
@@ -450,7 +450,7 @@ def test_Serialize(test):
 	# check that obstruction
 	# with test.annotate("flow obstruction inheritance"):
 	fi.obstruct(test, None, None)
-	test/f.obstructed == True
+	test/f.obstructed == True # because fi is obstructed
 
 	del c.storage[:]
 	test/c.storage == []
@@ -467,19 +467,27 @@ def test_Serialize(test):
 
 	fi.clear(test)
 	# with test.annotate("pop head of line and check effect")
-	fi.obstruct(test, None, library.Inexorable)
+	fi.terminate()
+
+	Context() # run queue to cause transition from fi's termination.
+	Context()
 	test/c.storage == [('stop', 1), ('start', 2)] + list(range(100))
 
 	del c.storage[:]
-	fib.obstruct(test, None, library.Inexorable)
+	fib.terminate()
+	Context()
+	Context()
 	test/c.storage == [('stop', 2)]
 	del c.storage[:]
 
-	# fic still not connected
+	# fic is still not connected, so connect should identify it as the front.
 	test/c.storage == []
 	qs.connect(3, fic)
 	fic.clear(test)
-	fic.obstruct(test, None, library.Inexorable)
+	fic.terminate()
+	test/c.storage == [('start', 3)] + list(range(0, -10, -1))
+	Context()
+	Context()
 	test/c.storage == [('start', 3)] + list(range(0, -10, -1)) + [('stop', 3)]
 
 def test_Distribute(test):
