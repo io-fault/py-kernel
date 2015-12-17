@@ -1,4 +1,4 @@
-from .. import console as library
+from ..console import core as library
 
 def test_irange(test):
 	zero = library.IRange.single(0)

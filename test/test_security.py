@@ -121,22 +121,34 @@ def test_Transports_io(test, chain=itertools.chain):
 	ciseq = ci.sequence[-1].storage
 	siseq = si.sequence[-1].storage
 
-	test/[x for x in ciseq if x] == [[b'xyz']]
-	test/[x for x in siseq if x] == [[b'abc']]
+	l = []
+	for x in ciseq:
+		l.extend(x)
+	test/[x for x in l if x] == [b'xyz']
+	l = []
+	for x in siseq:
+		l.extend(x)
+	test/[x for x in l if x] == [b'abc']
 
 	inc = [b'A slight increase to the data transfer']
 	co.process(inc)
 	while io_context.tasks:
 		io_context()
 
-	test/[x for x in siseq if x] == [[b'abc'], inc]
+	l = []
+	for x in siseq:
+		l.extend(x)
+	test/[x for x in l if x] == [b'abc', inc[0]]
 
 	server_inc = [b'A slight increase to the data transfer(server out)']
 	so.process(server_inc)
 	while io_context.tasks:
 		io_context()
 
-	test/[x for x in ciseq if x] == [[b'xyz'], server_inc]
+	l = []
+	for x in ciseq:
+		l.extend(x)
+	test/[x for x in l if x] == [b'xyz', server_inc[0]]
 
 if __name__ == '__main__':
 	import sys; from ...development import libtest

@@ -596,7 +596,8 @@ class Fields(core.Refraction):
 			if x in classify:
 				cc = classify[x]
 				if cc == 'keyword':
-					color = 0x005fd7
+					#color = 0x005fd7
+					color = 0x6080FF
 				elif cc == 'core':
 					color = 0x875fff
 				elif cc == 'exoword':

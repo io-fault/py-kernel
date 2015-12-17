@@ -23,7 +23,7 @@ from ..fork import libhazmat
 from ..internet import library as netlib
 from ..internet import libri
 
-from ..chronometry import library as timelib
+from ..chronometry import library as libtime
 from ..routes import library as routeslib
 
 class Context(object):
@@ -69,7 +69,7 @@ class Context(object):
 
 		self.unit.faulted(resource)
 
-	def defer(self, measure, task, maximum=6000, seconds=timelib.Measure.of(second=2)):
+	def defer(self, measure, task, maximum=6000, seconds=libtime.Measure.of(second=2)):
 		"""
 		Schedule the task for execution after the period of time &measure elapses.
 
@@ -598,7 +598,7 @@ class Process(object):
 		Send an overview of the logical process state to the given target.
 		"""
 
-		txt = ""
+		txt = "[%s]\n" %(libtime.now().select('iso'),)
 
 		units = set(core.__process_index__[self].values())
 		for unit in units:

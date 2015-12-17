@@ -119,7 +119,7 @@ def sequence(identity, resource, perspective, traversed, depth=0):
 
 def format(identity, resource, tabs="\t".__mul__):
 	"""
-	Format the &Resource tree for display to a character device.
+	Format the &Resource tree in eclectic text.
 	"""
 	import pprint
 
@@ -368,6 +368,7 @@ class Join(object):
 	whose progression depends on a set of processors instead of one.
 
 	[ Properties ]
+
 	/dependencies
 		The original set of processors.
 	/pending
@@ -1473,7 +1474,6 @@ class Sector(Processor):
 		for proc in procs:
 			sprocs[proc.__class__].add(proc)
 			proc.subresource(self)
-	affix=requisite
 
 	def process(self, events):
 		"""
@@ -1553,7 +1553,6 @@ class Sector(Processor):
 
 	def reap(self, set=set):
 		"Empty the exit set and check for sector completion."
-		global Sector
 
 		exits = self.exits
 		del self.exits
@@ -2609,7 +2608,6 @@ class Dispatcher(Transformer):
 	def requisite(self, function, serialization = None):
 		self.function = function
 		self.serialization = serialization
-	affix=requisite
 
 	def actuate(self, partial=functools.partial):
 		self.enqueue = self.context.enqueue
@@ -2670,7 +2668,6 @@ class Generator(Dispatcher):
 		self.generator = function(self)
 		super().requisite(self.generator.send, serialization = libhazmat.create_knot())
 		self.generator_function = function
-	affix=requisite
 
 	def subresource(self, ascent):
 		super().subresource(ascent)
@@ -2740,7 +2737,6 @@ class Detour(Transformer):
 		#transit.resize_exoresource(1024*128)
 		self.acquire = transit.acquire
 		transit.link = self
-	affix=requisite
 
 	def actuate(self):
 		self.process = self.transit.acquire
@@ -3233,7 +3229,6 @@ class Flow(Processor):
 			x.emit = y.process
 
 		self.sequence = transformers
-	affix = requisite
 
 	def actuate(self):
 		"Actuate the Transformers placed in the Flow by &requisite."
@@ -3476,7 +3471,6 @@ class Funnel(Flow):
 
 	def requisite(self, identify=lambda x: x):
 		self.identify = identify
-	affix=requisite
 
 	def process(self, event, source = None):
 		self.sequence[0].process((self.identify(source), event))
@@ -3508,7 +3502,8 @@ class Iterate(Reactor):
 
 	Normally used to emit predefined Flow content.
 
-	The &Flow will be terminated when the iterator has been exhausted.
+	The &Flow will be terminated when the iterator has been exhausted if
+	configured to by &requisite.
 	"""
 
 	def suspend(self, by):
@@ -3526,13 +3521,25 @@ class Iterate(Reactor):
 	def exhausted(self):
 		return self.iterator == ()
 
+	@property
+	def obstructing(self):
+		flow = self.controller
+		if flow.obstructions:
+			return self in flow.obstructions
+		else:
+			return False
+
 	terminal = False
-	def requisite(self, terminal=False):
+	def requisite(self, terminal:bool=False):
 		"""
-		The iterator is terminal to the flow.
+		[ Parameters ]
+
+		/terminal
+			Terminate the &Flow when the iterator reaches its end.
 		"""
 
-		self.terminal = terminal
+		if terminal:
+			self.terminal = terminal
 
 	def actuate(self):
 		super().actuate()
@@ -3549,13 +3556,14 @@ class Iterate(Reactor):
 		if self.iterator == ():
 			# new iterator
 			self.iterator = iter(it)
-			if self.obstructed:
+			if self.obstructing:
 				self.controller.clear(self)
 		else:
 			# concatenate the iterators
 			self.iterator = chain(self.iterator, iter(it))
 
 		if not self.obstructed:
+			# only transition if the flow isn't obstructed
 			self.transition()
 
 	def transition(self):
@@ -3705,7 +3713,6 @@ class Serialize(Extension):
 	def requisite(self, flow, state=None):
 		# no inheritance; protocols refer to flows, they do not control them
 		self.output = flow
-	affix=requisite
 
 	def suspend(self, flow):
 		if flow is self.front:
@@ -3787,13 +3794,13 @@ class Serialize(Extension):
 		flow.watch(self.suspend, self.resume)
 		flow.emit = self.process
 
-	def transition(self, exiting_flow=None):
+	def transition(self, exiting_flow=None, getattr=getattr):
 		"""
 		Move the first enqueued flow to the front of the line;
 		flush out the buffer and remove ourselves as an obstruction.
 		"""
 
-		terminal = self.layer.terminal
+		terminal = getattr(self.layer, 'terminal', False)
 		self.state.close() # signal end of flow to the state
 		self.output.clear(self.front)
 		self.front = None
@@ -3816,8 +3823,8 @@ class Serialize(Extension):
 
 		f = self.flows.pop(l)
 		if f is None:
-			# no flow, empty queue
-			del self.queues[(Layer, l)]
+			# no flow, queue must be empty
+			self.queues.pop((Layer, l), None)
 			return
 
 		q = self.queues.pop(f)
@@ -3862,10 +3869,9 @@ class Distribute(Extension):
 
 	def requisite(self, input):
 		self.input = input
-	affix=requisite
 
-	def process(self, events, source = None):
-		self.controller.context.enqueue(functools.partial(self.state.send, events))
+	def process(self, events, source = None, partial=functools.partial):
+		self.controller.context.enqueue(partial(self.state.send, events))
 		#self.state.send(events)
 
 	def connect(self, layer, flow):
@@ -3916,7 +3922,7 @@ class Distribute(Extension):
 
 		self.close_callback(layer, flow)
 
-		if layer.terminal:
+		if getattr(layer, 'terminal', False):
 			self.input.terminate()
 
 	def accept(self, layer, Queue=collections.deque):
@@ -3988,7 +3994,6 @@ class QueueProtocol(Protocol):
 		d.requisite(input)
 		input.atexit(self.dependency_exit)
 		output.atexit(self.dependency_exit)
-	affix = requisite
 
 	def dependency_exit(self, flow):
 		"Called when either the input or output flow exits."
@@ -4059,7 +4064,8 @@ class Ports(Device):
 	Listening Ports Device.
 
 	&Ports manages the set of listening sockets used by a &Unit.
-	Ports consist of a mapping of set identifiers and the set of actual listening sockets.
+	Ports consist of a mapping of a set identifiers and the set of actual listening
+	sockets.
 
 	In addition to acquisition, &Ports inspects the environment for inherited
 	port sets. This is used to communicate socket inheritance across exec() calls.

@@ -6,7 +6,7 @@ a set of service processes and a set of service Sectors assigned to a particular
 group with its own configurable concurrency level.
 
 Multiple instances of a faultd daemon may exist, but usually only one per-user is necessary.
-The $HOME/.faultd directory is used by default, but can be adjusted by a command
+The (fs)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
 line parameter. The daemon directory supplies all the necessary configuration,
 so few options are available from system invocation.
 
@@ -16,13 +16,6 @@ Python executable. Hardlinks are used in order to provide accurate process names
 The daemon directory structure is a set of service directories managed by the instance with
 "scheduled" and "root" reserved for the management of the administrative scheduler
 and the spawning daemon itself.
-
-# undermines controld http interface?
-.bin.control service_name dispatch start|restart|stop|reload (HUP) "comment"
-.bin.control service_name wait # waits until the service's process exits
-.bin.control service_name disable "comment"
-.bin.control service_name enable "comment"
-.bin.control service_name signal signo "comment"
 
 .faultd/root/
 	Created automatically to represent the faultd process.
@@ -46,9 +39,9 @@ import signal
 import functools
 import itertools
 
-from ..fork import library as forklib
-from ..routes import library as routeslib
-from ..chronometry import library as timelib
+from ..fork import library as libfork
+from ..routes import library as libroutes
+from ..chronometry import library as libtime
 
 from . import libservice
 from . import core
@@ -189,7 +182,7 @@ class HTTP(library.Sector):
 
 	@http.resource(limit=0)
 	def http_timestamp(self, request, response, input):
-		return timelib.now().select("iso")+'\n'
+		return libtime.now().select("iso")+'\n'
 
 	#http_if = http.Mount(pkg, dir)
 
@@ -343,20 +336,26 @@ class ServiceManager(library.Processor):
 	They primarily respond to events in order to keep the daemon running.
 	Secondarily, it provides the administrative interface.
 
+	! WARNING:
+		There is no exclusion primitive used to protect read or write operations,
+		so there are race conditions.
+
+	[ Properties ]
+
 	/minimum_runtime
 		Identifies the minimum time required to identify a successful start.
+
 	/minimum_wait
 		Identifies the minimum wait time before trying again.
+
 	/maximum_wait
 		Identifies the maximum wait time before trying again.
-
-	XXX: no command queue so there are race conditions
 	"""
 
 	# delay before faultd perceives the daemon as running
-	minimum_runtime = timelib.Measure.of(second=3)
-	minimum_wait = timelib.Measure.of(second=2)
-	maximum_wait = timelib.Measure.of(second=32)
+	minimum_runtime = libtime.Measure.of(second=3)
+	minimum_wait = libtime.Measure.of(second=2)
+	maximum_wait = libtime.Measure.of(second=32)
 
 	def structure(self):
 		p = [
@@ -392,7 +391,7 @@ class ServiceManager(library.Processor):
 		super().actuate()
 
 		self.update()
-		self.last_known_time = timelib.now()
+		self.last_known_time = libtime.now()
 		srv = self.service
 
 		if srv.enabled and srv.type in ('daemon', 'sectors'):
@@ -472,7 +471,7 @@ class ServiceManager(library.Processor):
 		if self.status != 'exception':
 			self.status = 'terminated'
 
-		self.exit_events.append((timelib.now(),) + pid_exit)
+		self.exit_events.append((libtime.now(),) + pid_exit)
 
 		# automatically recover if its a daemon or sectors
 		if self.service.type in ('daemon', 'sectors'):
@@ -500,7 +499,7 @@ class ServiceManager(library.Processor):
 
 		env['SERVICE_NAME'] = service.name
 
-		ki = forklib.KInvocation(*service.execution(), environ=env)
+		ki = libfork.KInvocation(*service.execution(), environ=env)
 		self.invocation = ki
 
 # faultd manages services via a set of directories that identify the service
@@ -554,7 +553,7 @@ class Control(library.Control):
 			srv.prepare()
 			srv.load()
 
-		srv.pid = forklib.current_process_id
+		srv.pid = libfork.current_process_id
 		srv.store_pid()
 		self.root = srv
 		srv.critical("starting daemon")

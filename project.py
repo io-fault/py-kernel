@@ -2,7 +2,7 @@ name = 'io'
 fork = 'overflow'
 identity = 'https://fault.io/project/python/io'
 abstract = 'I/O control for hierarchical asynchronous processes'
-icon = '⚙'
+icon = '⚗'
 release = None
 
 controller = 'fault.io'

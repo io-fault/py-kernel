@@ -1,7 +1,7 @@
 """
 Adapter for using the traffic library with &.library.Flow instances in io applications.
 
-Specifically geared for &library.Detour instances.
+Specifically geared for &.library.Detour instances.
 
 ! WARNING:
 	Needs a semaphore to block before overflowing the queue.

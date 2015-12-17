@@ -16,7 +16,8 @@ from . import core
 
 class Layer(core.Layer):
 	"""
-	The HTTP layer of a connection; superclass of &Request and &Response
+	The HTTP layer of a connection; superclass of &Request and &Response that provide
+	access to the parameters of a &Transaction.
 	"""
 
 	protocol = 'http'
@@ -586,11 +587,11 @@ def resource(**kw):
 
 	#!/pl/python
 		@http.resource(limit=0, ...)
-		def method(sector, request, response, input):
+		def method(self, sector, request, response, input):
 			pass
 
 		@method.override('text/html')
-		def method(sector, request, response, input):
+		def method(self, sector, request, response, input):
 			"Resource implementation for text/html requests(Accept Header)."
 			pass
 	"""

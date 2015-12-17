@@ -50,9 +50,9 @@ def test_Service(test):
 		# create, store/load and check empty
 
 		srv = library.Service(tr, "test-service")
-		libs = srv.libraries = [
-			('foo', 'module.path.foo'),
-		]
+		libs = srv.libraries = {
+			'foo': 'module.path.foo'
+		}
 
 		srv.store()
 		srv.load()
