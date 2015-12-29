@@ -5,10 +5,13 @@ import collections
 from ...terminal import library as libterminal
 from .. import library as iolib
 from . import keyboard
+from ...computation import library as libcomp
+
+IRange = libcomp.IRange
 
 class Cache(object):
 	"""
-	Mapping interface for user trans-refraction communication.
+	Mapping interface for user trans-refraction communication. (Local Clipboard)
 
 	Maintains a set of slots for storing a sequence of typed objects; the latest item
 	in the slot being the default. A sequence is used in order to maintain a history of
@@ -56,76 +59,6 @@ class Cache(object):
 	def clear(self, key):
 		"Remove the all the contents of the given slot."
 		self.storage[key].clear()
-
-class IRange(tuple):
-	"Inclusive numeric range used for cases where the range size is one or more."
-
-	__slots__ = ()
-
-	@property
-	def direction(self):
-		"Returns -1 if the stop is less than the start."
-		return 1 if self[0] >= self[1] else -1
-
-	@property
-	def start(self):
-		return self[0]
-
-	@property
-	def stop(self):
-		return self[1]
-
-	@classmethod
-	def normal(Class, *args):
-		"""
-		Create a normal range using the given boundaries; the minimum given will be the
-		start and the maximum will be the stop.
-		"""
-		return Class((min(*args), max(*args)))
-
-	@classmethod
-	def single(Class, index):
-		"Create a range consisting of a single unit."
-		return Class((index, index))
-
-	def __contains__(self, x):
-		"Whether or not the range contains the given number."
-		return self[0] <= x <= self[1]
-
-	def relation(self, r):
-		pass
-
-	def contiguous(self, r):
-		"The given range is coniguous with the other."
-		tr = tuple(r)
-		return self[0]-1 in tr or self[1]+1 in tr
-
-	def join(self, r):
-		"Combine the ranges."
-		return self.normal(min(self[0], r[0]), max(self[1], r[1]))
-
-	def exclusive(self):
-		"Return as an exclusive-end range pair."
-		return (self[0], self[1]+1)
-
-	def units(self, step = 1):
-		"Return an iterator to the units in the range."
-		if self.direction > 0:
-			return range(self[0], self[1]+1, step)
-		else:
-			return range(self[0], self[1]-1, -step)
-
-class RMapping(object):
-	"Range mapping. Mapping of ranges."
-	from bisect import bisect
-
-	def __init__(self, combine = operator.methodcaller("__add__")):
-		self.ranges = []
-		self.association = {}
-		self.combine = combine
-
-	def get(self, key):
-		index = self.bisect(self.ranges, (key, key))
 
 class Refraction(iolib.Resource):
 	"""

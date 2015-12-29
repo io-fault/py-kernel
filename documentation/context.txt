@@ -1,0 +1,14 @@
+[ References ]
+
+.
+
+[ Glossary ]
+
+/**Creation**
+	The instantiation of a Resource.
+/Installation
+	The process of designating the Resource's controller.
+/Parameterization
+	The assignment of dependencies.
+/Actuation
+	The runtime initialization.

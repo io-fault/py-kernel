@@ -1,0 +1,39 @@
+[ Actor Model ]
+
+fault.io is arguably an implementation of the actor model. However, it adheres
+to no formalities nor does attempt to.
+
+[ Fundamental Types ]
+
+There are a number of important types introduced by fault.io: Resource, Transformer, Processor,
+Flow, and Sector. Sectors are subclassed from Processor, but considered somewhat distinct
+in that it is the primary grouping type. Sectors are dependent on the Processors that are
+subresources of the Sector; subresources being resources contained by the Sector.
+
+The &Resource is the base class for any type that is intended to persist within the
+Resource hierarchy of a process.
+
+[ Resources Initialization ]
+
+[ Processors Exit ]
+
+A Processor has two paths in order for an exit event to occur. Interruption and
+Termination. Interruption is analogous to process interrupt signals on unix and
+termination is the conflation between [natural] completion and administrative
+termination.
+
+All Processors must support Interrupts, but external termination does not
+have to be supported. The distinction is that external termination may not always
+be appropriate for a Processor; it may not have the ability to close out
+the event stream in a safe manner.
+
+Connections, for instance, are primarily interrupted rather than terminated.
+Termination tends to only occur naturally by protocol events. Administrative
+termination may be supported by some protocols, but it can only be achieved at
+certain break points and may end up looking like an interrupt anyways.
+
+Termination: The completion of the terminal event; the final state possible.
+Interruption: The destruction
+
+Sectors naturally contain interruptions/exceptions; exiting normally, but noting
+that it was interrupted.
