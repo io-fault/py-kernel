@@ -472,8 +472,7 @@ class Client(core.Sector):
 			def endpoint(sector, request, response, connect_input):
 				...
 
-		Where &connect_input is a callable that specifies the receiving
-		Flow.
+		Where &endpoint is a callable that ultimately connects the receiving Flow.
 		"""
 
 		self.response_endpoints.append((endpoint, layer))

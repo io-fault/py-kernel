@@ -24,13 +24,6 @@ from ..internet import library as libnet
 from ..chronometry import library as libtime
 from ..computation import library as libcomp
 
-# Indirect association of SystemProcess objects and LogicalProcess's
-__process_index__ = dict()
-
-# Indirect association of Logical Process objects and traffic Interchanges.
-# Interchange holds references back to the process.
-__traffic_index__ = dict()
-
 def dereference_controller(self):
 	return self.controller_reference()
 
@@ -1269,7 +1262,7 @@ class Unit(Processor):
 		self.index[('faults',)] = None
 
 	def requisite(self,
-			identity : collections.Hashable,
+			identity:collections.Hashable,
 			roots, process = None, context = None, Context = None):
 		"""
 		Ran to finish &Unit initialization; extends the sequences of roots used
@@ -1342,7 +1335,7 @@ class Unit(Processor):
 		global __process_index__
 
 		if self.terminated is not True:
-			if __process_index__[self.context.process][None] is self:
+			if self.context.process.primary() is self:
 				if self.hierarchy['faults']:
 					self.context.process.report()
 				self.context.process.terminate(getattr(self, 'result', 0))
@@ -3004,7 +2997,7 @@ def Sensor(transformer):
 		exited(event)
 		event = (yield (event,))
 
-def meter_input(detour, transports=False, allocate=Allocator.allocate_byte_array):
+def meter_input(detour, transports=None, allocate=Allocator.allocate_byte_array):
 	"Create the necessary Transformers for metered input."
 
 	meter = Allocator(allocate)
@@ -3015,7 +3008,7 @@ def meter_input(detour, transports=False, allocate=Allocator.allocate_byte_array
 	else:
 		return (meter, detour, Functional.generator(g), Composition())
 
-def meter_output(detour, transports=False):
+def meter_output(detour, transports=None):
 	"Create the necessary Transformers for metered output."
 
 	meter = Throttle()
