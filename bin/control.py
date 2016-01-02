@@ -25,7 +25,7 @@ import itertools
 
 from ...internet import libri
 
-from .. import http
+from .. import libhttp
 from .. import library as libio
 from .. import libservice
 
@@ -69,7 +69,7 @@ class HTTP(libio.Sector):
 		with cxn.xact() as xact:
 			io = xact.connect(endpoint.protocol, endpoint.address, endpoint.port)
 
-			p, fi, fo = http.client_v1(
+			p, fi, fo = libhttp.client_v1(
 				xact, cxn.http_transaction_open, cxn.http_transaction_close, *io)
 
 			cxn.protocol = p
@@ -138,7 +138,7 @@ def initialize(unit):
 
 	hc = HTTP.open(root_sector, endpoint)
 
-	req = http.Request()
+	req = libhttp.Request()
 	path = libri.http(struct)
 	print(struct, path)
 

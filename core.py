@@ -2443,6 +2443,8 @@ class Transports(Transformer):
 						# Process anything available, and identify it as drained.
 						opp.process(())
 						opp.drained()
+					else:
+						opp.controller.terminate(by=self)
 					return None
 				else:
 					# signal transport that termination needs to occur

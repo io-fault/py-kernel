@@ -1,5 +1,5 @@
 """
-Adapter for using the traffic library with &.library.Flow instances in io applications.
+Adapter for using &..traffic with &.library.Flow instances in &..io applications.
 
 Specifically geared for &.library.Detour instances.
 

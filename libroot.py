@@ -46,7 +46,7 @@ from ..chronometry import library as libtime
 from . import libservice
 from . import core
 from . import library
-from . import http
+from . import libhttp
 
 class HTTP(library.Sector):
 	"""
@@ -55,13 +55,13 @@ class HTTP(library.Sector):
 	Instances represent a connection.
 	"""
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_sleep(self, request, response, input):
 		"Send a stop signal associated with a timer to pause the process group."
 
 		return "not implemented"
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_enable(self, request, response, input):
 		"Enable the service, but do not start it."
 
@@ -73,7 +73,7 @@ class HTTP(library.Sector):
 
 		return 'enabled'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_disable(self, request, response, input):
 		"Disable the service, but do not change its status."
 
@@ -85,7 +85,7 @@ class HTTP(library.Sector):
 
 		return 'disabled'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_signal(self, request, response, input):
 		"Send the given signal to the process."
 
@@ -102,7 +102,7 @@ class HTTP(library.Sector):
 		else:
 			return 'signal not sent as service has not been executed'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_stop(self, request, response, input):
 		ms = request.managed
 
@@ -115,7 +115,7 @@ class HTTP(library.Sector):
 		ms.subprocess.signal(signal.SIGTERM)
 		return 'daemon signalled to terminate'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_restart(self, request, response, input):
 		ms = request.managed
 
@@ -127,7 +127,7 @@ class HTTP(library.Sector):
 
 		return 'daemon signalled to restart'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_reload(self, request, response, input):
 		if ms.subprocess is not None:
 			ms.subprocess.signal(signal.SIGHUP)
@@ -135,7 +135,7 @@ class HTTP(library.Sector):
 		else:
 			return 'reload ineffective when service is not running'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_replace(self, request, response, input):
 		# substitute the sectord process (code/process update)
 		# 1. write a substitution file to filesystem
@@ -145,7 +145,7 @@ class HTTP(library.Sector):
 		# 5. [sectord] exec to new process and load state from environment
 		return 'substitute not supported'
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_start(self, request, response, input):
 		"""
 		Start the daemon unless it's already running; explicit starts ignore
@@ -159,7 +159,7 @@ class HTTP(library.Sector):
 		else:
 			return ms.invoke()
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_execute(self, request, response, input):
 		"Execute the command associated with the service. Only applies to command types."
 
@@ -172,19 +172,19 @@ class HTTP(library.Sector):
 		else:
 			return ms.invoke()
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_report(self, request, response, input):
 		pass
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_commands(self, request, response, input):
 		return {k[0]: v.__doc__ for k, v in self.index.items() if k}
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def http_timestamp(self, request, response, input):
 		return libtime.now().select("iso")+'\n'
 
-	#http_if = http.Mount(pkg, dir)
+	#http_if = libhttp.Mount(pkg, dir)
 
 	# fault.io/signal?number=9
 	# postgres/
@@ -220,7 +220,7 @@ class HTTP(library.Sector):
 
 		return None
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def service_index(self, request, response, input):
 		"Root path."
 
@@ -316,7 +316,7 @@ class HTTP(library.Sector):
 
 			with cxn.xact() as xact:
 				io = xact.acquire_socket(fd)
-				p, fi, fo = http.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
+				p, fi, fo = libhttp.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
 
 				#cxn.requisite(p, fi, fo)
 				cxn.dispatch(fo)
@@ -577,7 +577,7 @@ class Control(library.Control):
 		os.chdir(srv.route.fullpath)
 		self.boot(services)
 
-		hi = http.Interface()
+		hi = libhttp.Interface()
 		hi.requisite('http', HTTP.http_accept)
 		self.dispatch(hi)
 

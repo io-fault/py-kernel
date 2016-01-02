@@ -71,7 +71,7 @@ class Context(object):
 		global Unit
 
 		point = self.association()
-		while not isinstance(point, Unit):
+		while not isinstance(point, core.Unit):
 			point = point.controller
 
 		return point

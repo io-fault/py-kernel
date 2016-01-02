@@ -55,7 +55,7 @@ import collections
 import itertools
 
 from . import library
-from . import http
+from . import libhttp
 
 from ..routes import library as routeslib
 from ..fork import library as forklib
@@ -66,11 +66,11 @@ class HTTP(library.Sector):
 	Request-Accept callbacks and job management for HTTP.
 	"""
 
-	@http.resource()
+	@libhttp.resource()
 	def control_index(self, request, response, input):
 		pass
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def terminate(self, request, response, input):
 		"""
 		Issue &Unit.terminate after the Connection's Sector exits.
@@ -83,31 +83,31 @@ class HTTP(library.Sector):
 
 		return 'terminating\n'
 
-	@http.resource(limit=1024)
+	@libhttp.resource(limit=1024)
 	def sleep(self, request, response, input):
 		pass
 
-	@http.resource(limit=1024)
+	@libhttp.resource(limit=1024)
 	def inject(self, request, response, input):
 		pass
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def circulate_index(self, request, response, input):
 		pass
 
-	@http.resource(limit=1024)
+	@libhttp.resource(limit=1024)
 	def circulate_sectors(self, request, response, input):
 		pass
 
-	@http.resource(limit=0)
+	@libhttp.resource(limit=0)
 	def circulate_site(self, request, response, input):
 		pass
 
-	@http.resource()
+	@libhttp.resource()
 	def circulate_graph(self, request, response, input):
 		pass
 
-	@http.resource()
+	@libhttp.resource()
 	def report(self, request, response, input):
 		pass
 
@@ -195,7 +195,7 @@ class HTTP(library.Sector):
 
 			with cxn.xact() as xact:
 				io = xact.acquire_socket(fd)
-				p, fi, fo = http.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
+				p, fi, fo = libhttp.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
 
 				cxn.process((p, fi, fo))
 				cxn.protocol = p
@@ -294,10 +294,10 @@ class Control(library.Control):
 
 	def control(self, fid):
 		"""
-		Acquire the control interface and associate it with an http.Interface().
+		Acquire the control interface and associate it with an libhttp.Interface().
 		"""
 
-		hi = http.Interface()
+		hi = libhttp.Interface()
 		hi.requisite(('control', fid), HTTP.http_accept)
 
 		self.dispatch(hi)

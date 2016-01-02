@@ -10,7 +10,7 @@ Invoking without arguments displays help to standard error.
 import os
 import sys
 from .. import libservice
-from ...routes import library as routeslib
+from ...routes import library as libroutes
 
 def command_create(srv, *params):
 	"Create the service directory and initialize its settings."
@@ -300,10 +300,10 @@ def main(*args, fiod=None):
 			dsrc = 'default'
 		else:
 			# from env
-			fiod = routeslib.File.from_absolute(fiod)
+			fiod = libroutes.File.from_absolute(fiod)
 			dsrc = 'environment'
 	else:
-		fiod = routeslib.File.from_absolute(fiod)
+		fiod = libroutes.File.from_absolute(fiod)
 		dsrc = 'parameter'
 
 	if not args:

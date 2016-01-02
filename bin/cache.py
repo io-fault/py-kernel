@@ -19,7 +19,7 @@ from ...routes import library as libroutes
 from ...computation import library as libcomp
 from .. import library as libio
 
-from .. import http
+from .. import libhttp
 from .. import security
 from .. import libinternet
 
@@ -27,16 +27,24 @@ transfer_counter = collections.Counter()
 start_time = None
 identities = []
 radar = libflow.Radar()
+gtls = None
+
+def count(name, event):
+	xfer = libcomp.sum_lengths(event)
+	transfer_counter[name] += xfer
 
 with open('/x/realm/ssl/certs/ca-bundle.crt', 'rb') as f:
-	security_context = security.openssl.Context(certificates=[f.read()])
+	security_context = security.public(certificates=(f.read(),))
 
 def response_collected(sector, request, response, flow):
 	print('response collected')
 
 def response_endpoint(sector, request, response, connect, transports=(), tls=None):
+	global gtls
+	gtls = tls
 	print(response)
 	if tls:
+		print(tls)
 		print(tls.peer_certificate.subject)
 	ri = request.resource_indicator
 	if ri["path"]:
@@ -50,9 +58,13 @@ def response_endpoint(sector, request, response, connect, transports=(), tls=Non
 		target = xact.append(str(path))
 		print(target)
 		trace = libio.Trace()
-		track = libcomp.compose(functools.partial(radar.track, path), libcomp.sum_lengths)
 
+		track = libcomp.compose(functools.partial(radar.track, path), libcomp.sum_lengths)
 		trace.monitor("rate", track)
+
+		track = libcomp.partial(count, path)
+		trace.monitor("total", track)
+
 		f = xact.flow((libio.Iterate(), trace), target)
 
 	sector.dispatch(f)
@@ -61,7 +73,7 @@ def response_endpoint(sector, request, response, connect, transports=(), tls=Non
 	connect(f)
 
 def request(struct):
-	req = http.Request()
+	req = libhttp.Request()
 	path = libri.http(struct)
 
 	req.initiate((b'GET', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
@@ -82,10 +94,10 @@ def dispatch(sector, url):
 
 	if struct['scheme'] == 'https':
 		tls = security_context.connect()
-		hc = http.Client.open(sector, endpoint, transports=(tls, security.operations(tls)))
+		hc = libhttp.Client.open(sector, endpoint, transports=(tls, security.operations(tls)))
 	else:
 		tls = None
-		hc = http.Client.open(sector, endpoint)
+		hc = libhttp.Client.open(sector, endpoint)
 
 	hc.http_request(functools.partial(response_endpoint, tls=tls), req, None)
 
@@ -102,7 +114,7 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 
 		if seconds:
 			rate = (units / time.select('second'))
-			print("\r%s @ %f KB/sec       " %(x, rate / 1024,), end='')
+			print("\r%s @ %f KB/sec %d bytes      " %(x, rate / 1024, transfer_counter[x]), end='')
 
 	return next
 

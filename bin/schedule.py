@@ -7,9 +7,9 @@ Manages the administrative scheduler provided by fault.io service sets (faultd).
 import sys
 import os
 import functools
-from .. import http
+from .. import libhttp
 
-class HTTP(http.Interface):
+class HTTP(libhttp.Interface):
 	"""
 	Control Client
 	"""
@@ -105,7 +105,7 @@ class HTTP(http.Interface):
 
 			with cxn.xact() as xact:
 				io = xact.acquire_socket(fd)
-				p, fi, fo = http.client_v1(xact, cxn.http_response_accept, cxn.http_response_closed, *io)
+				p, fi, fo = libhttp.client_v1(xact, cxn.http_response_accept, cxn.http_response_closed, *io)
 
 				cxn.requisite(p, fi, fo)
 				cxn.protocol = p
@@ -116,7 +116,6 @@ def initialize(unit):
 	route = libservice.identify_route()
 
 	from .. import library
-	from .. import http
 
 	proc = unit.context.process
 	params = proc.invocation.parameters

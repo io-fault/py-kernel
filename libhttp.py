@@ -7,7 +7,7 @@ import itertools
 import json
 import pprint
 
-from ..computation import library as complib
+from ..computation import library as libcomp
 from ..internet import libhttp
 from ..internet import libmedia
 from ..chronometry import library as timelib
@@ -270,6 +270,7 @@ def v1_input(
 		EOH=libhttp.EOH,
 		EOM=libhttp.EOM,
 		iter=iter,
+		chain=itertools.chain,
 	):
 	"""
 	Generator function for maintaining the input state of a sequence of HTTP transactions.
@@ -302,7 +303,7 @@ def v1_input(
 					break
 			else:
 				# need more for headers
-				events = iter(itertools.chain(*(yield)))
+				events = iter(chain(*(yield)))
 
 		# got request or status line and headers for this request
 		assert len(lrline) == 3
@@ -351,12 +352,11 @@ def v1_input(
 						transport(layer, (body,))
 
 						body = []
-						local_state[content] = body.append
-						local_state[chunk] = body.append
+						local_state[content] = local_state[chunk] = body.append
 
 			else:
 				# need more for EOM
-				events = iter(itertools.chain(*(yield)))
+				events = iter(chain(*(yield)))
 			# for x in events
 		else:
 			# pop transaction
@@ -377,24 +377,22 @@ def v1_input(
 				excess += data
 
 		# XXX: currently no way to access the excess
-		events = iter(itertools.chain(*(yield)))
+		events = iter(chain(*(yield)))
 
 # The distinction between Client1 and Server1 is necessary for managing
 
 def flows(xact, input, output):
+	"""
+	Construct a pair of &.library.Flow instances with the given &.library.Transformer
+	instances in &input and &output as the flows' definition.
+	"""
 	fi, fo = xact.flows()
 
-	#pi = core.Functional(libhttp.disassembly().send)
-	#fi.affix(*(input + (pi,)))
 	fi.requisite(*input)
-	fi.sequence[-1].compose(complib.unroll(libhttp.disassembly().send, Sequence=tuple))
-	#pi.actuate()
+	fi.sequence[-1].compose(libcomp.unroll(libhttp.disassembly().send, Sequence=tuple))
 
-	#po = core.Functional(libhttp.assembly().send)
-	#fo.affix(*((po,) + output))
 	fo.requisite(*output)
-	fo.sequence[0].compose(complib.plural(libhttp.assembly().send))
-	#po.actuate()
+	fo.sequence[0].compose(libcomp.plural(libhttp.assembly().send))
 
 	return fi, fo
 
@@ -461,7 +459,7 @@ class Client(core.Sector):
 		if flow is not None:
 			flow.terminate(by=self.http_transaction_close)
 
-	def http_request(self, endpoint, layer, flow = None):
+	def http_request(self, endpoint, layer, flow=None):
 		"""
 		Emit an HTTP request.
 
@@ -482,9 +480,9 @@ class Client(core.Sector):
 		out.connect(layer, flow)
 
 	@classmethod
-	def open(Class, sector, endpoint, transports=None):
+	def open(Class, sector:core.Sector, endpoint, transports=None):
 		"""
-		Open an HTTP connection inside the Sector.
+		Open an HTTP connection inside the given &sector.
 		"""
 
 		cxn = Class()
