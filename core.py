@@ -2368,6 +2368,11 @@ class Transports(Transformer):
 	Transports are primarily used to manage TLS.
 	"""
 
+	def __repr__(self, format="<{path} [{stack}]>"):
+		path = self.__class__.__module__.rsplit('.', 1)[-1]
+		path += '.' + self.__class__.__qualname__
+		return format.format(path=path, stack=repr(self.stack))
+
 	@property
 	def opposite(self):
 		"The transformer of the opposite direction for the Transports pair."
@@ -2414,7 +2419,7 @@ class Transports(Transformer):
 
 	def drain(self):
 		"""
-		Drain the security layer.
+		Drain the transport layer.
 
 		Buffers are left as empty as possible, so flow termination is the only
 		condition that leaves a requirement for drain completion.
@@ -2427,11 +2432,24 @@ class Transports(Transformer):
 		if self.stack:
 			flow = self.controller
 			if flow.terminating:
-				# signal transport that termination needs to occur
-				self.stack[0].terminate(self.polarity)
-				self.process(())
-				# drain is complete when shutdown is received
-				return self.atshutdown
+				if flow.permanent:
+					# flow is permanently obstructed and transfers
+					# are irrelevant at one level or another
+					# so try to process whatever is available, finish
+					# the drain operation so termination can finish.
+					self.process(())
+					opp = self.opposite
+					if opp.callbacks:
+						# Process anything available, and identify it as drained.
+						opp.process(())
+						opp.drained()
+					return None
+				else:
+					# signal transport that termination needs to occur
+					self.stack[0].terminate(self.polarity)
+					self.process(())
+					# drain is complete when shutdown is received
+					return self.atshutdown
 
 		# Not terminating, no flushes necessary.
 		# XXX: zero transfer?
@@ -2439,6 +2457,10 @@ class Transports(Transformer):
 
 	def process(self, events, termination=False):
 		opposite_has_work = False
+
+		if not self.operations:
+			self.emit(events)
+			return
 
 		for ops in self.operations:
 			# ops tuple callables:
@@ -2453,8 +2475,7 @@ class Transports(Transformer):
 			if opposite_has_work is False and ops[2]():
 				opposite_has_work = True
 		else:
-			# final event set gets transferred
-			# XXX: keep as sequence of buffers
+			# No processing if empty.
 			self.emit(events)
 
 		# Termination must be checked everytime.
@@ -2464,7 +2485,7 @@ class Transports(Transformer):
 			# This needs to be done as the transport needs the ability
 			# to flush any remaining events in the opposite direction.
 			opp = self.opposite
-			# (Avoid an infinite loop using the termination parameter.)
+			# (Avoid an infinite loop using the termination keyword.)
 			opp.process((), termination=True)
 
 			del self.stack[0]
@@ -2479,12 +2500,9 @@ class Transports(Transformer):
 				del opp.operations[-1]
 
 			if not self.stack:
-				# signal drain completion or initiate termination
-				# of the next transport layer
-				if opp.controller.terminating:
-					opp.drained()
-				if self.controller.terminating:
-					self.drained()
+				# signal drain completion if stack is empty
+				opp.drained()
+				self.drained()
 			else:
 				# Otherwise, the next stack needs to terminated,
 				# if the controller is terminating.
@@ -2740,6 +2758,10 @@ class Detour(Transformer):
 		pass
 
 	def terminate(self):
+		"""
+		Called by the controlling &Flow, acquire status information and
+		unlink the transit.
+		"""
 		if self.transit is not None:
 			t = self.transit
 			self.transit = None
@@ -2766,18 +2788,18 @@ class Detour(Transformer):
 			self.transit = None
 			self.status = (t.port, t.endpoint())
 
-			if self.status[0].error_code != 0:
-				# XXX: exception?
-				flow.interrupt(self)
-			else:
-				flow.interrupt(self)
-
-			flow.controller.exited(flow)
+			# Exception is not thrown as the transport's error condition
+			# might be irrelevant to the success of the application.
+			# If a transaction was successfully committed and followed
+			# with a transport error, it's probably appropriate to
+			# show the transport issue, if any, as a warning.
+			flow.obstruct(self, None, Inexorable)
+			flow.terminate(self)
 
 	def process(self, event):
 		# This method is actually overwritten on actuate.
 		# process is set to Transit.acquire.
-		self.acquire(event)
+		self.transit.acquire(event)
 
 class Functional(Transformer):
 	"A transformer that emits the result of a provided function."
@@ -3185,8 +3207,8 @@ class Flow(Processor):
 			self.atexit(partial(flow.terminate, self))
 
 	def __repr__(self):
-		links = ' -> '.join(['['+x.__class__.__name__+']' for x in self.sequence])
-		return '<' + self.__class__.__name__ + ': ' + links + (' at %s>' %(hex(id(self)),))
+		links = ' -> '.join(['[%s]' %(repr(x),) for x in self.sequence])
+		return '<' + self.__class__.__name__ + '[' + hex(id(self)) + ']: ' + links + '>'
 
 	def structure(self):
 		"""
@@ -3224,7 +3246,10 @@ class Flow(Processor):
 		self.sequence = transformers
 
 	def actuate(self):
-		"Actuate the Transformers placed in the Flow by &requisite."
+		"""
+		Actuate the Transformers placed in the Flow by &requisite.
+		"""
+
 		super().actuate()
 
 		for transformer in self.sequence:
@@ -3232,11 +3257,28 @@ class Flow(Processor):
 
 	@property
 	def obstructed(self):
-		"Whether or not the &Flow is obstructed."
+		"""
+		Whether or not the &Flow is obstructed.
+		"""
+
 		return self.obstructions is not None
 
+	@property
+	def permanent(self) -> int:
+		"""
+		Whether or not there are Inexorable obstructions present.
+		An integer specifying the number of &Inexorable obstructions or &None
+		if there are no obstructions.
+		"""
+		if self.obstructions:
+			return sum([1 if x[1] is Inexorable else 0 for x in self.obstructions.values()])
+
 	def obstruct(self, by, signal=None, condition=None):
-		"Instruct the Flow to signal the temporary cessation of transfers."
+		"""
+		Instruct the Flow to signal the cessation of transfers.
+		The cessation may be permanent depending on the condition.
+		"""
+		global Inexorable
 
 		if not self.obstructions:
 			first = True
@@ -3247,10 +3289,8 @@ class Flow(Processor):
 
 		self.obstructions[by] = (signal, condition)
 
-		if condition is Inexorable:
-			self.terminated = True
-
 		if first and self.monitors:
+			# only signal the monitors if it wasn't already obstructed.
 			for sentry in self.monitors:
 				sentry[0](self)
 
@@ -3322,9 +3362,10 @@ class Flow(Processor):
 
 	def drains(self, index, arg=None, partial=functools.partial):
 		"""
-		Internal use only.
+		! INTERNAL:
+			Drain state callback.
 
-		Drain State callback. Maintains the order of drain operations.
+		Maintains the order of transformer drain operations.
 		"""
 
 		for i in range(index, len(self.sequence)):
@@ -3356,7 +3397,7 @@ class Flow(Processor):
 		Called after a terminal &drain to set the terminal state..
 		"""
 		global Inexorable
-		assert self.terminating is not False
+		assert self.terminating is True
 
 		self.terminated = True
 		self.terminating = False
@@ -3386,10 +3427,11 @@ class Flow(Processor):
 
 	def interrupt(self, by=None):
 		"""
-		Terminate the flow abrubtly inhibiting drainage of Transformers.
-
-		Buffers will not be drained; critical transformers will be interrupted.
+		Terminate the flow abrubtly inhibiting *blocking* drainage of Transformers.
 		"""
+
+		if self.interrupted:
+			return
 
 		super().interrupt(by)
 		self.process = self.discarding
@@ -3398,7 +3440,10 @@ class Flow(Processor):
 			x.interrupt()
 
 	def discarding(self, event, source = None):
-		"Assigned to &process after termination and interrupt."
+		"""
+		Assigned to &process after termination and interrupt in order
+		to keep overruns from exercising the Transformations.
+		"""
 
 		pass
 
