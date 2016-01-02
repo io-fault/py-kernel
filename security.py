@@ -1,11 +1,11 @@
 """
-core.Transports support for PKI based security layer.
+&.core.Transports support for PKI based security layer.
 """
 
 import functools
 
 from . import core
-from ..cryptography import openssl
+from ..cryptography import library as libcrypt
 
 # Asynchronous TLS is fairly complicated when adapted to fault.io Flows.
 # The primary issues being termination management where there are
@@ -39,7 +39,7 @@ def public(certificates=()):
 
 	global _public_context
 	if _public_context is None:
-		_public_context = openssl.Context(certificates=certificates+())
+		_public_context = libcrypt.pki.Context(certificates=certificates+())
 
 	return _public_context
 

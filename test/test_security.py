@@ -4,7 +4,6 @@
 import itertools
 
 from .. import security as library
-openssl = library.openssl
 
 from .. import core
 from . import library as testlib
@@ -74,8 +73,8 @@ def test_Transports_io(test, chain=itertools.chain):
 	io_root = testlib.Root()
 	io_context.associate(io_root)
 
-	sctx = openssl.Context(key = key, certificates = [certificate])
-	cctx = openssl.Context(certificates = [certificate])
+	sctx = library.pki.Context(key = key, certificates = [certificate])
+	cctx = library.pki.Context(certificates = [certificate])
 
 	client = cctx.connect()
 	server = sctx.accept()
