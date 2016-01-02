@@ -52,8 +52,10 @@ Null = core.Null
 
 def execute(*identity, **units):
 	"""
-	Initialize a &Process to represent the invocation from the (operating) system.
-	This is the appropriate way to invoke a &..io process from an executable module.
+	Initialize a &process.Representation to manage the invocation from the (operating) system.
+	This is the appropriate way to invoke a &..io process from an executable module that
+	wants more control over the initialization process than what is offered by
+	&.libcommand.
 
 	#!/pl/python
 		libio.execute(unit_name = (unit_initialization,))

@@ -1,8 +1,10 @@
 """
-System Command Execution &.library.Unit.
+System Command Execution of a &.library.Unit.
 
 Provides the construction of &.library.Unit instance for an
 application that is to be ran as a system command.
+
+&.library.execute does not construct the &.library.Unit instance.
 """
 
 import sys

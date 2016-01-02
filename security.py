@@ -1,20 +1,12 @@
 """
-&.core.Transports support for PKI based security layer.
+&.library.Transports support for PKI based security layer.
 """
 
-import functools
-
-from . import core
 from ..cryptography import library as libcrypt
-
-# Asynchronous TLS is fairly complicated when adapted to fault.io Flows.
-# The primary issues being termination management where there are
-# underlying components that can cause interrupts in the security layer.
-# The TLS Transformer should be terminated first independently of the actual Detour.
 
 def operations(transport):
 	"""
-	Construct the input and output operations for use with a &core.Transports instance.
+	Construct the input and output operations for use with a &.library.Transports instance.
 	"""
 
 	input = (
@@ -42,4 +34,3 @@ def public(certificates=()):
 		_public_context = libcrypt.pki.Context(certificates=certificates+())
 
 	return _public_context
-

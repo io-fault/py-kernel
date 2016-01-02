@@ -3628,7 +3628,9 @@ class Iterate(Reactor):
 				flow.obstruct(self, None, Condition(self, ('exhausted',)))
 
 class Collect(Terminal):
-	"Data structure Transformer collecting events into a storage container."
+	"""
+	Data structure Transformer collecting events into a storage container.
+	"""
 
 	def __init__(self, storage, operation):
 		self.storage = storage
@@ -3887,7 +3889,7 @@ class Serialize(Extension):
 
 class Distribute(Extension):
 	"""
-	Distribute input flow to a set of flows associated with.
+	Distribute input flow to a set of flows associated with
 	the identified Layer Context.
 	"""
 
@@ -3911,11 +3913,13 @@ class Distribute(Extension):
 		self.input = input
 
 	def process(self, events, source = None, partial=functools.partial):
-		self.controller.context.enqueue(partial(self.state.send, events))
-		#self.state.send(events)
+		Protocol = self.controller
+		Protocol.context.enqueue(partial(self.state.send, events))
 
 	def connect(self, layer, flow):
-		"Associate the flow with the Layer Context allowing transfers into the flow."
+		"""
+		Associate the flow with the Layer Context allowing transfers into the flow.
+		"""
 
 		self.flows[layer] = flow
 		self.drain(layer)
@@ -3924,7 +3928,9 @@ class Distribute(Extension):
 		del self.queues[layer]
 
 	def drain(self, layer):
-		"Drain the queue associated with the layer into the connected Flow."
+		"""
+		Drain the queue associated with the layer into the connected Flow.
+		"""
 
 		q = self.queues[layer]
 		fp = self.flows[layer].process
@@ -3934,7 +3940,9 @@ class Distribute(Extension):
 			fp(p(), source=self)
 
 	def transport(self, layer, events):
-		"Enqueue or transfer the events to the flow associated with the layer context."
+		"""
+		Enqueue or transfer the events to the flow associated with the layer context.
+		"""
 
 		f = self.flows.get(layer)
 		if f is None:
@@ -3944,7 +3952,9 @@ class Distribute(Extension):
 			self.flows[layer].process(events, source=self)
 
 	def close(self, layer):
-		"End of Layer context content. Flush queue and remove entries."
+		"""
+		End of Layer context content. Flush queue and remove entries.
+		"""
 
 		if layer.content and layer in self.flows:
 			# flush q if necessary
@@ -3966,7 +3976,9 @@ class Distribute(Extension):
 			self.input.terminate()
 
 	def accept(self, layer, Queue=collections.deque):
-		"Initialize a Layer context allowing events to be queued until a Flow is connected."
+		"""
+		Initialize a Layer context allowing events to be queued until a Flow is connected.
+		"""
 
 		if layer.content:
 			self.flows[layer] = None
@@ -4036,7 +4048,9 @@ class QueueProtocol(Protocol):
 		output.atexit(self.dependency_exit)
 
 	def dependency_exit(self, flow):
-		"Called when either the input or output flow exits."
+		"""
+		Called when either the input or output flow exits.
+		"""
 
 		if self.exits:
 			self.terminated = True
@@ -4108,9 +4122,9 @@ class Ports(Device):
 	sockets.
 
 	In addition to acquisition, &Ports inspects the environment for inherited
-	port sets. This is used to communicate socket inheritance across exec() calls.
+	port sets. This is used to communicate socket inheritance across &/unix/man/2/exec calls.
 
-	The environment variables used to inherit interfaces across exec()
+	The environment variables used to inherit interfaces across &/unix/man/2/exec
 	starts at &/env/FIOD_DEVICE_PORTS; it contains a list of slots used to hold the set
 	of listening sockets used to support the slot. Often, daemons will use
 	multiple slots in order to distinguish between secure and insecure.
@@ -4145,7 +4159,9 @@ class Ports(Device):
 		del self.sets[slot]
 
 	def bind(self, slot, *endpoints):
-		"Bind the given endpoints and add them to the set identified by &slot."
+		"""
+		Bind the given endpoints and add them to the set identified by &slot.
+		"""
 
 		add = self.sets[slot].__setitem__
 
@@ -4180,10 +4196,12 @@ class Ports(Device):
 
 		The root variable is a list of slot identifiers stored:
 
+		#!
 			PREFIX+"_DEVICE_PORTS_SLOTS"=slot_id1, slot_id2, ..., slot_idN
 
 		The slots are defined with a pair of variables:
 
+		#!
 			PREFIX+"_SLOT_PORTS_"+SLOT_ID=fd1,fd2,...,fdN
 			PREFIX+"_SLOT_BINDS_"_SLOT_ID=type address port, ..., typeN addressN portN
 
@@ -4235,4 +4253,3 @@ class Locks(Device):
 	"""
 
 	device_entry = 'locks'
-
