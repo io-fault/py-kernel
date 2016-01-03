@@ -17,6 +17,8 @@ import types
 import inspect
 import itertools
 import traceback
+import collections.abc
+import types
 
 from ..fork import libhazmat
 from ..routes import library as libroutes
@@ -38,11 +40,11 @@ def endpoint(type:str, address:str, port:object):
 	[ Samples ]
 
 	/IPv4
-		`fault.io.library.endpoint('ip4', '127.0.0.1', 80)`
+		`libio.endpoint('ip4', '127.0.0.1', 80)`
 	/IPv6
-		`fault.io.library.endpoint('ip6', '::1', 80)`
+		`libio.endpoint('ip6', '::1', 80)`
 	/UNIX
-		`fault.io.library.endpoint('local', '/directory/path/to', 'socket_file')`
+		`libio.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
 	global endpoint_classes
@@ -922,15 +924,19 @@ class Device(Resource):
 
 		return dev
 
+@collections.abc.Awaitable.register
 class Processor(Resource):
 	"""
-	A resource that maintains an abstract computational state.
+	A resource that maintains an abstract computational state. Processors are
+	awaitable and can be used by coroutines. The product assigned to the
+	Processor is the object by await.
 
 	Processor resources essentially manage state machines and provide an
 	abstraction for initial and terminal states that are often used.
 
-	State Sequence
-		# Created
+	Core State Transition Sequence.
+
+		# Instantiate
 		# Actuate
 		# Functioning
 		# Terminating
@@ -1038,21 +1044,36 @@ class Processor(Resource):
 		self.exceptions.add((association, exception))
 		self.context.faulted(self)
 
-	def atexit(self, callback):
+	def atexit(self, exit_callback):
 		"""
-		Register a callback to be executed when the Processor has been unlinked.
+		Register a callback to be executed when the Processor has been unlinked from
+		the Resource hierarchy.
 
 		The given callback is called after termination is complete and the Processor's
 		reference has been released by the controller. However, the controller backref
 		should still be available at this time.
 
-		The callback is registered on the controlling resource which must be a &Processor.
+		The callback is registered on the *controlling resource* which must be a &Processor.
+
+		The &exit_callback will **not** be called if the &Processor was interrupted.
 		"""
 
 		if self.terminated:
-			callback(self)
+			exit_callback(self) # Processor already exited.
 		else:
-			self.controller.exit_event_connect(self, callback)
+			self.controller.exit_event_connect(self, exit_callback)
+
+	def __await__(self):
+		"""
+		Coroutine interface support. Await the exit of the processor.
+		Awaiting the exit of a processor will never raise exceptions with
+		exception to internal (Python) errors. This is one of the notable
+		contrasts between Python's builtin Futures and fault.io Processors.
+		"""
+
+		if not self.terminated:
+			yield self
+		return self.product
 
 	def exit_event_connect(self, processor, callback, dict=dict):
 		"""
@@ -1262,8 +1283,9 @@ class Unit(Processor):
 		self.index[('faults',)] = None
 
 	def requisite(self,
-			identity:collections.Hashable,
-			roots, process = None, context = None, Context = None):
+			identity:collections.abc.Hashable,
+			roots, process = None, context = None, Context = None
+		):
 		"""
 		Ran to finish &Unit initialization; extends the sequences of roots used
 		to initialize the root sectors.
@@ -1279,7 +1301,7 @@ class Unit(Processor):
 
 		self.roots.extend(roots)
 
-	def exited(self, processor : Processor):
+	def exited(self, processor:Processor):
 		"Processor exit handler."
 
 		addr = self.reverse_index.pop(processor)
@@ -1343,7 +1365,7 @@ class Unit(Processor):
 			else:
 				self.terminated = True
 
-	def place(self, obj : collections.Hashable, *destination):
+	def place(self, obj : collections.abc.Hashable, *destination):
 		"""
 		Place the given object in the program at the specified location.
 		"""
@@ -1408,14 +1430,20 @@ class Sector(Processor):
 		Determines the entity that is being represented by the process.
 
 	/processors
-		The set of abstract processors currently running within a sector.
+		A divided set of abstract processors currently running within a sector.
+		The sets are divided by their type inside a &collections.defaultdict.
 
-	/transactions
-		Two-phase commit transaction set.
+	/(&Schduler)scheduler
+		The Sector local schduler instance for managing recurrences and alarms
+		configured by subresources. The exit of the Sector causes scheduled
+		events to be dismissed.
+
+	/exits
+		Set of Processors that are currently exiting.
+		&None if nothing is currently exiting.
 	"""
 
 	projection = None
-	transactions = None
 	exits = None
 	product = None
 	scheduler = None
@@ -1446,7 +1474,7 @@ class Sector(Processor):
 		There is no guarantee to the order in which they are actuated.
 
 		Exceptions that occur during actuation fault the Sector causing
-		the exosector to exit.
+		the controlling sector to exit.
 		"""
 
 		try:
@@ -1481,20 +1509,23 @@ class Sector(Processor):
 			ps.actuate()
 
 	def terminate(self, by=None):
-		"Terminate the processing unit using the given cause as a description."
-
 		super().terminate(by)
 
-		for Class, sset in self.processors.items():
-			for x in sset:
-				x.terminate()
+		if self.processors:
+			# Rely on self.reap() to finish termination.
+			for Class, sset in self.processors.items():
+				for x in sset:
+					x.terminate()
+		else:
+			# Nothing to wait for.
+			self.terminating = False
+			self.terminated = True
+			self.controller.exited(self)
 
 	def interrupt(self, by=None):
 		"""
 		Interrupt the Sector by interrupting all of the subprocessors.
-		The order of interruption is random, but should be insignificant.
-
-		Subclasses may prioritize interrupts, but it should be unnecessary.
+		The order of interruption is random, and *should* be insignificant.
 		"""
 
 		if self.interrupted:
@@ -1509,7 +1540,9 @@ class Sector(Processor):
 		# exits are managed by the invoker
 
 	def exited(self, processor, set=set):
-		"Sector structure exit handler."
+		"""
+		Sector structure exit handler.
+		"""
 
 		if self.exits is None:
 			self.exits = set()
@@ -1517,11 +1550,11 @@ class Sector(Processor):
 
 		self.exits.add(processor)
 
-	def dispatch(self, processor : Processor):
+	def dispatch(self, processor:Processor):
 		"""
 		Dispatch the given &processor inside the Sector.
-		Assigns the processor as a subresource of the instance, affixes it, and
-		actuates it.
+		Assigns the processor as a subresource of the
+		instance, affixes it, and actuates it.
 
 		Returns the result of actuation, the &processor.
 		"""
@@ -1534,7 +1567,7 @@ class Sector(Processor):
 
 	def coroutine(self, gf):
 		"""
-		Dispatches an arbitrary generator returning function as a &Coroutine instance.
+		Dispatches an arbitrary coroutine returning function as a &Coroutine instance.
 		"""
 		global Coroutine
 
@@ -1562,7 +1595,18 @@ class Sector(Processor):
 			if not struct[c]:
 				del struct[c]
 
-		if not struct and not self.interrupted:
+		# Check for completion.
+		self.reaped()
+
+	def reaped(self):
+		"""
+		Called once the set of exited processors has been reaped
+		in order to identify if the Sector should notify the
+		controlling Sector of an exit event..
+		"""
+
+		# reap/reaped is not used in cases of interrupts.
+		if not self.processors and not self.interrupted:
 			# no processors remain; exit Sector
 			self.terminated = True
 			self.terminating = False
@@ -1579,6 +1623,18 @@ class Sector(Processor):
 		global Transaction
 		return Transaction(self)
 	xact = allocate
+
+class Controller(Sector):
+	"""
+	Sector designed to manage and control a specific set of Processors.
+
+	&Controller sectors are first different from regular Sectors in that
+	they do not exit when empty as they provide a service.
+	"""
+
+	def reaped(self):
+		if self.terminating:
+			super().reaped()
 
 class Control(Sector):
 	"""
@@ -1925,8 +1981,6 @@ class Recurrence(object):
 class Scheduler(Processor):
 	"""
 	Delayed execution of arbitrary callables.
-
-	When used, usually one per Sector.
 	"""
 
 	scheduled_reference = None
@@ -2130,9 +2184,7 @@ class Libraries(object):
 
 class Thread(Processor):
 	"""
-	A dedicated thread for a processor.
-
-	Normally used to process blocking calls from queued
+	A &Processor that runs a callable in a dedicated thread.
 	"""
 
 	def requisite(self, callable):
@@ -2148,6 +2200,9 @@ class Thread(Processor):
 		return self
 
 	def process(self):
+		"""
+		No-op as the thread exists to emit side-effects.
+		"""
 		pass
 
 class Coroutine(Processor):
@@ -2161,7 +2216,9 @@ class Coroutine(Processor):
 
 	@classmethod
 	def from_callable(Class, generator_function):
-		"Construct a generator from a function taking the &Sector as a parameter."
+		"""
+		Construct a generator from a function taking the &Sector as a parameter.
+		"""
 
 		r = Class()
 		g = generator_function(r)
@@ -2171,7 +2228,9 @@ class Coroutine(Processor):
 
 	@classmethod
 	def from_generator(Class, generator):
-		"Coroutine from an already running generator."
+		"""
+		Construct a coroutine from an already running generator.
+		"""
 
 		r = Class()
 		r.state = g
@@ -2181,11 +2240,24 @@ class Coroutine(Processor):
 		super().__init__()
 		self.state = None
 
+	@types.coroutine
+	def container(self, coroutine):
+		# Adapt the coroutine's exit to Processor exit.
+		try:
+			self.product, = (yield from coroutine)
+		except Exception as exc:
+			self.product = None
+			self.faulted(exc)
+		finally:
+			self.sector.exited(self)
+
 	def continued(self, processor):
 		self.process(processor.product)
 
 	def process(self, event, source = None, partial=functools.partial, StopIteration=StopIteration):
-		"Send the event to the running generator causing a continuation."
+		"""
+		Send the event to the running generator causing a continuation.
+		"""
 
 		try:
 			# cb allows us to chain continuations
@@ -2201,7 +2273,9 @@ class Coroutine(Processor):
 			pass
 
 	def actuate(self):
-		"Start the generator."
+		"""
+		Start the generator.
+		"""
 
 		self.process(None)
 		return self
@@ -2289,7 +2363,7 @@ class Transformer(Resource):
 
 	[ Properties ]
 
-	/&retains
+	/retains
 		Whether or not the Transformer holds events for some purpose.
 		Essentially used to communicate whether or not &drain performs
 		some operation.
@@ -3182,16 +3256,13 @@ class Flow(Processor):
 		self.emit = ae.process
 		return ae
 
-	def connect(self, flow, cascade=True, partial=functools.partial):
+	def connect(self, flow, partial=functools.partial):
 		"""
 		Connect the Flow to the given object support the Flange interface.
 		Normally used with other Flows, but other objects may be connectable.
 
 		Downstream is not notified of upstream obstructions. Events run
 		downstream and obstructions run up.
-
-		/cascade
-			Whether or not termination will cascade to the connected flow to terminate.
 		"""
 
 		# Downstreams do not need to be notified of upstream obstructions.
@@ -3205,8 +3276,7 @@ class Flow(Processor):
 		self.emit = flow.process
 
 		# cascade termination; downstream is terminated by upstream
-		if cascade:
-			self.atexit(partial(flow.terminate, self))
+		self.atexit(partial(flow.terminate, self))
 
 	def __repr__(self):
 		links = ' -> '.join(['[%s]' %(repr(x),) for x in self.sequence])
@@ -3440,6 +3510,9 @@ class Flow(Processor):
 
 		for x in self.sequence:
 			x.interrupt()
+
+		if self.dependant:
+			self.dependant.interrupt(self)
 
 	def discarding(self, event, source = None):
 		"""
