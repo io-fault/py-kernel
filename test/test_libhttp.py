@@ -1,5 +1,5 @@
 import json
-from .. import http as library
+from .. import libhttp as library
 
 def test_adapt(test):
 	plain = library.libmedia.Type.from_string("text/plain")
