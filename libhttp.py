@@ -6,11 +6,13 @@ import collections
 import itertools
 import json
 import pprint
+import typing
+import weakref
 
 from ..computation import library as libcomp
 from ..internet import libhttp
 from ..internet import libmedia
-from ..chronometry import library as timelib
+from ..chronometry import library as libtime
 
 from . import core
 
@@ -106,7 +108,7 @@ class Layer(core.Layer):
 			return libmedia.any_range
 
 	@property
-	def date(self, parse = timelib.parse_rfc1123):
+	def date(self, parse = libtime.parse_rfc1123):
 		"Date header timestamp."
 
 		if not b'date' in self.headers:
@@ -275,8 +277,7 @@ def v1_input(
 	"""
 	Generator function for maintaining the input state of a sequence of HTTP transactions.
 
-	Given a Transaction allocation function and a Transaction completion function,
-	receive
+	Given a Transaction allocation function and a Transaction completion function, receive.
 	"""
 
 	close_state = False # header Connection: close
@@ -396,10 +397,6 @@ def flows(xact, input, output):
 
 	return fi, fo
 
-def init_sector(xact):
-	si, so = xact.acquire_socket(fd)
-	return flows(xact, si, so)
-
 def client_v1(xact, accept, closed, input, output, transports=()):
 	"""
 	Given input and output Flows, construct and connect a Protocol instance
@@ -436,15 +433,14 @@ class Interface(core.Interface):
 	"""
 	An HTTP interface Sector. Provides the foundations for constructing
 	an HTTP 2.0, 1.1, and 1.0 interface.
-
-	Interfaces represent the programmed access to a set of client or server connections.
 	"""
 
 class Client(core.Sector):
 	"""
 	Client Connection Sector.
 
-	Represents a single client conneciton.
+	Represents a single client connection.
+	&Agent sectors manage sets of Clients that share resources.
 	"""
 
 	def http_transaction_open(self, layer, partial=functools.partial, tuple=tuple):
@@ -505,6 +501,115 @@ class Client(core.Sector):
 			fi.process(None)
 
 		return cxn
+
+class Agent(core.Controller):
+	"""
+	&Client connection controller managing common resources and configuration.
+
+	Agents provide a set of interfaces that return a &Processor representing
+	the dispatched conceptual task. These conceptual tasks may be supported by
+	one or more &Client instances managed by the Agent.
+
+	[ Properties ]
+
+	/(&str)title
+		The default `User-Agent` header.
+	/(&typing.Mapping)connections
+		The &Client connections associated with their host.
+	"""
+
+	def __init__(self):
+		super().__init__()
+		self.connections = collections.defaultdict(set)
+
+	def connect_to_file(sector, request, response, connect, transports=(), tls=None):
+		with sector.allocate() as xact:
+			target = xact.append(str(path))
+			f = xact.flow((libio.Iterate(),), target)
+
+		sector.dispatch(f)
+		f.atexit(functools.partial(response_collected, sector, request, response))
+		connect(f)
+
+	@functools.lru_cache(64)
+	def encoded(self, text):
+		"""
+		Encoded parts cache.
+		"""
+		return text.encode('utf-8')
+
+	def request(self,
+			version:str, method:str,
+			host:str, path:str="/",
+			headers:typing.Sequence=(),
+			accept:str="*/*",
+			agent:str=None,
+			final:bool=True,
+		):
+		"""
+		Build a &Request instance inheriting the Agent's configuration.
+		Requests can be re-used given identical parameters..
+
+		[ Parameters ]
+
+		/final
+			Whether or not the request is the final in the pipeline.
+		"""
+
+		if agent is None:
+			agent = self.title
+
+		encoded = self.encoded
+		req = libhttp.Request()
+		req.add_headers(self.headers)
+		req.add_headers(headers)
+
+		path = path.encode('utf-8')
+
+		req.initiate((encoded(method), path, encoded(version)))
+
+		headers = [
+			(b'User-Agent', encoded(agent)),
+			(b'Accept', encoded(accept)),
+		]
+
+		if host is not None:
+			headers.append((b'Host', host.encode('idna')))
+
+		if final is True:
+			headers.append((b'Connection', b'close'))
+
+		req.add_headers(headers)
+		return req
+
+	def cache(self, target:str,
+			request:Request,
+			endpoint=None,
+			security:str='tls',
+			replace:bool=False,
+		):
+		"""
+		Download the HTTP resource to the filesystem. If the target file exists, a HEAD
+		request will be generated in order to identify if completion is possible.
+
+		[ Parameters ]
+
+		/replace
+			Remove the target file if it exists and download the resource again.
+		"""
+
+		raise NotImplementedError("unavailable")
+
+	def open(self, endpoint, transports=()) -> Client:
+		"""
+		Open a client connection and return the &Client instance.
+		"""
+		global Client
+
+		hc = Client.open(self, endpoint, transports=transports)
+		self.connections[endpoint].add(hc)
+		self.process(hc)
+		return hc
 
 # Media Support (Accept header) for Python types.
 
@@ -693,12 +798,3 @@ class Resource(object):
 			f.process([(data,)])
 		return f
 	__call__ = adapt
-
-class Transaction(object):
-	"""
-	An HTTP transaction managing the resource resolution state.
-
-	Instances maintain the current state of an HTTP transaction providing
-	visibility into the transaction process and maintenance of dependent
-	resources.
-	"""
