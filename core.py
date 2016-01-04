@@ -3239,12 +3239,12 @@ class Flow(Processor):
 		return ae
 
 	downstream = None
-	def connect(self, flow, partial=functools.partial):
+	def connect(self, flow:Processor, partial=functools.partial):
 		"""
-		Connect the Flow to the given object support the Flange interface.
-		Normally used with other Flows, but other objects may be connectable.
+		Connect the Flow to the given object supporting the &Flow interface.
+		Normally used with other Flows, but other objects may be connected.
 
-		Downstream is not notified of upstream obstructions. Events run
+		Downstream is *not* notified of upstream obstructions. Events run
 		downstream and obstructions run up.
 		"""
 
@@ -3545,8 +3545,8 @@ class Flow(Processor):
 	def emission(self, event):
 		return self.continuation(event, source = self) # identify flow as source
 
-	def emit_manager():
-		"Internal; property managing the emission of the &Flow"
+	def _emit_manager():
+		# Internal; property managing the emission of the &Flow
 
 		def fget(self):
 			if self.sequence:
@@ -3565,8 +3565,7 @@ class Flow(Processor):
 
 		doc = "properly organize the emit setting at the edge of the flow"
 		return locals()
-	emit = property(**emit_manager())
-	del emit_manager
+	emit = property(**_emit_manager())
 
 # Flow that discards all events and emits nothing.
 Null = Flow()
