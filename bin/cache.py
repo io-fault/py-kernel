@@ -120,6 +120,7 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 
 def initialize(unit):
 	libio.core.Ports.load(unit)
+	a = libhttp.Agent()
 
 	proc = unit.context.process
 	urls = proc.invocation.parameters['system']['arguments']

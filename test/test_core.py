@@ -14,13 +14,21 @@ class TContext(object):
 
 	def __init__(self):
 		self.tasks = []
+		self.faults = []
 
 	def associate(self, processor):
 		self.association = lambda: processor
 		processor.context = self
 
-	def enqueue(self, task):
-		self.tasks.append(task)
+	def enqueue(self, *tasks):
+		self.tasks.extend(tasks)
+
+	def faulted(self, resource):
+		self.faults.append(resource)
+		faultor = resource.controller
+		faultor.interrupt()
+		if faultor.controller:
+			faultor.controller.exited(faultor)
 
 	def __call__(self):
 		l = len(self.tasks)
@@ -152,7 +160,7 @@ def test_inexorable(test):
 	test/bool(inex) == False
 	test/inex / library.Condition
 
-def test_flow_operation(test):
+def test_Flow_operation(test):
 	f = library.Flow()
 
 	# base class transformers emit what they're given to process
@@ -175,7 +183,7 @@ def test_flow_operation(test):
 
 	test/endpoint == ["event", "event2"]
 
-def test_flow_obstructions(test):
+def test_Flow_obstructions(test):
 	"Validate signaling of &core.Flow obstructions"
 
 	status = []
@@ -205,7 +213,7 @@ def test_flow_obstructions(test):
 	test/f.obstructed == False
 	test/status == [True, False]
 
-def test_flow_obstructions_initial(test):
+def test_Flow_obstructions_initial(test):
 	"Validate obstruction signaling when obstruction is presented before the watch"
 
 	status = []
@@ -249,6 +257,74 @@ def test_join_obstructions(test):
 	test/l == ['suspend', 'resume', 'suspend',]
 	f.obstruct(test, None) # no op
 	test/l == ['suspend', 'resume', 'suspend',]
+
+def setup_connected_flows():
+	reservoir = []
+	ctx = TContext()
+	usector = library.Sector()
+	usector.context = ctx
+	usector.actuate()
+
+	dsector = library.Sector()
+	dsector.context = ctx
+	dsector.actuate()
+
+	us = library.Flow()
+	us.requisite(library.Reflection())
+	ds = library.Flow()
+	ds.requisite(library.Reflection())
+	usector.dispatch(us)
+	dsector.dispatch(ds)
+
+	def append(event, source=None, end=reservoir):
+		end.append((event, source))
+
+	ds.emit = append
+	return usector, dsector, reservoir, us, ds
+
+def test_Flow_connect_events(test):
+	"""
+	Validate events of connected Flows across Sector boundaries.
+	"""
+	usector, dsector, reservoir, us, ds = setup_connected_flows()
+	us.connect(ds)
+
+	test/us.downstream is ds
+	test/us.functioning == True
+	test/ds.functioning == True
+	us.process(1)
+	test/reservoir == [(1, ds)]
+
+	# validate that terminate is inherited
+	us.terminate()
+	test/us.terminated == True
+	usector.context()
+	test/ds.terminated == True
+
+	usector, dsector, reservoir, us, ds = setup_connected_flows()
+	us.connect(ds)
+
+	# validate that interrupt is inherited
+	us.interrupt()
+	test/us.interrupted == True
+	usector.context() # context is shared
+	test/ds.interrupted == True
+
+	# faulted flow
+	usector, dsector, reservoir, us, ds = setup_connected_flows()
+	us.connect(ds)
+
+	# validate that interrupt is inherited
+	us.fault(Exception("int"))
+	usector.context() # context is shared
+	test/us.interrupted == True
+	test/ds.interrupted == True
+
+	# The downstream should have had its exit signalled
+	# which means the controlling sector should have
+	# exited as well.
+	dsector.context()
+	test/dsector.terminated == True
 
 def test_Iterate(test):
 	"Use the Collection Transformer to validate the iterator's functionality"

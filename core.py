@@ -2222,7 +2222,7 @@ class Coroutine(Processor):
 
 		r = Class()
 		g = generator_function(r)
-		r.state = g
+		r.state = self.container(g)
 
 		return r
 
@@ -2233,51 +2233,37 @@ class Coroutine(Processor):
 		"""
 
 		r = Class()
-		r.state = g
+		r.state = self.container(g)
 		return r
 
 	def __init__(self):
 		super().__init__()
-		self.state = None
+
+	def requisite(self, coroutine):
+		self.state = self.container(coroutine)
 
 	@types.coroutine
 	def container(self, coroutine):
 		# Adapt the coroutine's exit to Processor exit.
 		try:
-			self.product, = (yield from coroutine)
+			product, = (yield from coroutine)
+			self.sector.exited(self)
 		except Exception as exc:
 			self.product = None
-			self.faulted(exc)
-		finally:
-			self.sector.exited(self)
+			self.fault(exc)
 
-	def continued(self, processor):
-		self.process(processor.product)
+	def terminate(self):
+		self.state.close()
 
-	def process(self, event, source = None, partial=functools.partial, StopIteration=StopIteration):
-		"""
-		Send the event to the running generator causing a continuation.
-		"""
-
-		try:
-			# cb allows us to chain continuations
-			processor = self.state.send(event)
-			if processor is not None:
-				processor.atexit(self.continued)
-			else:
-				self.context.enqueue(partial(self.process, None))
-		except StopIteration:
-			self.sector.exited(self)
-		else:
-			# coroutine protocol violation
-			pass
+	def interrupt(self):
+		self.state.throw()
 
 	def actuate(self):
 		"""
 		Start the generator.
 		"""
 
-		self.process(None)
+		self.state(None)
 		return self
 
 # Interface is the handle on the set of connection for clients.
@@ -2430,16 +2416,30 @@ class Reflection(Transformer):
 	on the processed events.
 	"""
 
+class Terminal(Transformer):
+	"""
+	A Transformer that never emits.
+
+	Subclasses of &Terminal make the statement that they too do not emit any events.
+	Not all &Flow instances contain &Terminal instances.
+	"""
+
+	def inject(self, event):
+		"Accept the event, but do nothing as Terminals do not propogate events."
+		pass
+
+	def process(self, event):
+		"Accept the event, but do nothing as Terminals do not propogate events."
+		pass
+
 class Transports(Transformer):
 	"""
-	Transformer whose purpose is to encode and decode events in order
-	to facilitate the desired conceptual Transport.
-
 	Transports represents a stack of protocol layers and manages their
 	initialization and termination so that the outermost layer is
 	terminated before the inner layers, and vice versa for initialization.
 
-	Transports are primarily used to manage TLS.
+	Transports are primarily used to manage protocol layers like TLS where
+	the flows are completely dependent on the &Transports.
 	"""
 
 	def __repr__(self, format="<{path} [{stack}]>"):
@@ -2591,22 +2591,6 @@ class Transports(Transformer):
 			# Use recursion on purpose to allow
 			# the maximum stack depth to block an infinite loop.
 			self.opposite.process(())
-
-class Terminal(Transformer):
-	"""
-	A Transformer that never emits.
-
-	Subclasses of &Terminal make the statement that they too do not emit any events.
-	Not all &Flow instances contain &Terminal instances.
-	"""
-
-	def inject(self, event):
-		"Accept the event, but do nothing as Terminals do not propogate events."
-		pass
-
-	def process(self, event):
-		"Accept the event, but do nothing as Terminals do not propogate events."
-		pass
 
 class Reactor(Transformer):
 	"""
@@ -3194,8 +3178,6 @@ class Flow(Processor):
 		Once the transformers are terminated, the Flow exits.
 	"""
 
-	# XXX: add __slots__ to Flow
-
 	obstructions = None
 	monitors = None
 	terminating = False
@@ -3256,6 +3238,7 @@ class Flow(Processor):
 		self.emit = ae.process
 		return ae
 
+	downstream = None
 	def connect(self, flow, partial=functools.partial):
 		"""
 		Connect the Flow to the given object support the Flange interface.
@@ -3271,7 +3254,7 @@ class Flow(Processor):
 
 		# Events run downstream, obstructions run upstream.
 
-		self.dependent = flow
+		self.downstream = flow
 		flow.watch(self.obstruct, self.clear)
 		self.emit = flow.process
 
@@ -3320,12 +3303,17 @@ class Flow(Processor):
 	def actuate(self):
 		"""
 		Actuate the Transformers placed in the Flow by &requisite.
+		If the &Flow has been connected to another, actuate the &downstream
+		as well.
 		"""
 
 		super().actuate()
 
 		for transformer in self.sequence:
 			transformer.actuate()
+
+		if self.downstream:
+			self.downstream.actuate()
 
 	@property
 	def obstructed(self):
@@ -3473,11 +3461,16 @@ class Flow(Processor):
 
 		self.terminated = True
 		self.terminating = False
+		self.process = self.discarding
 
 		for x in self.sequence:
 			x.terminate()
 
+		if self.downstream:
+			self.downstream.terminate(self)
+
 		self.obstruct(self.__class__.terminate, None, Inexorable)
+
 		self.controller.exited(self)
 
 	def terminate(self, by=None):
@@ -3511,8 +3504,15 @@ class Flow(Processor):
 		for x in self.sequence:
 			x.interrupt()
 
-		if self.dependant:
-			self.dependant.interrupt(self)
+		if self.downstream:
+			# interrupt the downstream and
+			# notify exit iff the downstream's
+			# controller is functioning.
+			ds = self.downstream
+			ds.interrupt(self)
+			dsc = ds.controller
+			if dsc.functioning:
+				dsc.exited(ds)
 
 	def discarding(self, event, source = None):
 		"""
@@ -3563,7 +3563,7 @@ class Flow(Processor):
 			# rebind continuation
 			self.continuation = self.__class__.continuation
 
-		doc = 'properly organize the emit setting at the edge of the flow'
+		doc = "properly organize the emit setting at the edge of the flow"
 		return locals()
 	emit = property(**emit_manager())
 	del emit_manager
@@ -3592,6 +3592,22 @@ class Funnel(Flow):
 		if not isisntance(by, Flow):
 			super().terminate(by=by)
 		# Termination induced by flow is ignored.
+
+class Distributor(Processor):
+	"""
+	Processor performing the distribution of events emitted into &process.
+
+	! DEVELOPER:
+		Not implemented.
+	"""
+
+	def __init__(self):
+		pass
+
+	def process(self, event, source=None):
+		"""
+		"""
+		raise NotImplementedError
 
 class Fork(Terminal):
 	"""

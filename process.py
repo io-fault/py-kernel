@@ -81,7 +81,7 @@ class Context(object):
 		Notify the controlling &Unit instance of the fault.
 		"""
 
-		self.unit.faulted(resource)
+		return self.unit.faulted(resource)
 
 	def defer(self, measure, task, maximum=6000, seconds=libtime.Measure.of(second=2)):
 		"""
