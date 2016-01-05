@@ -43,10 +43,12 @@ The types of services that are managed by a faultd instance.
 
 import os
 import sys
+import itertools
 import xml.etree.ElementTree as xmllib
 
 from ..chronometry import library as timelib
 from ..routes import library as routeslib
+from ..xml import library as libxml
 
 types = set((
 	'daemon',
@@ -87,9 +89,7 @@ def extract(xml, ns="https://fault.io/xml/spawns"):
 	params = xr.find("./{%s}parameters" %(ns,))
 	reqs = xr.find("./{%s}requirements" %(ns,))
 
-	doc = xr.find("./{%s}documentation" %(ns,))
-	if doc is not None:
-		doc = doc.text
+	doc = xr.attrib.get("abstract")
 
 	libelements = xr.find("./{%s}libraries" %(ns,))
 	ifelements = xr.find("./{%s}interfaces" %(ns,))
@@ -131,7 +131,7 @@ def extract(xml, ns="https://fault.io/xml/spawns"):
 		'environment': env,
 		'parameters': fields,
 		'requirements': deps,
-		'documentation': doc,
+		'abstract': doc,
 		'libraries': libs,
 		'interfaces': interfaces,
 		'type': typ,
@@ -140,83 +140,65 @@ def extract(xml, ns="https://fault.io/xml/spawns"):
 
 	return struct
 
-def construct(struct, encoding="utf-8", ns=b"https://fault.io/xml/spawns"):
+def construct(struct,
+		encoding="utf-8",
+		ns="https://fault.io/xml/spawns",
+	):
 	"""
 	Construct an XML configuration for a service spawn.
 	"""
 
-	exe = struct['executable']
-	doc = struct['documentation']
+	xmlctx = libxml.Serialization()
 
-	if exe:
-		exe = exe.encode(encoding)
-	if doc:
-		doc = doc.encode(encoding)
-
-	yield b'<?xml version="1.0" encoding="utf-8"?>'
-	yield b'<spawn xmlns="' + ns + b'"'
-	if exe:
-		yield b' executable="' + exe + b'"'
-
-	dist = struct.get('concurrency')
-	if dist is not None:
-		dist = str(dist).encode(encoding)
-		yield b' concurrency="' + dist + b'"'
-
-	yield b' type="' + struct["type"].encode(encoding) + b'">'
-
-	if doc:
-		yield b'<documentation>'
-		yield doc
-		yield b'</documentation>'
-
-	yield b'<requirements>'
-
-	for x in struct['requirements']:
-		yield b'<service name="' + x.encode(encoding) + b'"/>'
-
-	yield b'</requirements>'
-
-	yield b'<environment>'
-
-	for k, v in struct['environment'].items():
-		yield b'<setting name="' + k.encode(encoding) + b'" '
-		yield b'value="' + v.encode(encoding) + b'"/>'
-
-	yield b'</environment>'
-
-	yield b'<parameters>'
-
-	for f in struct['parameters']:
-		yield b'<field literal="' + f.encode(encoding) + b'"/>'
-
-	yield b'</parameters>'
-
-	# sectors libraries
-	if struct.get('libraries'):
-		yield b'<libraries>'
-		for libname, fn in struct['libraries'].items():
-			libname = libname.encode(encoding)
-			fn = fn.encode(encoding)
-			yield b'<module libname="' + libname + b'" fullname="' + fn + b'"/>'
-		yield b'</libraries>'
-
-	if struct.get('interfaces'):
-		yield b'<interfaces>'
-
-		for slot, binds in struct['interfaces'].items():
-			yield b'<interface name="' + slot.encode(encoding) + b'">'
-
-			for (atype, address, port) in [(str(y).encode(encoding) for y in x) for x in binds]:
-				yield b'<bind type="' + atype + \
-					b'" address="' + address + \
-					b'" port="' + port + \
-					b'"/>'
-
-			yield b'</interface>'
-		yield b'</interfaces>'
-
-	yield b'</spawn>'
+	return xmlctx.root('spawn',
+		itertools.chain.from_iterable((
+			xmlctx.element('requirements',
+				itertools.chain.from_iterable(
+					xmlctx.element('service', None, ('name', x))
+					for x in struct['requirements']
+				)
+			),
+			xmlctx.element('environment',
+				itertools.chain.from_iterable(
+					xmlctx.element('setting', None, ('name', k), ('value', v))
+					for k, v in struct['environment'].items()
+				)
+			),
+			xmlctx.element('parameters',
+				itertools.chain.from_iterable(
+					xmlctx.element('field', None, ('literal', x))
+					for x in struct['parameters']
+				)
+			),
+			xmlctx.element('libraries',
+				itertools.chain.from_iterable(
+					xmlctx.element('module', None, ('libname', x), ('fullname', fn))
+					for x, fn in (struct.get('libraries', None) or {}).items()
+				)
+			),
+			xmlctx.element('interfaces',
+				itertools.chain.from_iterable(
+					xmlctx.element('interface',
+						itertools.chain.from_iterable(
+							xmlctx.element('bind', None,
+								('type', atype),
+								('address', address),
+								('port', port)
+							)
+							for atype, address, port in binds
+						),
+						('name', slot),
+					)
+					for slot, binds in struct.get('interfaces', {}).items()
+				)
+			),
+		)),
+		('executable', struct.get('executable')),
+		('concurrency', struct.get('concurrency')),
+		('type', struct["type"]),
+		('abstract', struct.get('abstract')),
+		namespace=ns,
+	)
 
 def service_routes(route=default_route):
 	"""
@@ -275,7 +257,7 @@ class Service(object):
 		self.requirements = []
 		self.environment = {}
 		self.parameters = []
-		self.documentation = None
+		self.abstract = None
 		self.enabled = None
 		self.type = 'unspecified'
 		self.interfaces = {}
@@ -383,7 +365,7 @@ class Service(object):
 		'requirements',
 		'environment',
 		'parameters',
-		'documentation',
+		'abstract',
 		'type',
 		'interfaces',
 		'concurrency',
