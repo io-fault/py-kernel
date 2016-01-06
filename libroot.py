@@ -228,7 +228,7 @@ class HTTP(library.Sector):
 
 		return list(self.services)
 
-	def http_request_accept(self, layer, partial=functools.partial, tuple=tuple):
+	def http_request_accept(self, layer, ins_connect, partial=functools.partial, tuple=tuple):
 		path_parts = layer.path.decode('utf-8').split('/')
 
 		empty, service_name, *path = path_parts
@@ -245,13 +245,6 @@ class HTTP(library.Sector):
 		out.enqueue(response) # reserve spot in output queue
 
 		out_connect = partial(out.connect, response)
-
-		# conditionally provide flow connection callback.
-		if request.length is not None:
-			ins_connect = partial(ins.connect, request)
-		else:
-			# there is no content flow
-			ins_connect = None
 
 		path = request.path
 		if path == b'/':

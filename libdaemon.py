@@ -124,7 +124,7 @@ class HTTP(library.Sector):
 		b'/circulate/graph': circulate_graph,
 	}
 
-	def http_request_accept(self, layer, partial=functools.partial):
+	def http_request_accept(self, layer, connect, partial=functools.partial):
 		request = layer
 		response = self.protocol.output_layer()
 
