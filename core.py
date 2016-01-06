@@ -592,10 +592,28 @@ class Transaction(object):
 	def connect(self, protocol, address, port, transports = ()):
 		"""
 		Allocate Transformer resources associated with connections to the endpoint
-		by the parameters: &protocol, &address, &port.
+		by the parameters: &protocol, &address, &port. The parameters are
+		usually retrieved from an endpoint instance.
 
 		Connect does not forward bind parameters.
+
+		[ Parameters ]
+
+		/protocol
+			One of `'local'`, `'ip4'`, or `'ip6'`.
+		/address
+			String containing the IP address or the parent directory
+			path of the file system socket.
+		/port
+			The TCP/UDP port number to connect to or the file system
+			socket's filename.
+		/transports
+			A sequence of pairs containing the transport layers to
+			use with the &Transport instance. No Transport instance
+			will be included in the flows if this is empty or &None.
 		"""
+		global Detour
+		global meter_input, meter_output
 
 		locator = ('octets', protocol)
 		r, w = self.traffic(locator, (str(address), port))
@@ -610,6 +628,13 @@ class Transaction(object):
 	def acquire(self, dir, *fds):
 		"""
 		Allocate Transformer resources associated with the given file descriptors.
+
+		[ Parameters ]
+
+		/direction
+			One of `'input'` or `'output'`.
+		/fds
+			The file descriptors to be acquired as &Detour instances.
 		"""
 
 		traffic = self.traffic
@@ -623,18 +648,26 @@ class Transaction(object):
 
 			yield tr
 
-	def bind(self, binds, *transformers):
+	def bind(self, interfaces, *transformers):
 		"""
-		Allocate Transformer resources associated with the given addresses.
+		Allocate &Detour instances associated with the given addresses
+		for listening sockets.
 
-		Usually, using &Ports is preferable.
+		This is used in cases where the listening socket has *not* yet
+		been acquired.
+
+		On POSIX systems, this performs &/unix/man/2/bind and
+		&/unix/man/2/listen system calls.
+
+		The allocated flows will be assigned to the Transaction's sector,
+		but not actuated.
 		"""
 
 		traffic = self.traffic
 		meter = meter_input
 		alloc = Allocator.allocate_integer_array
 
-		for x in binds:
+		for x in interfaces:
 			# only one for sockets; stream of file descriptors
 
 			locator = ('sockets', x.protocol)
@@ -650,7 +683,7 @@ class Transaction(object):
 
 	def listen(self, receiver, fds):
 		"""
-		Allocates flows for the given file descriptors &fds and connect them to the &receiver.
+		Allocates flows for the given file descriptors and connect them to the &receiver.
 
 		Like &bind, but works with already allocated sockets.
 		"""
@@ -668,7 +701,6 @@ class Transaction(object):
 
 			flow = Flow()
 			flow.requisite(*meter(d, allocate=alloc))
-			flow.subresource(sector)
 			sector.dispatch(flow)
 			flow.connect(receiver)
 
@@ -1697,7 +1729,7 @@ class Controller(Sector):
 
 class Connection(Sector):
 	"""
-	Sector connected to a precise endpoint.
+	Sector connected to a precise endpoint using a pair of flows and protocol.
 
 	Connection sectors are transient Processors dependant on logically remote
 	resources in order to function. Connections are Sectors in order to encapsulate
@@ -1709,11 +1741,22 @@ class Connection(Sector):
 		The remote address used to establish the Connection.
 	"""
 
-	def requisite(self, endpoint):
+	def requisite(self, endpoint, transports=None):
 		"""
 		The endpoint that the Client will be connecting to.
 		"""
 		self.endpoint = endpoint
+		self.transports = transports
+
+	@classmethod
+	def open(Class, sector:Sector, endpoint, transports=None):
+		"""
+		Open a connection inside the given &sector.
+		"""
+		c = Class()
+		c.requisite(endpoint, transports=transports)
+		sector.dispatch(c) # actuate Client
+		return c
 
 class Control(Sector):
 	"""
@@ -4106,7 +4149,7 @@ class Distribute(Extension):
 	def requisite(self, input):
 		self.input = input
 
-	def process(self, events, source = None, partial=functools.partial):
+	def process(self, events, source=None, partial=functools.partial):
 		Protocol = self.controller
 		Protocol.context.enqueue(partial(self.state.send, events))
 
@@ -4189,8 +4232,11 @@ class Distribute(Extension):
 		if layer.content:
 			self.flows[layer] = None
 			self.queues[layer] = Queue()
+			connect = functools.partial(self.connect, layer)
+		else:
+			connect = None
 
-		self.accept_callback(layer)
+		self.accept_callback(layer, connect)
 
 class QueueProtocol(Protocol):
 	"""
