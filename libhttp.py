@@ -450,16 +450,35 @@ class Client(core.Connection):
 	def actuate(self):
 		self.response_endpoints = []
 		super().actuate()
+		endpoint = self.endpoint
+		transports = self.transports
 
-	def http_transaction_open(self, layer, partial=functools.partial):
+		with self.xact() as xact:
+			io = xact.connect(
+				endpoint.protocol, endpoint.address, endpoint.port,
+				transports = transports,
+			)
+
+			p, fi, fo = client_v1(xact,
+				self.http_transaction_open,
+				self.http_transaction_close,
+				*io, transports=transports)
+
+			self.protocol = p
+			self.process((p, fi, fo))
+			# start allocator.
+			fi.process(None)
+
+	def http_transaction_open(self, layer, connect):
 		"""
 		Notify the user of the open transaction by performing the callback
 		given as the receiver parameter to &http_request.
 		"""
+
 		ep, request = self.response_endpoints[0]
 		del self.response_endpoints[0]
 
-		ep(self, request, layer, partial(self.protocol.distribute.connect, layer))
+		ep(self, request, layer, connect)
 
 	def http_transaction_close(self, layer, flow):
 		# called when the input flow of the request is closed
@@ -489,34 +508,6 @@ class Client(core.Connection):
 		out = self.protocol.serialize
 		out.enqueue(layer)
 		out.connect(layer, flow)
-
-	@classmethod
-	def open(Class, sector:core.Sector, endpoint, transports=None):
-		"""
-		Open an HTTP connection inside the given &sector.
-		"""
-		global client_v1
-
-		c = Class()
-		c.requisite(endpoint)
-		sector.dispatch(c) # actuate Client
-
-		with c.xact() as xact:
-			io = xact.connect(
-				endpoint.protocol, endpoint.address, endpoint.port,
-				transports = transports,
-			)
-
-			p, fi, fo = client_v1(xact,
-				c.http_transaction_open,
-				c.http_transaction_close,
-				*io, transports=transports)
-
-			c.protocol = p
-			c.process((p, fi, fo))
-			fi.process(None)
-
-		return c
 
 class Agent(core.Controller):
 	"""
