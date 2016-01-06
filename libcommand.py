@@ -3,8 +3,6 @@ System Command Execution of a &.library.Unit.
 
 Provides the construction of &.library.Unit instance for an
 application that is to be ran as a system command.
-
-&.library.execute does not construct the &.library.Unit instance.
 """
 
 import sys
@@ -35,10 +33,13 @@ def initialize(unit):
 			unit.place(lib, "lib", name)
 
 	if inspect.isgeneratorfunction(main):
-		s.requisite(library.Coroutine.from_callable(main))
+		main_proc = library.Coroutine.from_callable(main)
+		main_proc.requisite(main)
 	else:
-		s.requisite(library.Call(main))
+		main_proc = library.Call()
+		main_proc.requisite(main)
 
+	s.requisite(main_proc)
 	unit.context.enqueue(s.actuate)
 
 def execute(name='__main__'):

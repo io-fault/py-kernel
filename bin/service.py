@@ -1,9 +1,7 @@
 """
-faultd service storage interface
+faultd service interface for automating configuration management during daemon downtime.
 
-Configuration manager for initializing service directories.
 Deals directly with the file system and should only be used while the fault daemon is not running.
-
 Invoking without arguments displays help to standard error.
 """
 

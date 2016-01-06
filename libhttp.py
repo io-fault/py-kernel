@@ -380,8 +380,6 @@ def v1_input(
 		# XXX: currently no way to access the excess
 		events = iter(chain(*(yield)))
 
-# The distinction between Client1 and Server1 is necessary for managing
-
 def flows(xact, input, output):
 	"""
 	Construct a pair of &.library.Flow instances with the given &.library.Transformer
@@ -416,7 +414,6 @@ def client_v1(xact, accept, closed, input, output, transports=()):
 		ti.configure(1, (transports[0],), transports[1])
 
 	p = core.QueueProtocol(Response, Request, v1_input, v1_output)
-	#p.requisite(input, output, xact.sector.reception_open, xact.sector.reception_close, *suffix)
 	p.requisite(accept, closed, fi, fo)
 
 	return p, fi, fo
@@ -451,7 +448,7 @@ class Client(core.Sector):
 
 	def http_transaction_close(self, layer, flow):
 		# called when the input flow of the request is closed
-		# by the state generator.
+		# by the finish() call in the HTTP state generator.
 		if flow is not None:
 			flow.terminate(by=self.http_transaction_close)
 

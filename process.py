@@ -263,7 +263,7 @@ class Fabric(object):
 	def critical(self, controller, context, callable, *args):
 		"""
 		Create a dedicated thread that is identified as a critical resource where exceptions
-		trigger &libfork.Panic exceptions.
+		trigger &libfork.Panic exceptions in the main thread.
 
 		The additional &context parameter is an arbitrary object describing the resource;
 		often the object whose method is considered critical.

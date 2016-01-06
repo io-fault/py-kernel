@@ -1,9 +1,9 @@
 """
-Execute the fault (root) daemon for managing a set of services.
+Service management daemon for fault.io based applications.
 
-By default, this script resolves the root service from the &FAULTD_DIRECTORY
-environment variable. This can be avoided by importing the module,
-and using &initialize as a root for a Unit.
+By default, this script resolves the root service from the
+&/env/FAULTD_DIRECTORY environment variable. This can be avoided by
+importing the module, and using &initialize as a root for a Unit.
 """
 
 import sys
@@ -30,13 +30,15 @@ def initialize(unit):
 
 if __name__ == '__main__':
 	# Some redundancy here for supporting faultd hardlinks.
+	# Hardlinks to python3 are used to make it possible
+	# reveal more appropriate names in the process list.
 
 	if os.environ.get('FAULTD') is None:
 		# Initial Python Invocation
 		# Resolve the hardlink and exec().
 		params = sys.argv[1:]
 		os.environ['FAULTD'] = str(os.getpid())
-		py = os.environ['PYTHON'] = sys.executable
+		os.environ['PYTHON'] = sys.executable
 
 		from .. import libservice
 
@@ -44,7 +46,7 @@ if __name__ == '__main__':
 		rs = libservice.Service(r, 'root')
 		if not rs.exists():
 			rs.create('root')
-			rs.executable = sys.executable
+			rs.executable = sys.executable # reveal original executable
 			rs.enabled = True
 			rs.parameters = ['-m', __package__+'.faultd'] + params
 			rs.store()

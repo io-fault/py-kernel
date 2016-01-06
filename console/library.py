@@ -8,7 +8,7 @@ import keyword
 import itertools
 import weakref
 
-from ...chronometry import library as timelib
+from ...chronometry import library as libtime
 from ...filesystem import library as fslib # autosave/session persistence
 
 from ...terminal import library as libterminal # terminal display
@@ -2701,13 +2701,13 @@ def output(transformer, queue, tty):
 		except BaseException as exception:
 			transformer.context.process.exception(transformer, exception, "Terminal Output")
 
-def input(transformer, queue, tty):
+def input(transformer, queue, tty, partial=functools.partial):
 	"""
 	Thread transformer function translating input to Character events for &Console.
 	"""
 	enqueue = transformer.context.enqueue
 	emit = transformer.emit
-	now = timelib.now
+	now = libtime.now
 	escape_state = 0
 
 	# using incremental decoder to handle partial writes.
@@ -2723,7 +2723,7 @@ def input(transformer, queue, tty):
 			# read more
 			continue
 
-		enqueue(functools.partial(emit, (now(), events)))
+		enqueue(partial(emit, (now(), events)))
 		chars = ""
 
 class Console(iolib.Reactor):
@@ -3349,34 +3349,11 @@ class Console(iolib.Reactor):
 		"""
 		return libterminal.device.dimensions(self.tty.fileno())
 
-def create(controller):
-	"""
-	Create a console as a subresource of the given controller.
-	Returns the new Sector.
-	"""
-
-	# sector representing a set of sessions
-	s = iolib.Sector()
-
-	console_flow = iolib.Flow() # terminal input -> console -> terminal output
-	console_flow.subresource(unit)
-
-	c = Console()
-	tty = open(libterminal.device.path, 'r+b')
-	console_flow.requisite(iolib.Parallel(input, (tty,)), c, iolib.Parallel(output, (tty,)))
-
-	console_flow.sequence[1].requisite(tty)
-	console_flow.sequence[0].actuate()
-	console_flow.sequence[-1].actuate()
-
-	return s
-
 def initialize(unit):
 	"""
 	Initialize the given unit with a console.
-
-	XXX: deprecating
 	"""
+
 	libterminal.restore_at_exit() # cursor will be hidden and raw is enabled
 
 	console_flow = iolib.Flow() # terminal input -> console -> terminal output
@@ -3385,12 +3362,20 @@ def initialize(unit):
 
 	c = Console()
 	tty = open(libterminal.device.path, 'r+b')
-	console_flow.requisite(iolib.Parallel(input, (tty,)), c, iolib.Parallel(output, (tty,)))
 
-	console_flow.sequence[1].requisite(tty)
+	input_thread = iolib.Parallel()
+	output_thread = iolib.Parallel()
+
+	console_flow.requisite(input_thread, c, output_thread)
+
+	input_thread.requisite(input, tty)
+	output_thread.requisite(output, tty)
+	c.requisite(tty)
+
 	console_flow.sequence[0].actuate()
 	console_flow.sequence[-1].actuate()
 
 	unit.place(c, 'console') # the Console() instance
 	os.environ['FIO_SYSTEM_CONSOLE'] = str(os.getpid())
+
 	c.actuate()

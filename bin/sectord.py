@@ -1,5 +1,8 @@
 """
-fault.io sector daemon. Primarily depends on &.io.libdaemon.
+Sector daemon used to manage a set of &.library.Sector instances.
+
+Sector daemons are normally organized into categories where a set of
+processes coexist to share the same process pool.
 """
 
 import sys

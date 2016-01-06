@@ -13,7 +13,6 @@ import functools
 import operator
 import queue
 import builtins
-import types
 import inspect
 import itertools
 import traceback
@@ -25,6 +24,18 @@ from ..routes import library as libroutes
 from ..internet import library as libnet
 from ..chronometry import library as libtime
 from ..computation import library as libcomp
+
+class Expiry(Exception):
+	"""
+	An operation exceeded a time limit.
+	"""
+
+class RateViolation(Expiry):
+	"""
+	The configured rate constraints could not be maintained.
+	Usually a fault that identifies a Flow that could not maintain
+	the minimum transfer rate.
+	"""
 
 def dereference_controller(self):
 	return self.controller_reference()
@@ -365,23 +376,26 @@ class Join(object):
 	[ Properties ]
 
 	/dependencies
-		The original set of processors.
+		The original set of processors as a dictionary mapping
+		given names to the corresponding &Processor.
+
 	/pending
 		The current state of pending exits that must
 		occur prior to the join-operation's completion.
+
 	/callback
 		The callable that is performed after the &pending
-		set has been emptied.
+		set has been emptied; defined by &atexit.
 	"""
 
 	__slots__ = ('dependencies', 'pending', 'callback')
 
-	def __init__(self, processors):
+	def __init__(self, **processors):
 		"""
 		Initialize the join with the given &processor set.
 		"""
 		self.dependencies = processors
-		self.pending = set(processors)
+		self.pending = set(processors.values())
 		self.callback = None
 
 	def connect(self):
@@ -394,11 +408,11 @@ class Join(object):
 
 		return self
 
-	def __iter__(self, iter=iter):
+	def __iter__(self):
 		"""
 		Return an iterator to the configured dependencies.
 		"""
-		return iter(self.dependencies)
+		return self.dependencies.values()
 
 	def exited(self, processor):
 		"""
@@ -412,18 +426,25 @@ class Join(object):
 		if not self.pending:
 			# join complete
 			self.pending = None
-			# XXX: calculate exceptions?
 
 			cb = self.callback
-			self.callback = None
-			cb(self)
+			self.callback = None; cb(self) # clear callback to signal completion
 
 	def atexit(self, callback):
 		"""
 		Assign the callback of the &Join.
+
 		If the &pending set is empty, the callback will be immediately executed,
 		otherwise, overwrite the currently configured callback.
+
+		The &callback is executed with the &Join instance as its sole parameter.
+
+		[ Parameters ]
+
+		/callback
+			The task to perform when all the dependencies have exited.
 		"""
+
 		if self.pending is None:
 			callback(self)
 			return
@@ -500,7 +521,7 @@ class Transaction(object):
 	Used to manage undo operations for exception management and consolidate allocation interfaces.
 
 	Transactions provide access to system (kernel) resources.
-	Opening files, connecting to hosts, executing binaries.
+	Opening files, connecting to hosts, and executing system commands.
 	"""
 
 	def __init__(self, sector):
@@ -641,6 +662,22 @@ class Transaction(object):
 		"""
 
 		t = self.traffic(('octets', 'file', 'append'), path)
+
+		d = Detour()
+		d.requisite(t)
+
+		return meter_output(d)
+
+	def update(self, path, offset, size):
+		"""
+		Allocate a Detour overwriting data at the given offset until
+		the transfer size been reached.
+		"""
+		global os
+
+		t = self.traffic(('octets', 'file', 'overwrite'), path)
+		position = os.lseek(t.port.fileno, 0, offset)
+
 		d = Detour()
 		d.requisite(t)
 
@@ -675,7 +712,8 @@ class Transaction(object):
 		"""
 		Execute the &..fork.library.KInvocation inheriting standard input, output, and error.
 
-		This is used almost exclusively by shell-type processes.
+		This is used almost exclusively by shell-type processes where the calling process
+		suspends TTY I/O until the child exits.
 		"""
 
 		sp = Subprocess()
@@ -688,7 +726,7 @@ class Transaction(object):
 		"""
 		Execute a &..fork.library.KPipeline object building an IO instance
 		from the input and output file descriptors associated with the
-		first and last processes as described by its &fork.library.Pipeline.
+		first and last processes as described by its &..fork.library.Pipeline.
 
 		Additionally, a mapping of standard errors will be produced.
 		Returns a tuple, `(input, output, stderrs)`.
@@ -775,11 +813,11 @@ class Transaction(object):
 
 		Returns a &Subprocess instance containing a single Process-Id.
 
-		Used to launch a daemon with a specific standard error.
+		Used to launch a daemon with a specific standard error for monitoring purposes.
 		"""
 		global Subprocess
 
-		stdout = stdin = stderr = ()
+		stdout = stdin = ()
 
 		try:
 			# use dev/null?
@@ -801,7 +839,7 @@ class Transaction(object):
 
 		return sp
 
-	def stream_file(self, path, range, *downstream, Segments=libhazmat.Segments):
+	def stream_file(self, path:str, range:tuple, *downstream, Segments=libhazmat.Segments):
 		"""
 		Construct a new Flow with an initial Iterate Transformer
 		flowing shared memory segments from the memory mapped file.
@@ -812,7 +850,7 @@ class Transaction(object):
 		[ Parameters ]
 
 		/path
-			Local filesystem path.
+			Local filesystem path to read from.
 
 		/range
 			A triple, (start, stop, size), or &None if the entire file should be used.
@@ -1132,29 +1170,28 @@ class Call(Processor):
 	"""
 	A single call represented as a Processor.
 
-	The callable is executed on actuation and signals its exit
-	after completion.
+	The callable is executed by process and signals its exit after completion.
 
 	Used as an abstraction to explicit enqueues, and trigger faults in Sectors.
 	"""
 
-	def __init__(self, call):
-		super().__init__()
+	def requisite(self, call):
 		self.call = call
 
 	def actuate(self):
+		self.context.enqueue(self.process)
 		super().actuate()
+
+	def process(self, event=None, source=None):
+		assert self.functioning
 
 		try:
 			self.product = self.call(self)
 			self.terminated = True
+			self.controller.exited(self)
 		except BaseException as exc:
 			self.product = None
 			self.fault(exc)
-		finally:
-			self.controller.exited(self)
-
-		return self
 
 	def structure(self):
 		return ([('call', self.call)], ())
@@ -1365,7 +1402,7 @@ class Unit(Processor):
 			else:
 				self.terminated = True
 
-	def place(self, obj : collections.abc.Hashable, *destination):
+	def place(self, obj:collections.abc.Hashable, *destination):
 		"""
 		Place the given object in the program at the specified location.
 		"""
@@ -1478,7 +1515,7 @@ class Sector(Processor):
 		"""
 
 		try:
-			for Class, sset in self.processors.items():
+			for Class, sset in list(self.processors.items()):
 				for proc in sset:
 					proc.actuate()
 		except BaseException as exc:
@@ -2136,7 +2173,7 @@ class Scheduler(Processor):
 			elif isinstance(timing, Measure):
 				measure = timing
 			else:
-				raise ValueError("scheduler requires a chronometry.library.Unit")
+				raise ValueError("scheduler requires a libtime.Unit")
 
 			schedule((measure, task))
 
@@ -2190,13 +2227,25 @@ class Thread(Processor):
 	def requisite(self, callable):
 		self.callable = callable
 
+	def trap(self):
+		final = None
+		try:
+			self.callable(self)
+			self.terminated = True
+			self.terminating = False
+			# Must be enqueued to exit.
+			final = functools.partial(self.controller.exited, self)
+		except Exception as exc:
+			final = functools.partial(self.fault, ext)
+
+		self.context.enqueue(final)
+
 	def actuate(self):
 		"""
 		Execute the dedicated thread for the transformer.
 		"""
-
 		super().actuate()
-		self.context.execute(self, self.callable, self)
+		self.context.execute(self, self.trap)
 		return self
 
 	def process(self):
@@ -2236,35 +2285,42 @@ class Coroutine(Processor):
 		r.state = self.container(g)
 		return r
 
-	def __init__(self):
-		super().__init__()
+	@types.coroutine
+	def container(self, coroutine):
+		"""
+		! INTERNAL:
+			Private Method.
+
+		Container for the coroutine's execution in order
+		to map completion to processor exit.
+		"""
+		try:
+			yield None
+			self.product = (yield from coroutine)
+			self.controller.exited(self)
+		except Exception as exc:
+			self.product = None
+			self.fault(exc)
 
 	def requisite(self, coroutine):
 		self.state = self.container(coroutine)
 
-	@types.coroutine
-	def container(self, coroutine):
-		# Adapt the coroutine's exit to Processor exit.
-		try:
-			product, = (yield from coroutine)
-			self.sector.exited(self)
-		except Exception as exc:
-			self.product = None
-			self.fault(exc)
+	def actuate(self):
+		"""
+		Start the generator, but do not execute the coroutine.
+		"""
+		super().actuate()
+		self.state.send(None)
+		self.context.enqueue(self.state.send(None))
+
+	def process(self, argument=None):
+		self.state.send(argument)
 
 	def terminate(self):
 		self.state.close()
 
 	def interrupt(self):
-		self.state.throw()
-
-	def actuate(self):
-		"""
-		Start the generator.
-		"""
-
-		self.state(None)
-		return self
+		self.state.throw(KeyboardInterrupt)
 
 # Interface is the handle on the set of connection for clients.
 # The API being supported by the Interface defined by a subclass
@@ -2617,14 +2673,15 @@ class Reactor(Transformer):
 
 class Parallel(Transformer):
 	"""
-	A dedicated thread for a Transformer. Often used for producing arbitrary injection events
-	produced by blocking calls.
+	A dedicated thread for a Transformer.
+	Usually used for producing arbitrary injection events produced by blocking calls.
 
 	Term Parallel being used as the actual function is ran in parallel to
 	the &Flow in which it is participating in.
 
 	The requisite function should have the following signature:
 
+	#!/pl/python
 		def thread_function(transformer, queue, *optional):
 			...
 
@@ -2633,26 +2690,34 @@ class Parallel(Transformer):
 	accessing its controller.
 	"""
 
-	def __init__(self, callable, parameters):
-		super().__init__()
-
-		global queue
+	def requisite(self, callable, *parameters, criticial=False):
 		self.callable = callable
 		self.parameters = parameters
 
-	def requisite(self, callable, *parameters):
-		self.callable = callable
-		self.parameters = parameters
+	def trap(self):
+		"""
+		Internal; Trap exceptions in order to map them to faults.
+		"""
+		try:
+			self.callable(self, self.queue, *self.parameters)
+			self.terminated = True
+			self.terminating = False
+		except BaseException as exc:
+			self.context.enqueue(functools.partial(self.fault, exc))
+			pass # The exception is managed by .fault()
 
 	def actuate(self):
 		"""
 		Execute the dedicated thread for the transformer.
 		"""
+		global queue
 
 		self.queue = queue.Queue()
 		self.put = self.queue.put
-		self.context.execute(self, self.callable, *((self, self.queue) + self.parameters))
-		return self
+		#self.context.execute(self, self.callable, *((self, self.queue) + self.parameters))
+		self.context.execute(self, self.trap)
+
+		return super().actuate()
 
 	def process(self, event):
 		"""
@@ -2662,7 +2727,9 @@ class Parallel(Transformer):
 
 		self.put(event)
 
-	def terminate(self):
+	def terminate(self, by=None):
+		self.terminator = by
+		self.terminating = True
 		self.put(None)
 
 # XXX: Dispatcher needs to signal obstructions when the queue size reaches a configured value.
@@ -2826,8 +2893,8 @@ class Detour(Transformer):
 			t = self.transit
 			self.transit = None
 			self.status = (t.port, t.endpoint())
-			t.link = None
-			t.terminate()
+			t.link = None # signals I/O loop to not inject.
+			t.terminate() # terminates one direction.
 	interrupt = terminate
 
 	def terminated(self):
@@ -2836,7 +2903,7 @@ class Detour(Transformer):
 		# Called when the termination condition is received,
 		# but *after* any transfers have been injected.
 
-		# io.traffic calls this.
+		# io.traffic calls this when it sees termination of the transit.
 
 		if self.transit is None:
 			# terminate has already been ran; status is present
@@ -4009,11 +4076,25 @@ class Distribute(Extension):
 		Associate the flow with the Layer Context allowing transfers into the flow.
 		"""
 
+		# Only allow connections if there is content.
+		# If it does not have content, then terminate and return.
+		if not layer.content:
+			flow.terminate()
+			return
+
+		cflow = self.flows.pop(layer, None)
+
 		self.flows[layer] = flow
-		self.drain(layer)
+		self.drain(layer) # move any queued events into the flow
 
 		# the availability of the flow allows the queue to be dropped
 		del self.queues[layer]
+		if cflow is not None:
+			assert cflow == 'closed'
+			del self.flows[layer]
+			self.close_callback(layer, flow)
+			if getattr(layer, 'terminal', False):
+				self.input.terminate()
 
 	def drain(self, layer):
 		"""
@@ -4021,11 +4102,15 @@ class Distribute(Extension):
 		"""
 
 		q = self.queues[layer]
-		fp = self.flows[layer].process
+		flow = self.flows[layer]
+		fp = flow.process
 		p = q.popleft
 
-		while q:
-			fp(p(), source=self)
+		try:
+			while q:
+				fp(p(), source=self) # drain protocol queue
+		except Exception as exc:
+			flow.fault(exc)
 
 	def transport(self, layer, events):
 		"""
@@ -4044,7 +4129,13 @@ class Distribute(Extension):
 		End of Layer context content. Flush queue and remove entries.
 		"""
 
-		if layer.content and layer in self.flows:
+		if layer.content:
+			if layer not in self.flows:
+				# No Flow has been connected.
+				# Mark as closed for subsequent &connect to find.
+				self.flows[layer] = 'closed'
+				return
+
 			# flush q if necessary
 			if layer in self.queues:
 				# This branch doesn't happen
@@ -4054,14 +4145,14 @@ class Distribute(Extension):
 				del self.queues[layer]
 
 			flow = self.flows.pop(layer)
+
+			self.close_callback(layer, flow)
+
+			if getattr(layer, 'terminal', False):
+				self.input.terminate()
 		else:
-			flow = None
-		# otherwise, no q and no flow; layer context only
-
-		self.close_callback(layer, flow)
-
-		if getattr(layer, 'terminal', False):
-			self.input.terminate()
+			# No layer content.
+			self.close_callback(layer, None)
 
 	def accept(self, layer, Queue=collections.deque):
 		"""
