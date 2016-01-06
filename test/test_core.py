@@ -77,7 +77,7 @@ def test_Join(test):
 	jp2 = Exiting()
 
 	l = []
-	j = Type((jp1, jp2))
+	j = Type(p1=jp1, p2=jp2)
 	j.atexit(l.append)
 	j.connect() # usually ran by the creator of the join
 
@@ -93,9 +93,8 @@ def test_Join(test):
 	test/j.callback == None
 
 	# validate that we can split the processors
-	f1, f2 = j
-	test/f1 == jp1
-	test/f2 == jp2
+	test/j['p1'] == jp1
+	test/j['p2'] == jp2
 
 # r1, r2 = (yield lib.dns.somejoin(...)) 
 

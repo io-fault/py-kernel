@@ -403,7 +403,7 @@ class Join(object):
 		Connect the &Processor.atexit calls of the configured
 		&dependencies to the &Join instance.
 		"""
-		for x in self.dependencies:
+		for x in self.dependencies.values():
 			x.atexit(self.exited)
 
 		return self
@@ -412,7 +412,10 @@ class Join(object):
 		"""
 		Return an iterator to the configured dependencies.
 		"""
-		return self.dependencies.values()
+		return self.dependencies.items()
+
+	def __getitem__(self, k):
+		return self.dependencies[k]
 
 	def exited(self, processor):
 		"""
@@ -4068,6 +4071,12 @@ class Distribute(Extension):
 		Protocol = self.controller
 		Protocol.context.enqueue(partial(self.state.send, events))
 
+	def receiver_obstructed(self, flow):
+		self.input.obstruct(flow, Condition(flow, 'obstructed'))
+
+	def receiver_cleared(self, flow):
+		self.input.clear(flow)
+
 	def connect(self, layer, flow):
 		"""
 		Associate the flow with the Layer Context allowing transfers into the flow.
@@ -4079,6 +4088,7 @@ class Distribute(Extension):
 			flow.terminate(self)
 			return
 
+		flow.watch(self.receiver_obstructed, self.receiver_cleared)
 		cflow = self.flows.pop(layer, None)
 
 		self.flows[layer] = flow
@@ -4122,6 +4132,7 @@ class Distribute(Extension):
 				# no flow connected.
 				self.flows[layer] = 'closed'
 			else:
+				flow.ignore((self.receiver_obstructed, self.receiver_cleared))
 				flow.terminate(self)
 		else:
 			flow = None
