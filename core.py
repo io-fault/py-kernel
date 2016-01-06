@@ -1470,7 +1470,7 @@ class Sector(Processor):
 		A divided set of abstract processors currently running within a sector.
 		The sets are divided by their type inside a &collections.defaultdict.
 
-	/(&Schduler)scheduler
+	/scheduler
 		The Sector local schduler instance for managing recurrences and alarms
 		configured by subresources. The exit of the Sector causes scheduled
 		events to be dismissed.
@@ -4061,9 +4061,6 @@ class Distribute(Extension):
 		self.state = self.state_function(Layer, self.accept, self.transport, self.close)
 		next(self.state)
 
-		self.flow = None
-		self.layer = None
-
 	def requisite(self, input):
 		self.input = input
 
@@ -4077,32 +4074,17 @@ class Distribute(Extension):
 		"""
 
 		# Only allow connections if there is content.
-		# If it does not have content, then terminate and return.
+		# If it does not have content, terminate and return.
 		if not layer.content:
-			flow.terminate()
+			flow.terminate(self)
 			return
 
 		cflow = self.flows.pop(layer, None)
 
 		self.flows[layer] = flow
-		self.drain(layer) # move any queued events into the flow
 
-		# the availability of the flow allows the queue to be dropped
-		del self.queues[layer]
-		if cflow is not None:
-			assert cflow == 'closed'
-			del self.flows[layer]
-			self.close_callback(layer, flow)
-			if getattr(layer, 'terminal', False):
-				self.input.terminate()
-
-	def drain(self, layer):
-		"""
-		Drain the queue associated with the layer into the connected Flow.
-		"""
-
+		# drain the queue
 		q = self.queues[layer]
-		flow = self.flows[layer]
 		fp = flow.process
 		p = q.popleft
 
@@ -4111,6 +4093,11 @@ class Distribute(Extension):
 				fp(p(), source=self) # drain protocol queue
 		except Exception as exc:
 			flow.fault(exc)
+
+		# the availability of the flow allows the queue to be dropped
+		del self.queues[layer]
+		if cflow == 'closed':
+			flow.terminate(self)
 
 	def transport(self, layer, events):
 		"""
@@ -4130,29 +4117,19 @@ class Distribute(Extension):
 		"""
 
 		if layer.content:
-			if layer not in self.flows:
-				# No Flow has been connected.
-				# Mark as closed for subsequent &connect to find.
-				self.flows[layer] = 'closed'
-				return
-
-			# flush q if necessary
-			if layer in self.queues:
-				# This branch doesn't happen
-				# in cases where the head of the line
-				# has already connected a flow. (queue is removed)
-				self.drain(layer)
-				del self.queues[layer]
-
 			flow = self.flows.pop(layer)
-
-			self.close_callback(layer, flow)
-
-			if getattr(layer, 'terminal', False):
-				self.input.terminate()
+			if flow is None:
+				# no flow connected.
+				self.flows[layer] = 'closed'
+			else:
+				flow.terminate(self)
 		else:
-			# No layer content.
-			self.close_callback(layer, None)
+			flow = None
+
+		self.close_callback(layer, flow)
+
+		if getattr(layer, 'terminal', False):
+			self.input.terminate()
 
 	def accept(self, layer, Queue=collections.deque):
 		"""

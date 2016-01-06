@@ -90,8 +90,8 @@ class HTTP(library.Sector):
 		"Send the given signal to the process."
 
 		srv = request.managed
-		sig = request.parameters.get('signal')
-		if sig.isdigits():
+		sig = request.parameters.get('signal', 'SIGINFO')
+		if sig.isdigit():
 			signo = int(sig)
 		else:
 			signo = signames[sig]
@@ -129,6 +129,8 @@ class HTTP(library.Sector):
 
 	@libhttp.resource(limit=0)
 	def http_reload(self, request, response, input):
+		ms = request.managed
+
 		if ms.subprocess is not None:
 			ms.subprocess.signal(signal.SIGHUP)
 			return 'daemon signalled to reload using SIGHUP'
@@ -279,9 +281,9 @@ class HTTP(library.Sector):
 
 			proc = library.Flow()
 			i = library.Iterate()
-			proc.affix(i)
+			proc.requisite(i)
 			proc.subresource(self)
-			self.affix(proc)
+			self.requisite(proc)
 			out_connect(proc)
 			proc.actuate()
 			proc.process([(notfound,)])
