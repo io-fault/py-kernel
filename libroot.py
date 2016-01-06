@@ -382,13 +382,14 @@ class ServiceManager(library.Processor):
 	inhibit_recovery = None
 	exit_events = ()
 
-	def requisite(self, service, root):
+	def requisite(self, service:libservice.Service, root):
 		self.service = service
 		self.root = root # global environment
 
 	def actuate(self):
 		self.exit_events = []
 		self.status = 'terminated'
+		self.last_invocation = None
 
 		super().actuate()
 
@@ -446,6 +447,7 @@ class ServiceManager(library.Processor):
 			self.status = 'exception'
 			raise
 
+		self.last_invocation = libtime.now()
 		return 'invoked'
 
 		# service_exit is called when the process exit signal is received.

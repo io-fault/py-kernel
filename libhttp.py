@@ -398,7 +398,7 @@ def flows(xact, input, output):
 def client_v1(xact, accept, closed, input, output, transports=()):
 	"""
 	Given input and output Flows, construct and connect a Protocol instance
-	for an HTTP 1.x client.
+	for an HTTP 1.x client connection.
 	"""
 
 	global Response, Request, v1_input, v1_output
@@ -432,41 +432,59 @@ class Interface(core.Interface):
 	an HTTP 2.0, 1.1, and 1.0 interface.
 	"""
 
-class Client(core.Sector):
+class Client(core.Connection):
 	"""
-	Client Connection Sector.
+	Client Connection Sector representing a single client connection.
 
-	Represents a single client connection.
-	&Agent sectors manage sets of Clients that share resources.
+	&Client sectors manages the flows and protocol instances of a client
+	connection.
+
+	[ Properties ]
+
+	/response_endpoints
+		The callback queue that syncrhonizes the responses to their corresponding
+		requests. Items are added when requests are submitted and removed when
+		a response comes in.
 	"""
 
-	def http_transaction_open(self, layer, partial=functools.partial, tuple=tuple):
+	def actuate(self):
+		self.response_endpoints = []
+		super().actuate()
+
+	def http_transaction_open(self, layer, partial=functools.partial):
+		"""
+		Notify the user of the open transaction by performing the callback
+		given as the receiver parameter to &http_request.
+		"""
 		ep, request = self.response_endpoints[0]
 		del self.response_endpoints[0]
 
-		ep(self, request, layer, functools.partial(self.protocol.distribute.connect, layer))
+		ep(self, request, layer, partial(self.protocol.distribute.connect, layer))
 
 	def http_transaction_close(self, layer, flow):
 		# called when the input flow of the request is closed
 		# by the finish() call in the HTTP state generator.
-		if flow is not None:
-			flow.terminate(by=self.http_transaction_close)
+		pass
 
-	def http_request(self, endpoint, layer, flow=None):
+	def http_request(self,
+			receiver:core.ProtocolTransactionEndpoint,
+			layer:core.Layer,
+			flow:core.Flow=None
+		):
 		"""
 		Emit an HTTP request.
 
-		The endpoint is the callable that will be invoked when the
-		response arrives. The &endpoint should have the signature:
+		[ Parameters ]
 
-		#!/pl/python
-			def endpoint(sector, request, response, connect_input):
-				...
-
-		Where &endpoint is a callable that ultimately connects the receiving Flow.
+		/receiver
+			The callback to be performed when a response for the request is received.
+		/layer
+			The request layer context.
+		/flow
+			The request body to be emittted.
 		"""
 
-		self.response_endpoints.append((endpoint, layer))
+		self.response_endpoints.append((receiver, layer))
 
 		out = self.protocol.serialize
 		out.enqueue(layer)
@@ -477,27 +495,28 @@ class Client(core.Sector):
 		"""
 		Open an HTTP connection inside the given &sector.
 		"""
+		global client_v1
 
-		cxn = Class()
-		sector.dispatch(cxn)
+		c = Class()
+		c.requisite(endpoint)
+		sector.dispatch(c) # actuate Client
 
-		with cxn.xact() as xact:
+		with c.xact() as xact:
 			io = xact.connect(
 				endpoint.protocol, endpoint.address, endpoint.port,
 				transports = transports,
 			)
 
 			p, fi, fo = client_v1(xact,
-				cxn.http_transaction_open,
-				cxn.http_transaction_close,
+				c.http_transaction_open,
+				c.http_transaction_close,
 				*io, transports=transports)
 
-			cxn.protocol = p
-			cxn.process((p, fi, fo))
-			cxn.response_endpoints = []
+			c.protocol = p
+			c.process((p, fi, fo))
 			fi.process(None)
 
-		return cxn
+		return c
 
 class Agent(core.Controller):
 	"""

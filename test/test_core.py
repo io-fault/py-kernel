@@ -95,10 +95,11 @@ def test_Join(test):
 	# validate that we can split the processors
 	test/j['p1'] == jp1
 	test/j['p2'] == jp2
+	test/set(j) == {jp1, jp2}
 
 # r1, r2 = (yield lib.dns.somejoin(...)) 
 
-def test_transformer(test):
+def test_Transformer(test):
 	class X(library.Transformer):
 		def process(self, arg):
 			pass
@@ -154,7 +155,7 @@ def test_Condition(test):
 	C = Type(R, ('sub', 'parameter'), 10)
 	test/bool(C) == True
 
-def test_inexorable(test):
+def test_Inexorable(test):
 	inex = library.Inexorable
 	test/bool(inex) == False
 	test/inex / library.Condition
@@ -230,7 +231,7 @@ def test_Flow_obstructions_initial(test):
 	test/f.obstructed == True
 	test/status == [True]
 
-def test_join_obstructions(test):
+def test_Flow_obstructions(test):
 	"Validate that joins receive obstruction notifications"
 
 	l = []
@@ -254,7 +255,7 @@ def test_join_obstructions(test):
 
 	f.obstruct(test, None)
 	test/l == ['suspend', 'resume', 'suspend',]
-	f.obstruct(test, None) # no op
+	f.obstruct(test, None) # no op; already obstructed.
 	test/l == ['suspend', 'resume', 'suspend',]
 
 def setup_connected_flows():
@@ -381,7 +382,7 @@ def test_collect(test):
 
 	test/sorted(list(c.storage)) == [1,2,3,4,5]
 
-def test_allocator(test):
+def test_Allocator(test):
 	t = TTransit()
 	d = library.Detour()
 	d.requisite(t)
@@ -415,7 +416,7 @@ def test_allocator(test):
 	test/meter.transferred == 0
 	test/id(t.resource) != id(fst_resource)
 
-def test_throttle(test):
+def test_Throttle(test):
 	t = TTransit()
 	d = library.Detour()
 	d.requisite(t)

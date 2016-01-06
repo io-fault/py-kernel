@@ -18,6 +18,7 @@ import itertools
 import traceback
 import collections.abc
 import types
+import typing
 
 from ..fork import libhazmat
 from ..routes import library as libroutes
@@ -394,6 +395,7 @@ class Join(object):
 		"""
 		Initialize the join with the given &processor set.
 		"""
+
 		self.dependencies = processors
 		self.pending = set(processors.values())
 		self.callback = None
@@ -403,18 +405,24 @@ class Join(object):
 		Connect the &Processor.atexit calls of the configured
 		&dependencies to the &Join instance.
 		"""
+
 		for x in self.dependencies.values():
 			x.atexit(self.exited)
 
 		return self
 
-	def __iter__(self):
+	def __iter__(self, iter=iter):
 		"""
 		Return an iterator to the configured dependencies.
 		"""
-		return self.dependencies.items()
+
+		return iter(self.dependencies.values())
 
 	def __getitem__(self, k):
+		"""
+		Get the dependency the given identifier.
+		"""
+
 		return self.dependencies[k]
 
 	def exited(self, processor):
@@ -514,7 +522,14 @@ class Projection(object):
 
 class Layer(object):
 	"""
-	Base class for Networking Layer Contexts
+	Base class for Layer Contexts
+
+	[ Properties ]
+
+	/(&bool)terminal
+		Whether or not the Layer Context identifies itself as being
+		the last to occur in a connection. Protocol routers use
+		this to identify when to close input and output.
 	"""
 
 class Transaction(object):
@@ -1112,6 +1127,7 @@ class Processor(Resource):
 		contrasts between Python's builtin Futures and fault.io Processors.
 		"""
 
+		# Never signalled.
 		if not self.terminated:
 			yield self
 		return self.product
@@ -1673,8 +1689,31 @@ class Controller(Sector):
 	"""
 
 	def reaped(self):
+		"""
+		Prohibit termination unless the instance was identified as terminating.
+		"""
 		if self.terminating:
 			super().reaped()
+
+class Connection(Sector):
+	"""
+	Sector connected to a precise endpoint.
+
+	Connection sectors are transient Processors dependant on logically remote
+	resources in order to function. Connections are Sectors in order to encapsulate
+	failures at any conceptual point of the Connection.
+
+	[ Properties ]
+
+	/endpoint
+		The remote address used to establish the Connection.
+	"""
+
+	def requisite(self, endpoint):
+		"""
+		The endpoint that the Client will be connecting to.
+		"""
+		self.endpoint = endpoint
 
 class Control(Sector):
 	"""
@@ -4132,7 +4171,7 @@ class Distribute(Extension):
 				# no flow connected.
 				self.flows[layer] = 'closed'
 			else:
-				flow.ignore((self.receiver_obstructed, self.receiver_cleared))
+				flow.ignore(self.receiver_obstructed, self.receiver_cleared)
 				flow.terminate(self)
 		else:
 			flow = None
@@ -4420,3 +4459,8 @@ class Locks(Device):
 	"""
 
 	device_entry = 'locks'
+
+ProtocolTransactionEndpoint = typing.Callable[[
+	Connection, Layer, Layer,
+	typing.Callable[[Flow], None]
+], None]

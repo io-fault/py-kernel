@@ -1,5 +1,5 @@
 """
-Daemon management infrastructure.
+Sector Daemon management library.
 
 In order to manage a daemon's execution, control interfaces must be support to manage
 initialization and termination sequences.
@@ -59,7 +59,6 @@ from . import libhttp
 
 from ..routes import library as routeslib
 from ..fork import library as forklib
-
 
 class HTTP(library.Sector):
 	"""
@@ -173,14 +172,11 @@ class HTTP(library.Sector):
 	def http_request_closed(self, layer, flow):
 		# called when the input flow of the request
 		# has finished; flow will not receive any more events.
-		if flow is not None:
-			flow.terminate()
-
 		print('request input close: ' + repr((layer, flow)))
 		print(self.controller.processors)
 
 	@classmethod
-	def http_accept(Class, spawn, packet):
+	def http_accept(Class, spawn, packet, chain=itertools.chain):
 		"""
 		Accept an HTTP connection for interacting with the daemon.
 		"""
@@ -189,13 +185,14 @@ class HTTP(library.Sector):
 		sector = spawn.sector
 
 		# event is a iterable of socket file descriptors
-		for fd in event:
+		for fd in chain(*event):
 			cxn = Class()
 			sector.dispatch(cxn)
 
 			with cxn.xact() as xact:
 				io = xact.acquire_socket(fd)
-				p, fi, fo = libhttp.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
+				p, fi, fo = libhttp.server_v1(xact,
+					cxn.http_request_accept, cxn.http_request_closed, *io)
 
 				cxn.process((p, fi, fo))
 				cxn.protocol = p
