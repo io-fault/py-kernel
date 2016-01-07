@@ -282,6 +282,8 @@ def v1_input(
 
 	close_state = False # header Connection: close
 	events = iter(())
+
+	# Pass exception as terminal Layer context.
 	def http_protocol_violation(data):
 		raise Exception(data)
 
@@ -452,6 +454,7 @@ class Client(core.Connection):
 	def actuate(self):
 		self.response_endpoints = []
 		self.receiver = functools.partial(self.http_transaction_open, self.response_endpoints)
+		self.add = self.response_endpoints.append
 
 		super().actuate()
 
@@ -477,7 +480,7 @@ class Client(core.Connection):
 	def http_transaction_open(receivers, source, layer, connect):
 		receiver, request = receivers[0]
 		del receivers[0]
-		receiver(source.sector, request, layer, connect)
+		receiver(source, request, layer, connect)
 
 	def http_request(self,
 			receiver:core.ProtocolTransactionEndpoint,
@@ -497,8 +500,7 @@ class Client(core.Connection):
 			The request body to be emittted.
 		"""
 
-		self.response_endpoints.append((receiver, layer))
-
+		self.add((receiver, layer))
 		out = self.protocol.serialize
 		out.enqueue(layer)
 		out.connect(layer, flow)
