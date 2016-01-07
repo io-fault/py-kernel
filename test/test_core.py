@@ -457,9 +457,9 @@ def test_Throttle(test):
 	# a full transfer, but that's testing the Transit's buffer exhaustion;
 	# here, we're primarily interesting in successful rotations.
 
-def test_Serialize(test):
+def test_Sequencing(test):
 
-	Type = library.Serialize
+	Type = library.Sequencing
 	Context = TContext()
 
 	def state_generator(layer, transport):
@@ -566,25 +566,20 @@ def test_Serialize(test):
 	Context()
 	test/c.storage == [('start', 3)] + list(range(0, -10, -1)) + [('stop', 3)]
 
-def test_Distribute(test):
+def test_Distributing(test):
 
 	Context = TContext()
-	closed = []
 	accepted = []
 
 	class Local(library.Resource):
-		def close(self, *args):
-			# layer [connection] closed
-			closed.append(args)
-
 		def accept(self, *args):
 			# received connection
-			accepted.append(args)
+			accepted.append(args[1:])
 
 	root = Local()
 	root.context = Context
 
-	Type = library.Distribute
+	Type = library.Distributing
 	class Layer(library.Layer):
 		content = None
 
@@ -617,17 +612,16 @@ def test_Distribute(test):
 
 			finish(ctx)
 
-	d = Type(Layer, stateg, root.accept, root.close)
+	d = Type(Layer, stateg, root.accept)
 	d.subresource(root)
 	test/d.controller == root
 
 	# no content
 	d.process(1) # init
 	Context()
-	test/accepted == [(Layer.from_id(1),)]
+	test/accepted == [(Layer.from_id(1),None)]
 	d.process(('end', None))
 	Context()
-	test/closed == [(Layer.from_id(1), None)]
 
 	Layer.content = True
 	d.process(2)

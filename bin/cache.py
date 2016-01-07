@@ -39,7 +39,8 @@ with open('/x/realm/ssl/certs/ca-bundle.crt', 'rb') as f:
 def response_collected(sector, request, response, flow):
 	print('response collected')
 
-def response_endpoint(sector, request, response, connect, transports=(), tls=None):
+def response_endpoint(protocol, request, response, connect, transports=(), tls=None):
+	sector = protocol.sector
 	global gtls
 	gtls = tls
 	print(response)

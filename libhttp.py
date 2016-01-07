@@ -395,7 +395,7 @@ def flows(xact, input, output):
 
 	return fi, fo
 
-def client_v1(xact, accept, closed, input, output, transports=()):
+def client_v1(xact, accept, input, output, transports=()):
 	"""
 	Given input and output Flows, construct and connect a Protocol instance
 	for an HTTP 1.x client connection.
@@ -414,15 +414,15 @@ def client_v1(xact, accept, closed, input, output, transports=()):
 		ti.configure(1, (transports[0],), transports[1])
 
 	p = core.QueueProtocol(Response, Request, v1_input, v1_output)
-	p.requisite(accept, closed, fi, fo)
+	p.requisite(accept, fi, fo)
 
 	return p, fi, fo
 
-def server_v1(xact, accept, closed, input, output):
+def server_v1(xact, accept, input, output):
 	fi, fo = flows(xact, input, output)
 
 	p = core.QueueProtocol(Request, Response, v1_input, v1_output)
-	p.requisite(accept, closed, fi, fo)
+	p.requisite(accept, fi, fo)
 
 	return p, fi, fo
 
@@ -447,9 +447,14 @@ class Client(core.Connection):
 		a response comes in.
 	"""
 
+	# This could use a flow to manage the transaction receiver,
+
 	def actuate(self):
 		self.response_endpoints = []
+		self.receiver = functools.partial(self.http_transaction_open, self.response_endpoints)
+
 		super().actuate()
+
 		endpoint = self.endpoint
 		transports = self.transports
 
@@ -459,31 +464,20 @@ class Client(core.Connection):
 				transports = transports,
 			)
 
-			p, fi, fo = client_v1(xact,
-				self.http_transaction_open,
-				self.http_transaction_close,
-				*io, transports=transports)
+			p, fi, fo = client_v1(xact, self.receiver, *io, transports=transports)
 
 			self.protocol = p
+			self.input = fi
+			self.output = fo
+
 			self.process((p, fi, fo))
-			# start allocator.
-			fi.process(None)
+			fi.process(None) # start allocator.
 
-	def http_transaction_open(self, layer, connect):
-		"""
-		Notify the user of the open transaction by performing the callback
-		given as the receiver parameter to &http_request.
-		"""
-
-		ep, request = self.response_endpoints[0]
-		del self.response_endpoints[0]
-
-		ep(self, request, layer, connect)
-
-	def http_transaction_close(self, layer, flow):
-		# called when the input flow of the request is closed
-		# by the finish() call in the HTTP state generator.
-		pass
+	@staticmethod
+	def http_transaction_open(receivers, source, layer, connect):
+		receiver, request = receivers[0]
+		del receivers[0]
+		receiver(source.sector, request, layer, connect)
 
 	def http_request(self,
 			receiver:core.ProtocolTransactionEndpoint,

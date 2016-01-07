@@ -286,11 +286,6 @@ class HTTP(library.Sector):
 			if proc is not None:
 				self.dispatch(proc)
 
-	def http_request_closed(self, layer, flow):
-		# called when the input flow of the request is closed
-		if flow is not None:
-			flow.terminate()
-
 	@classmethod
 	def http_accept(Class, spawn, packet, chain=itertools.chain):
 		"""
@@ -311,7 +306,7 @@ class HTTP(library.Sector):
 
 			with cxn.xact() as xact:
 				io = xact.acquire_socket(fd)
-				p, fi, fo = libhttp.server_v1(xact, cxn.http_request_accept, cxn.http_request_closed, *io)
+				p, fi, fo = libhttp.server_v1(xact, cxn.http_request_accept, *io)
 
 				#cxn.requisite(p, fi, fo)
 				cxn.dispatch(fo)
@@ -375,14 +370,13 @@ class ServiceManager(library.Processor):
 	inhibit_recovery = None
 	exit_events = ()
 
-	def requisite(self, service:libservice.Service, root):
+	def requisite(self, service, root):
 		self.service = service
 		self.root = root # global environment
 
 	def actuate(self):
 		self.exit_events = []
 		self.status = 'terminated'
-		self.last_invocation = None
 
 		super().actuate()
 
@@ -440,7 +434,6 @@ class ServiceManager(library.Processor):
 			self.status = 'exception'
 			raise
 
-		self.last_invocation = libtime.now()
 		return 'invoked'
 
 		# service_exit is called when the process exit signal is received.

@@ -2,6 +2,12 @@
 Core classes, exceptions, and data.
 
 Resources use a series of stages in order to perform initialization.
+
+[ Properties ]
+
+/ProtocolTransactionEndpoint
+	The typing decorator that identifies receivers
+	for protocol transactions. (Such as http requests or reponses.)
 """
 
 import os
@@ -530,7 +536,14 @@ class Layer(object):
 		Whether or not the Layer Context identifies itself as being
 		the last to occur in a connection. Protocol routers use
 		this to identify when to close input and output.
+
+	/(&object)context
+		The context of the layer. In cases of protocols that support
+		multiple channels, the layer's context provides channel metadata
+		so that transaction handlers can identify its source.
 	"""
+
+	context = None
 
 class Transaction(object):
 	"""
@@ -822,7 +835,6 @@ class Transaction(object):
 		Standard error's file descriptor is returned as a &Detour along with
 		the &Subprocess: (&Subprocess, &Detour).
 		"""
-
 		global Subprocess
 
 		stdout = stdin = stderr = ()
@@ -932,7 +944,7 @@ class Resource(object):
 	controller = property(
 		fget = dereference_controller,
 		fset = set_controller_reference,
-		doc = "controller property for process resources"
+		doc = "Direct ascending resource containing this resource."
 	)
 
 	@property
@@ -960,7 +972,7 @@ class Resource(object):
 			mn, qn, hex(id(self))
 		)
 
-	def subresource(self, ascent, Ref=weakref.ref):
+	def subresource(self, ascent:'Resource', Ref=weakref.ref):
 		"""
 		Assign &ascent as the controller of &self and inherit its &Context.
 		"""
@@ -1280,7 +1292,7 @@ class Unit(Processor):
 		self.place(ports, 'dev', 'ports')
 		ports.subresource(self)
 
-	def device(self, entry):
+	def device(self, entry:str):
 		"Return the device resource placed at the given &entry."
 
 		return self.index.get(('dev', entry))
@@ -1372,7 +1384,8 @@ class Unit(Processor):
 
 	def requisite(self,
 			identity:collections.abc.Hashable,
-			roots, process = None, context = None, Context = None
+			roots:typing.Sequence[typing.Callable],
+			process=None, context=None, Context=None
 		):
 		"""
 		Ran to finish &Unit initialization; extends the sequences of roots used
@@ -1753,6 +1766,7 @@ class Connection(Sector):
 		"""
 		Open a connection inside the given &sector.
 		"""
+
 		c = Class()
 		c.requisite(endpoint, transports=transports)
 		sector.dispatch(c) # actuate Client
@@ -3719,6 +3733,11 @@ class Flow(Processor):
 		return locals()
 	emit = property(**_emit_manager())
 
+ProtocolTransactionEndpoint = typing.Callable[[
+	Connection, Layer, Layer,
+	typing.Callable[[Flow], None]
+], None]
+
 # Flow that discards all events and emits nothing.
 Null = Flow()
 Null.sequence = (Terminal(),)
@@ -3964,9 +3983,9 @@ class Spawn(Terminal):
 
 		self.spawn(self, packet)
 
-class Serialize(Extension):
+class Sequencing(Extension):
 	"""
-	Serialize a set of flows in the enqueued order.
+	Sequence a set of flows in the enqueued order.
 
 	Emulates parallel operation by facilitating the sequenced delivery of
 	a sequence of flows where the first flow is carried until completion before
@@ -4127,20 +4146,19 @@ class Serialize(Extension):
 		# exit of new flow triggers transition
 		f.atexit(self.transition)
 
-class Distribute(Extension):
+class Distributing(Extension):
 	"""
 	Distribute input flow to a set of flows associated with
 	the identified Layer Context.
 	"""
 
-	def __init__(self, Layer, state, accept, close):
+	def __init__(self, Layer, state, accept):
 		self.state_function = state
 		self.queues = dict()
 		self.flows = dict()
 
 		# callback
 		self.accept_callback = accept
-		self.close_callback = close
 
 		# state is continuous.
 		self.state = self.state_function(Layer, self.accept, self.transport, self.close)
@@ -4162,6 +4180,8 @@ class Distribute(Extension):
 	def connect(self, layer, flow):
 		"""
 		Associate the flow with the Layer Context allowing transfers into the flow.
+		Drains the queue that was collecting events associated with the &layer,
+		and feeds them into the flow before destroying the queue.
 		"""
 
 		# Only allow connections if there is content.
@@ -4219,12 +4239,19 @@ class Distribute(Extension):
 		else:
 			flow = None
 
-		self.close_callback(layer, flow)
-
 		if getattr(layer, 'terminal', False):
 			self.input.terminate()
 
-	def accept(self, layer, Queue=collections.deque):
+	def accept_event_connect(self, receiver:ProtocolTransactionEndpoint):
+		"""
+		Configure the receiver of accept events for protocol-level
+		transaction events. The given &receiver will be called
+		when a new transaction has been received such that a &Layer
+		instance can be built.
+		"""
+		self.accept_callback = receiver
+
+	def accept(self, layer, Queue=collections.deque, partial=functools.partial):
 		"""
 		Initialize a Layer context allowing events to be queued until a Flow is connected.
 		"""
@@ -4232,11 +4259,11 @@ class Distribute(Extension):
 		if layer.content:
 			self.flows[layer] = None
 			self.queues[layer] = Queue()
-			connect = functools.partial(self.connect, layer)
+			connect = partial(self.connect, layer)
 		else:
 			connect = None
 
-		self.accept_callback(layer, connect)
+		self.accept_callback(self, layer, connect)
 
 class QueueProtocol(Protocol):
 	"""
@@ -4280,16 +4307,16 @@ class QueueProtocol(Protocol):
 		self.protocol_input = protocol_input_state
 		self.protocol_output = protocol_output_state
 
-	def requisite(self, accept, close, input, output):
+	def requisite(self, accept, input, output):
 		"""
 		Configure the I/O flows for the protocol.
 		"""
 
-		s = self.serialize = Serialize(self.protocol_output)
+		s = self.serialize = Sequencing(self.protocol_output)
 		s.subresource(self)
 
 		# reads need to know how to affix
-		d = self.distribute = Distribute(self.input_layer, self.protocol_input, accept, close)
+		d = self.distribute = Distributing(self.input_layer, self.protocol_input, accept)
 		d.subresource(self)
 
 		input.emit = d.process
@@ -4505,8 +4532,3 @@ class Locks(Device):
 	"""
 
 	device_entry = 'locks'
-
-ProtocolTransactionEndpoint = typing.Callable[[
-	Connection, Layer, Layer,
-	typing.Callable[[Flow], None]
-], None]
