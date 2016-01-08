@@ -1,6 +1,13 @@
 """
 HTTP client designed for low-level analysis of HTTP transactions; &.bin.http
-is not a user agent as it will not follow redirects or manage cookies.
+is not a user agent as it will not follow redirects, manage cookies, or
+generate appropriate Content-Length headers for requests with content.
+
+If the submitted request has content, standard input will be written to
+the remote host after writing the headers.
+
+The headers submitted and received will be written to standard error, and
+the body will be written to standard out, if any.
 """
 
 import sys
@@ -13,10 +20,6 @@ from .. import library as libio
 
 from .. import libhttp
 from .. import libcommand
-
-transfer_counter = collections.Counter()
-start_time = None
-identities = []
 
 def output_thread(transformer, queue, file):
 	"""
