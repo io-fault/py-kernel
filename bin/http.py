@@ -6,8 +6,6 @@ is not a user agent as it will not follow redirects or manage cookies.
 import sys
 import os
 import functools
-import itertools
-import socket
 import collections
 import operator
 
