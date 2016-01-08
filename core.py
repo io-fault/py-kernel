@@ -2513,10 +2513,13 @@ class Transformer(Resource):
 	retains = False
 
 	def inject(self, event):
+		"""
+		Inject an event after the &Transformer's position in the &Flow.
+		"""
 		self.emit(event)
 
 	def process(self, event):
-		self.emit(event)
+		raise NotImplementedError("transformer subclass did not implement process")
 
 	def actuate(self):
 		pass
@@ -2571,6 +2574,8 @@ class Reflection(Transformer):
 	on the processed events.
 	"""
 
+	process = Transformer.inject
+
 class Terminal(Transformer):
 	"""
 	A Transformer that never emits.
@@ -2578,10 +2583,6 @@ class Terminal(Transformer):
 	Subclasses of &Terminal make the statement that they too do not emit any events.
 	Not all &Flow instances contain &Terminal instances.
 	"""
-
-	def inject(self, event):
-		"Accept the event, but do nothing as Terminals do not propogate events."
-		pass
 
 	def process(self, event):
 		"Accept the event, but do nothing as Terminals do not propogate events."
@@ -2655,7 +2656,7 @@ class Transports(Transformer):
 
 		Drain is how &Transport manages properly sequenced termination
 		for the security layer; TLS must be terminated prior to their
-		corresponding transports (Detours).
+		corresponding dependencies (Detours).
 		"""
 
 		if self.stack:
@@ -2787,20 +2788,48 @@ class Parallel(Transformer):
 	The queue provides access to the events that were received by the Transformer,
 	and the &transformer argument allows the thread to cause obstructions by
 	accessing its controller.
-	"""
 
-	def requisite(self, callable, *parameters, criticial=False):
-		self.callable = callable
+	! DEVELOPER:
+		Needs better drain support. Currently,
+		terminal drains are hacked on and regular drains
+		not are supported.
+	"""
+	def requisite(self, thread:typing.Callable, *parameters, criticial=False):
+		self.thread = thread
 		self.parameters = parameters
+
+	def drain(self):
+		"""
+		Wait for thread exit if terminating.
+
+		Currently does not block if it's not a terminal drain.
+		"""
+
+		if self.controller.terminating:
+			self.put(None)
+			return self.atshutdown
+
+	callbacks = None
+	def completion(self):
+		if self.callbacks:
+			for drain_complete_r in self.callbacks:
+				drain_complete_r()
+			del self.callbacks
+
+	def atshutdown(self, callback):
+		if self.callbacks is None:
+			self.callbacks = set()
+
+		self.callbacks.add(callback)
 
 	def trap(self):
 		"""
 		Internal; Trap exceptions in order to map them to faults.
 		"""
+
 		try:
-			self.callable(self, self.queue, *self.parameters)
-			self.terminated = True
-			self.terminating = False
+			self.thread(self, self.queue, *self.parameters)
+			self.context.enqueue(self.completion)
 		except BaseException as exc:
 			self.context.enqueue(functools.partial(self.fault, exc))
 			pass # The exception is managed by .fault()
@@ -2813,6 +2842,8 @@ class Parallel(Transformer):
 
 		self.queue = queue.Queue()
 		self.put = self.queue.put
+		self.process = self.put
+
 		#self.context.execute(self, self.callable, *((self, self.queue) + self.parameters))
 		self.context.execute(self, self.trap)
 
@@ -2825,11 +2856,6 @@ class Parallel(Transformer):
 		"""
 
 		self.put(event)
-
-	def terminate(self, by=None):
-		self.terminator = by
-		self.terminating = True
-		self.put(None)
 
 # XXX: Dispatcher needs to signal obstructions when the queue size reaches a configured value.
 # XXX: Dispatcher does not guarantee serialization.
