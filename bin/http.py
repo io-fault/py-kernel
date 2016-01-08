@@ -11,16 +11,10 @@ import socket
 import collections
 import operator
 
-from ...chronometry import library as libtime
-from ...chronometry import libflow
-from ...internet import libri
-from ...routes import library as libroutes
-from ...computation import library as libcomp
 from .. import library as libio
 
 from .. import libhttp
 from .. import libcommand
-from .. import libinternet
 
 transfer_counter = collections.Counter()
 start_time = None
@@ -60,6 +54,8 @@ def input_thread(transformer, queue, file, partial=functools.partial):
 		enqueue(partial(transformer.inject, (data,)))
 
 def emitted_headers(sector, fo, connect, flow):
+	# sequence fo after fe as we want the headers to be displayed
+	# above the body.
 	connect(fo)
 
 def response_endpoint(protocol, request, response, connect):
@@ -76,8 +72,6 @@ def response_endpoint(protocol, request, response, connect):
 			fo = xact.flow((libio.Iterate(), libio.Parallel()))
 			fo.sequence[-1].requisite(output_thread, file)
 			sector.dispatch(fo)
-			# sequence fo after fe as we want the headers to be displayed
-			# above the body.
 			fe.atexit(functools.partial(emitted_headers, sector, fo, connect))
 
 	sector.dispatch(fe)
