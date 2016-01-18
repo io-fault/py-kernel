@@ -54,59 +54,59 @@ import functools
 import collections
 import itertools
 
-from . import library
+from . import library as libio
 from . import libhttp
 
-from ..routes import library as routeslib
-from ..fork import library as forklib
+from ..routes import library as libroutes
+from ..fork import library as libfork
 
-class HTTP(library.Sector):
+class HTTP(libio.Sector):
 	"""
 	Request-Accept callbacks and job management for HTTP.
 	"""
 
-	@libhttp.resource()
+	@libhttp.Resource.method()
 	def control_index(self, request, response, input):
 		pass
 
-	@libhttp.resource(limit=0)
+	@libhttp.Resource.method(limit=0)
 	def terminate(self, request, response, input):
 		"""
 		Issue &Unit.terminate after the Connection's Sector exits.
 		"""
 
 		unit = self.context.association()
-		unit.result = forklib.SystemExit.exiting_for_restart
+		unit.result = libfork.SystemExit.exiting_for_restart
 
 		self.atexit(lambda x: unit.terminate())
 
 		return 'terminating\n'
 
-	@libhttp.resource(limit=1024)
+	@libhttp.Resource.method(limit=1024)
 	def sleep(self, request, response, input):
 		pass
 
-	@libhttp.resource(limit=1024)
+	@libhttp.Resource.method(limit=1024)
 	def inject(self, request, response, input):
 		pass
 
-	@libhttp.resource(limit=0)
+	@libhttp.Resource.method(limit=0)
 	def circulate_index(self, request, response, input):
 		pass
 
-	@libhttp.resource(limit=1024)
+	@libhttp.Resource.method(limit=1024)
 	def circulate_sectors(self, request, response, input):
 		pass
 
-	@libhttp.resource(limit=0)
+	@libhttp.Resource.method(limit=0)
 	def circulate_site(self, request, response, input):
 		pass
 
-	@libhttp.resource()
+	@libhttp.Resource.method()
 	def circulate_graph(self, request, response, input):
 		pass
 
-	@libhttp.resource()
+	@libhttp.Resource.method()
 	def report(self, request, response, input):
 		pass
 
@@ -156,10 +156,10 @@ class HTTP(library.Sector):
 			])
 
 			if request.content:
-				ins_connect(library.Null)
+				ins_connect(libio.Null)
 
-			proc = library.Flow()
-			i = library.Iterate()
+			proc = libio.Flow()
+			i = libio.Iterate()
 			proc.requisite(i)
 			self.dispatch(proc)
 			out_connect(proc)
@@ -191,12 +191,7 @@ class HTTP(library.Sector):
 				cxn.process((p, fi, fo))
 				cxn.protocol = p
 
-class Interface(library.Interface):
-	"""
-	Sectors Interface for managing interprocess message passing.
-	"""
-
-class Control(library.Control):
+class Control(libio.Control):
 	"""
 	Control Sector that manages the concurrency of an IO process.
 	"""
@@ -236,13 +231,16 @@ class Control(library.Control):
 		"""
 		assert self.fork_id == 0 # should only be called by master
 
-		sp = self.context.process.fork(functools.partial(self.forked, fid, initial))
+		pid = self.context.process.fork(functools.partial(self.forked, fid, initial))
 
-		self.subprocess_to_fork_id[sp] = fid
-		self.fork_id_to_subprocess[fid] = sp
+		subprocess = libio.Subprocess()
+		subprocess.requisite((pid,))
 
-		self.dispatch(sp)
-		sp.atexit(self.fork_exit)
+		self.subprocess_to_fork_id[subprocess] = fid
+		self.fork_id_to_subprocess[fid] = subprocess
+
+		self.dispatch(subprocess)
+		subprocess.atexit(self.fork_exit)
 
 	def forked(self, fork_id, initial=False):
 		"""
@@ -283,14 +281,18 @@ class Control(library.Control):
 
 		self.subactuate()
 
-	def control(self, fid):
+	def control(self, fid:int):
 		"""
 		Acquire the control interface and associate it with an libhttp.Interface().
+
+		[ Parameters ]
+		/fid
+			The fork-id; the number associated with the fork.
 		"""
 
 		hi = libhttp.Interface()
-		hi.requisite(('control', fid), HTTP.http_accept)
-
+		libio.Interface.requisite(hi, ('control', fid), HTTP.http_accept)
+		libhttp.Interface.requisite(hi, libhttp.server_v1)
 		self.dispatch(hi)
 
 	def subactuate(self):
@@ -307,7 +309,7 @@ class Control(library.Control):
 			exe = unit.index[('bin', x)]
 			enqueue(exe.actuate)
 
-	def place_sectors(self, override=None):
+	def place_sectors(self, override=None, Sector=libio.Module):
 		unit = self.context.association()
 
 		if override is None:
@@ -318,9 +320,9 @@ class Control(library.Control):
 
 		# Path to SectorModules
 		for sectors_module in args:
-			sm = library.core.Executable()
+			sm = Sector()
 			sm.subresource(unit)
-			sm.requisite(routeslib.Import.from_fullname(sectors_module))
+			Sector.requisite(sm, libroutes.Import.from_fullname(sectors_module))
 			unit.place(sm, 'bin', sectors_module)
 
 	def actuate(self):
@@ -334,20 +336,20 @@ class Control(library.Control):
 
 		def errprint(*args, **kw):
 			'Override for print to default to standard error and qualify origin in output.'
-			global forklib, sys
+			global libfork, sys
 			nonlocal dprint, self
 
 			kw.setdefault('file', sys.stderr)
 			kw.setdefault('flush', True)
 			sid = self.context.association().identity
 			fid = self.fork_id
-			pid = forklib.current_process_id
+			pid = libfork.current_process_id
 
 			dprint("[builtins.print(%s:%d/%d)]:"%(sid,fid,pid), *args, **kw)
 
 		builtins.print=errprint
 
-		self.route = routeslib.File.from_cwd()
+		self.route = libroutes.File.from_cwd()
 
 		cid = (self.route / 'if')
 		cid.init("directory")
@@ -365,12 +367,12 @@ class Control(library.Control):
 		# The interchang is voided the moment we get into the fork,
 		# despite the presence of Flows accepting sockets, the
 		# traffic instance in the subprocess will know nothing about it.
-		ports.bind(('control', 0), library.endpoint('local', cid, "0"))
+		ports.bind(('control', 0), libio.endpoint('local', cid, "0"))
 		self.control(0)
 
 		# Bind the requested interfaces from invocation.xml
 		for slot, binds in self.service.interfaces.items():
-			ports.bind(slot, *itertools.starmap(library.endpoint, binds))
+			ports.bind(slot, *itertools.starmap(libio.endpoint, binds))
 
 		forks = self.service.concurrency
 		if not forks or forks == 1:
@@ -382,7 +384,7 @@ class Control(library.Control):
 			# acquire file system sockets before forking.
 			# allows us to avoid some synchronizing logic after forking.
 			for i in range(1, forks+1):
-				ports.bind(('control', i), library.endpoint('local', cid, str(i)))
+				ports.bind(('control', i), libio.endpoint('local', cid, str(i)))
 
 			for i in range(1, forks+1):
 				self.fork(i, initial=True)

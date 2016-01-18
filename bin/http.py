@@ -79,7 +79,6 @@ def response_endpoint(protocol, request, response, connect):
 	fe.process([(str(request).encode('ascii'), b'\n', str(response).encode('ascii'), b'\n',)])
 
 def main(call):
-	a = libhttp.Agent()
 	root_sector = call.sector
 	proc = root_sector.context.process
 

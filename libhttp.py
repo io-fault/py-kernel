@@ -1,25 +1,137 @@
 """
-Internet HTTP support for io applications.
+IETF HTTP support for &..io based applications.
+
+&.libhttp provides support for clients and servers. The &Interface and &Host
+classes provide the foundations for HTTP services. &Agent and &Client
+provide the foundations for high-level HTTP clients.
+
+In addition, &.libhttp has adapters for converting Python data structures and
+interfaces into something that can be used with HTTP Interfaces and Agents.
+
+[ Properties ]
+
+/HeaderSequence
+	Type annotation for the header sequence used by &Layer instances,
+	&Layer.header_sequence.
 """
+import typing
 import functools
 import collections
 import itertools
-import json
-import pprint
-import typing
-import weakref
 
-from ..computation import library as libcomp
+import json
+import hashlib
+import operator
+
+from ..computation import library as libc
+from ..computation import libmatch
+from ..chronometry import library as libtime
+from ..routes import library as libroutes
+
 from ..internet import libhttp
 from ..internet import libmedia
-from ..chronometry import library as libtime
+from ..internet import libri
+from ..internet.data import http as httpdata
 
-from . import core
+from . import library as libio
 
-class Layer(core.Layer):
+HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
+
+class ProtocolTransaction(tuple):
+	"""
+	The set of objects associated with a protocol transaction.
+
+	&ProtocolTransactions are used for both clients and servers.
+	For servers, &interface and &host should be referenced, whereas
+	for clients, &agent and &context should be referenced.
+	"""
+	__slots__ = ()
+
+	ig = operator.itemgetter
+
+	interface = property(ig(0))
+	host = property(ig(1))
+
+	agent = property(ig(0))
+	context = property(ig(1))
+
+	connection = property(ig(2))
+	request = property(ig(3))
+	response = property(ig(4))
+	connect_input = property(ig(5))
+	connect_output = property(ig(6))
+
+	del ig
+
+	def iterate_output(self, iterator):
+		"""
+		Construct a Flow consisting of a single &libio.Iterate instance
+		used to stream output to the connection protocol state.
+
+		The &libio.Flow will be dispatched into the &Connection for proper
+		fault isolation in cases that the iterator produces an exception.
+		"""
+		global libio
+
+		f = libio.Flow()
+		i = libio.Iterate()
+		i.requisite(terminal=True)
+		f.requisite(i)
+		self.connection.dispatch(f)
+
+		self.response.initiate((self.request.version, b'200', b'OK'))
+		self.connect_output(f)
+		f.process(iterator)
+
+		return f
+
+	def send_file(self, route, str=str):
+		"""
+		Send the file referenced by &route to the remote end as
+		the (HTTP) entity body.
+		"""
+
+		cxn = self.connection
+		with cxn.allocate() as xact:
+			f, start = xact.stream_file(str(route))
+
+		self.connect_output(f)
+		start()
+
+class Path(libroutes.Route):
+	"""
+	A Path sequence used to aid in request routing and request path construction.
+	"""
+
+	def __str__(self):
+		return '/' + '/'.join(self.absolute)
+
+	@property
+	def index(self):
+		"""
+		Whether the Path is referrring to a directory index. (Ends with a slash)
+		"""
+		if self.points:
+			return self.points[-1] == ""
+		else:
+			self.absolute[-1] == ""
+
+class Layer(libio.Layer):
 	"""
 	The HTTP layer of a connection; superclass of &Request and &Response that provide
 	access to the parameters of a &Transaction.
+
+	[ Properties ]
+
+	/cached_headers
+		The HTTP headers that will be available inside a &dict instance
+		as well as the canonical header sequence.
+
+	/(&HeaderSequence)`header_sequence`
+		The sequence of headers.
+
+	/(dict)`headers`
+		The mapping of headers available in the &header_sequence.
 	"""
 
 	protocol = 'http'
@@ -32,7 +144,10 @@ class Layer(core.Layer):
 
 	@property
 	def length(self):
-		"The length of the content; positive if exact, &None if no content, and -1 if arbitrary."
+		"""
+		The length of the content; positive if exact, &None if no content, and -1 if arbitrary.
+		For HTTP, arbitrary using chunked transfer encoding is used.
+		"""
 
 		cl = self.headers.get(b'content-length')
 		if cl is not None:
@@ -49,7 +164,6 @@ class Layer(core.Layer):
 		x.lower() for x in [
 			b'Connection',
 			b'Upgrade',
-			b'Warning',
 			b'Host',
 
 			b'Transfer-Encoding',
@@ -95,20 +209,32 @@ class Layer(core.Layer):
 
 	@property
 	def connection(self):
-		"Return the connection header stripped and lowered or &<b''> if no header present"
+		"Return the connection header stripped and lowered or `b''` if no header present"
 		return self.headers.get(b'connection', b'').strip().lower()
 
-	@property
-	def media_range(self, parse_range=libmedia.Range.from_bytes):
-		"Structured form of the Accept header."
+	@staticmethod
+	@functools.lru_cache(32)
+	def media_range_cache(range_data, parse_range=libmedia.Range.from_bytes):
+		global libmedia
 
-		if b'accept' in self.headers:
-			return parse_range(self.headers[b'accept'])
+		if range_data is not None:
+			return parse_range(range_data)
 		else:
-			return libmedia.any_range
+			return libmedia.any_range # HTTP default.
 
 	@property
-	def date(self, parse = libtime.parse_rfc1123):
+	def media_range(self):
+		"Structured form of the Accept header."
+		return self.media_range_cache(self.headers.get(b'accept'))
+
+	@property
+	def media_type(self):
+		""
+		global libmedia
+		return libmedia.type_from_string(self.headers[b'content-type'].decode('utf-8'))
+
+	@property
+	def date(self, parse=libtime.parse_rfc1123) -> libtime.Timestamp:
 		"Date header timestamp."
 
 		if not b'date' in self.headers:
@@ -118,12 +244,16 @@ class Layer(core.Layer):
 		return parse(ts)
 
 	@property
-	def encoding(self):
+	def host(self) -> str:
+		return self.headers.get(b'host').decode('idna')
+
+	@property
+	def encoding(self) -> str:
 		"Character encoding of entity content. &None if not applicable."
 		pass
 
 	@property
-	def terminal(self):
+	def terminal(self) -> bool:
 		"Whether this is the last request or response in the connection."
 
 		if self.version == b'1.0':
@@ -132,13 +262,13 @@ class Layer(core.Layer):
 		return self.connection == b'close'
 
 	@property
-	def substitution(self):
+	def substitution(self) -> bool:
 		"Whether or not the request looking to perform protocol substitution."
 
 		return self.connection == b'upgrade'
 
 	@property
-	def cookies(self):
+	def cookies(self) -> typing.Sequence:
 		"Cookie sequence for retrieved Cookie headers or Set-Cookie headers."
 
 		self.parameters.get('cookies', ())
@@ -146,20 +276,27 @@ class Layer(core.Layer):
 	def __init__(self):
 		self.parameters = dict()
 		self.headers = dict()
-		self.inititation = None
+		self.initiation = None
 		self.header_sequence = []
 
 	def __str__(self):
-		init = " ".join(x.decode('utf-8') for x in self.initiation)
+		init = " ".join(x.decode('utf-8') for x in (self.initiation or ()))
 		heads = "\n\t".join(x.decode('utf-8') + ': ' + y.decode('utf-8') for (x,y) in self.header_sequence)
 		return init + "\n\t" + heads
 
-	def initiate(self, rline):
-		"Called when the request or response was received from a remote endpoint."
+	def initiate(self, rline:typing.Tuple[bytes,bytes,bytes]):
+		"""
+		Define the Request or Response initial line.
+
+		Called when the request or response was received from a remote endpoint.
+		"""
 		self.initiation = rline
 
 	def add_headers(self, headers, cookies = False, cache = ()):
-		"Accept a set of headers from the remote end."
+		"""
+		Accept a set of headers from the remote end or extend the sequence to
+		be sent to the remote end..
+		"""
 
 		self.header_sequence += headers
 
@@ -174,7 +311,10 @@ class Layer(core.Layer):
 				self.headers[k] = v
 
 	def trailer(self, headers):
-		self.accept(headers)
+		"""
+		Destination of trailer-headers received during chunked transfer encoding.
+		"""
+		pass
 
 class Request(Layer):
 	"Request portion of an HTTP transaction"
@@ -191,6 +331,60 @@ class Request(Layer):
 	def version(self):
 		return self.initiation[2]
 
+	def declare_without_content(self, method:bytes, path:bytes, version:bytes=b'HTTP/1.1'):
+		self.initiate((method, path.encode('utf-8'), version))
+
+	def declare_with_content(self, method:bytes, length:int, path:bytes, version:bytes=b'HTTP/1.1'):
+		self.initiate((method, path.encode('utf-8'), version))
+		hs = self.header_sequence
+		hm = self.headers
+
+		if length is not None:
+			if length < 0:
+				raise ValueError("content length must be >= 0 or None")
+
+			hs.append((b'Content-Length', str(length).encode('ascii')))
+			hm[b'Content-Length'] = length
+		else:
+			# initialize chunked headers
+			hs.append((b'Transfer-Encoding', b'chunked'))
+			hm[b'transfer-encoding'] = b'chunked'
+
+	@property
+	def GET(self, partial=functools.partial):
+		"Initialize as a GET request."
+		return partial(self.declare_without_content, b'GET')
+
+	@property
+	def HEAD(self, partial=functools.partial):
+		"Initialize as a HEAD request."
+		return partial(self.declare_without_content, b'HEAD')
+
+	@property
+	def DELETE(self, partial=functools.partial):
+		"Initialize as a DELETE request."
+		return partial(self.declare_without_content, b'DELETE')
+
+	@property
+	def TRACE(self, partial=functools.partial):
+		"Initialize as a TRACE request."
+		return partial(self.declare_without_content, b'TRACE')
+
+	@property
+	def CONNECT(self, partial=functools.partial):
+		"Initialize as a CONNECT request."
+		return partial(self.declare_without_content, b'CONNECT')
+
+	@property
+	def POST(self, partial=functools.partial):
+		"Initialize as a POST request."
+		return partial(self.declare_with_content, b'POST')
+
+	@property
+	def PUT(self, partial=functools.partial):
+		"Initialize as a PUT request."
+		return partial(self.declare_with_content, b'PUT')
+
 class Response(Layer):
 	"Response portion of an HTTP transaction"
 
@@ -205,6 +399,9 @@ class Response(Layer):
 	@property
 	def description(self):
 		return self.initiation[2]
+
+	def result(self, code, description, version=b'HTTP/1.1'):
+		self.initiate((version, str(code).encode('utf-8'), description.encode('utf-8')))
 
 def v1_output(
 		layer, transport,
@@ -249,7 +446,7 @@ def v1_output(
 
 	try:
 		if length is None:
-			# transport EOM in finally
+			# transport EOM in finally clause.
 			pass
 		else:
 			# emit until generator is explicitly stopped
@@ -387,13 +584,14 @@ def flows(xact, input, output):
 	Construct a pair of &.library.Flow instances with the given &.library.Transformer
 	instances in &input and &output as the flows' definition.
 	"""
+
 	fi, fo = xact.flows()
 
 	fi.requisite(*input)
-	fi.sequence[-1].compose(libcomp.unroll(libhttp.disassembly().send, Sequence=tuple))
+	fi.sequence[-1].compose(libc.unroll(libhttp.disassembly().send, Sequence=tuple))
 
 	fo.requisite(*output)
-	fo.sequence[0].compose(libcomp.plural(libhttp.assembly().send))
+	fo.sequence[0].compose(libc.plural(libhttp.assembly().send))
 
 	return fi, fo
 
@@ -415,7 +613,7 @@ def client_v1(xact, accept, input, output, transports=()):
 		to.requisite(ti)
 		ti.configure(1, (transports[0],), transports[1])
 
-	p = core.QueueProtocol(Response, Request, v1_input, v1_output)
+	p = libio.QueueProtocol(Response, Request, v1_input, v1_output)
 	p.requisite(accept, fi, fo)
 
 	return p, fi, fo
@@ -423,18 +621,253 @@ def client_v1(xact, accept, input, output, transports=()):
 def server_v1(xact, accept, input, output):
 	fi, fo = flows(xact, input, output)
 
-	p = core.QueueProtocol(Request, Response, v1_input, v1_output)
+	p = libio.QueueProtocol(Request, Response, v1_input, v1_output)
 	p.requisite(accept, fi, fo)
 
 	return p, fi, fo
 
-class Interface(core.Interface):
+class Interface(libio.Interface):
 	"""
 	An HTTP interface Sector. Provides the foundations for constructing
 	an HTTP 2.0, 1.1, and 1.0 interface.
+
+	[ Properties ]
+
+	/hosts
+		Set of &Host instances managed and referred to by the &Interface.
+	/index
+		The finite map of hostnames to &Host instances.
 	"""
 
-class Client(core.Connection):
+	def actuate(self):
+		super().actuate()
+		if self.hosts:
+			self.process(self.hosts)
+
+	primary = None
+	hosts = None
+	def requisite(self, construct, *hosts):
+		"""
+		Configure the set of HTTP hosts to route connections into.
+		"""
+
+		self.construct_connection_parts = construct
+		self.index = {}
+		if hosts:
+			self.primary = hosts[0]
+			self.hosts = set(hosts)
+			for h in self.hosts:
+				self.index.update(zip(h.names, itertools.repeat(h)))
+
+	@staticmethod
+	def route(context, request, connect, partial=functools.partial, tuple=tuple):
+		"""
+		Relocate the connection based on the initial request's data.
+		"""
+
+		cxn = context.sector
+		ifs = cxn.controller
+		idx = ifs.index
+		host_sector = idx.get(request.host, ifs.primary)
+
+		cxn.relocate(host_sector)
+		assert cxn.controller is host_sector
+
+		host_sector.initial(cxn, context, request, connect)
+
+class Host(libio.Controller):
+	"""
+	An HTTP Host class for managing routing of service connections.
+
+	&Host is the conceptual root for a web interface. &Interface objects
+	&libio.Resource.relocate connections into the host matches.
+
+	[ Properties ]
+
+	/names
+		The set hostnames that this host can facilitate.
+		The object can be an arbitrary container in order
+		to match patterns as well.
+
+	/canonical
+		The first name (&requisite.Parameters.names) given to &requisite.
+		Identifies the primary name of the Host.
+
+	/root
+		The root of the host's path as a &..computation.libmatch.SubsequenceScan.
+		This is the initial path of the router in order to allow "mounts"
+		at arbitrary positions. Built from &requisite prefixes.
+
+	/index
+		The handler for the root path. May be &None if &root can resolve it.
+
+	/settings
+		Index of data structures used by the host.
+	"""
+
+	def requisite(self, prefixes, *names):
+		self.names = set(names)
+		self.prefixes = prefixes
+		self.root = libmatch.SubsequenceScan(prefixes.keys())
+		self.index = None
+
+		if names:
+			self.canonical = names[0]
+		else:
+			self.canonical = None
+
+	def structure(self):
+		props = [
+			('canonical', self.canonical),
+			('names', self.names),
+		]
+
+		p, r = super().structure()
+		return (props + list(p), r)
+
+	def initial(self, connection, context, request, connect):
+		"""
+		Process the initial request of the connection.
+		"""
+
+		# overwrite default accept callback, and perform it
+		accept_request = self.accept
+		context.accept_event_connect(accept_request)
+		accept_request(context, request, connect)
+
+	@staticmethod
+	@functools.lru_cache(64)
+	def path(initial, path, len=len, tuple=tuple):
+		global Path
+		iparts = initial.split('/')[1:-1]
+		nip = len(iparts)
+		parts = tuple(path.split('/')[1:])
+		return Path(Path(None, parts[:nip]), (parts[nip:]))
+
+	@staticmethod
+	@functools.lru_cache(16)
+	def strcache(obj):
+		return str(obj).encode('ascii')
+
+	@staticmethod
+	@functools.lru_cache(16)
+	def descriptioncache(obj):
+		return httpdata.code_to_names[obj].replace('_', ' ')
+
+	@classmethod
+	def options(Class, query, px):
+		"""
+		Handle a request for (protocol/http)`OPTIONS * HTTP/V`.
+
+		Individual Resources may support an OPTIONS request as well.
+		"""
+		raise Exception("HTTP OPTIONS not implemented")
+
+	@classmethod
+	def error(Class, code, path, query, px, exc, description=None, version=b'HTTP/1.1'):
+		"""
+		Host error handler. By default emits an XML document with an assigned stylesheet
+		that can be retrieved for formatting the error. Additional error data may by
+		injected into the document in order to provide application-level error information.
+
+		Given the details about an HTTP error message and the corresponding
+		&ProtocolTransaction, emit the rendered error to the client.
+		"""
+
+		strcode = str(code)
+		code_bytes = Class.strcache(code)
+
+		if description is None:
+			description = Class.descriptioncache(code_bytes)
+
+		description_bytes = Class.strcache(description)
+
+		px.response.initiate((version, code_bytes, description_bytes))
+		px.response.add_headers([
+			(b'Content-Type', b'text/plain'),
+			(b'Content-Length', str(len(description_bytes)).encode('utf-8'),)
+		])
+
+		proc = libio.Flow()
+		i = libio.Iterate()
+		proc.requisite(i)
+		px.connection.dispatch(proc)
+
+		px.connect_output(proc)
+		proc.process([(description_bytes,)])
+
+		# If an exception occurred, drain the output and fault the connection.
+		if exc is not None:
+			fo = lambda: px.connection.output.fault(exc)
+			proc.drain(lambda: px.connection.output.drain(fo))
+		else:
+			proc.terminate()
+
+	def route(self, px):
+		"""
+		Called from an I/O (normally input) event, routes the transaction
+		to the processor bound to the prefix matching the request's.
+
+		Exceptions *must* fault the Connection, and normally do if called
+		from the expected mechanism.
+		"""
+		global Path
+		global libri
+
+		split = px.request.path.decode('utf-8').split('?', 1)
+		uri_path = split[0]
+
+		if len(split) == 2:
+			query = dict(libri.parse_query(split[1]))
+		else:
+			query = None
+
+		initial = self.root.get(uri_path, None)
+
+		# No prefix match.
+		if initial is None:
+			if uri_path == b'*' and px.request.method == "OPTIONS":
+				return self.options(query, px)
+			else:
+				return self.error(404, Path(None, tuple(uri_path.split('/'))), query, px, None)
+		else:
+			xact_processor = self.prefixes[initial]
+			path = self.path(initial, uri_path)
+
+			try:
+				xact_processor(path, query, px)
+			except Exception as exc:
+				# The connection will be abruptly interrupted if
+				# the output flow has already been connected.
+				self.error(500, path, query, px, exc)
+
+	@staticmethod
+	def accept(context, request, connect_input, partial=functools.partial):
+		"""
+		Accept an HTTP transaction from the remote end.
+		"""
+
+		p = context.controller
+		response = p.output_layer() # construct response placeholder
+		out = p.serialize
+		out.enqueue(response) # *reserve* spot in output queue
+
+		if request.terminal:
+			response.header_sequence.append((b'Connection', b'close'))
+
+		connect_output = partial(out.connect, response)
+		cxn = p.controller
+		host = cxn.controller
+
+		px = ProtocolTransaction((
+			host.controller, host, cxn,
+			request, response,
+			connect_input, connect_output
+		))
+
+		host.route(px)
+
+class Client(libio.Connection):
 	"""
 	Client Connection Sector representing a single client connection.
 
@@ -483,9 +916,9 @@ class Client(core.Connection):
 		receiver(source, request, layer, connect)
 
 	def http_request(self,
-			receiver:core.ProtocolTransactionEndpoint,
-			layer:core.Layer,
-			flow:core.Flow=None
+			receiver:libio.core.ProtocolTransactionEndpoint,
+			layer:Layer,
+			flow:libio.Flow=None
 		):
 		"""
 		Emit an HTTP request.
@@ -505,7 +938,7 @@ class Client(core.Connection):
 		out.enqueue(layer)
 		out.connect(layer, flow)
 
-class Agent(core.Controller):
+class Agent(libio.Controller):
 	"""
 	&Client connection controller managing common resources and configuration.
 
@@ -515,9 +948,10 @@ class Agent(core.Controller):
 
 	[ Properties ]
 
-	/(&str)title
+	/(&str)`title`
 		The default `User-Agent` header.
-	/(&typing.Mapping)connections
+
+	/(&ConnectionPool)`connections`
 		The &Client connections associated with their host.
 	"""
 
@@ -557,6 +991,7 @@ class Agent(core.Controller):
 
 		/final
 			Whether or not the request is the final in the pipeline.
+			Causes the (http)`Connection: close` header to be emitted.
 		"""
 
 		if agent is None:
@@ -605,7 +1040,7 @@ class Agent(core.Controller):
 
 	def open(self, endpoint, transports=()) -> Client:
 		"""
-		Open a client connection and return the &Client instance.
+		Open a client connection and return the actuated &Client instance.
 		"""
 		global Client
 
@@ -632,6 +1067,10 @@ adaption_preferences = {
 		libmedia.Type.from_string(libmedia.types['json']),
 		libmedia.Type.from_string('text/plain'),
 	),
+	tuple: (
+		libmedia.Type.from_string(libmedia.types['json']),
+		libmedia.Type.from_string('text/plain'),
+	),
 	dict: (
 		libmedia.Type.from_string(libmedia.types['json']),
 		libmedia.Type.from_string('text/plain'),
@@ -648,10 +1087,11 @@ conversions = {
 	libmedia.types['data']: lambda x: x,
 }
 
+
 def adapt(encoding_range, media_range, obj, iterating = None):
 	"""
 	Adapt an arbitrary Python object to the desired request type.
-	Used to interface with Python systems.
+	Used to interface with Python interfaces.
 
 	The &iterating parameter instructs &adapt that the &obj is an
 	iterable producing instances of &iterating. For instance,
@@ -661,7 +1101,6 @@ def adapt(encoding_range, media_range, obj, iterating = None):
 
 	Returns &None when there was not an acceptable response.
 	"""
-
 	if iterating is not None:
 		subject_type = iterating
 	else:
@@ -684,120 +1123,246 @@ def adapt(encoding_range, media_range, obj, iterating = None):
 	else:
 		adaption = conversions[str(match)](obj)
 
-	return match, adaption
+	return match, (adaption,)
 
-def resource(**kw):
-	"""
-	HTTP Resource Method Decorator
-
-	#!/pl/python
-		@http.resource(limit=0, ...)
-		def method(self, sector, request, response, input):
-			pass
-
-		@method.override('text/html')
-		def method(self, sector, request, response, input):
-			"Resource implementation for text/html requests(Accept Header)."
-			pass
-	"""
-
-	global functools, Resource
-	return functools.partial(Resource, **kw)
 
 class Resource(object):
 	"""
-	Decorator for trivial Python HTTP interfaces.
+	HTTP Resource designating &ProtocolTransaction processing for the configured MIME types.
 
-	Performs automatic conversion for input and output based on the Accept headers.
+	A Resource is a set of methods that can facilitate an HTTP request; an arbitrary handler
+	for an HTTP method can be bound using the decorator syntax referencing the acceptable
+	MIME type.
+
+	Parameters are passed to the handler based on the method's signature; json data
+	structures will be parsed and passed as positional and keyword parameters.
 	"""
 
-	def __init__(self, call, limit=None):
-		self.parameters = [
-			x for x in locals().items() if x[0] != 'self'
-		]
-		self.call = call
-		self.overrides = {}
-		functools.wraps(self.call)(self)
+	@classmethod
+	def method(Class, **kw):
+		"""
+		HTTP Resource Method Decorator for POST operations.
 
-	def override(self, *types):
+		Used to identify a method as an HTTP Resource that can
+		be invoked with a &ProtocolTransaction in order
+		provide a response to a client.
+
+		#!/pl/python
+			@libhttp.Resource.method(limit=0, ...)
+			def method(self, resource, path, query, protoxact):
+				"Primary POST implementation"
+				pass
+
+			@method.getmethod('text/html')
+			def method(self, sector, request, response, input):
+				"Resource implementation for text/html requests."
+				pass
+		"""
+
+		global functools
+		r = Class(**kw)
+		return r.__methodwrapper__
+
+	def __methodwrapper__(self, subobj):
+		"Default to POST responding to any Accept."
+		functools.wraps(subobj)(self)
+		self.methods[b'POST'][libmedia.any_type] = subobj
+		return self
+
+	def __init__(self, limit=None):
+		self.methods = collections.defaultdict(dict)
+		self.limit = limit
+
+	def getmethod(self, *types, MimeType=libmedia.Type.from_string):
 		"""
 		Override the request handler for the resource when the request
-		is preferring the given type.
+		is preferring one of the given types.
 		"""
 
-		def Temporary(call):
+		def UpdateResourceGET(call, self=self):
+			"Update Resource to handle GET requests for the given resource."
+			GET = self.methods[b'GET']
 			for x in types:
-				self.overrides[libmedia.Type.from_string(x)] = call
+				GET[MimeType(x)] = call
 			return self
 
-		return Temporary
+		return UpdateResourceGET
 
-	def execution(self, sector, request, response, input, output):
-		result = self.call(sector, request, response, input)
+	def transformed(self, context, collection, path, query, px, flow):
+		"""
+		Once the request entity has been buffered into the &libio.Collect,
+		it can be parsed into parameters for the resource method.
+		"""
 
-		ct, data = adapt(None, request.media_range, result)
-		response.add_headers([
+		data_input = b''.join(itertools.chain(itertools.chain(*itertools.chain(*collection))))
+		mtyp = px.request.media_type
+		entity_body = json.loads(data_input.decode('utf-8')) # need to adapt based on type
+
+		self.execute(context, entity_body, path, query, px)
+
+	def execute(self, context, content, path, query, px):
+		# No input to wait for, invoke the resource handler immediately.
+		methods = self.methods[px.request.method]
+		media_range = px.request.media_range
+
+		if px.request.method == b'OPTIONS':
+			result = self.options(context, self, content)
+		else:
+			mime_type = media_range.query(*methods.keys())
+			if mime_type:
+				result = methods[mime_type[0]](context, self, content)
+			else:
+				raise Exception('cant handle accept') # host.error()
+
+		# Identify the necessary adaption for output.
+		ct, data = adapt(None, media_range, result)
+
+		px.response.add_headers([
 			(b'Content-Type', str(ct).encode('utf-8')),
-			(b'Content-Length', str(len(data)).encode('utf-8')),
+			(b'Content-Length', str(sum(map(len, data))).encode('utf-8')),
 		])
-		if request.terminal:
-			response.add_headers([
-				(b'Connection', b'close')
-			])
 
-		response.initiate((request.version, b'200', b'OK'))
+		return px.iterate_output((data,))
 
-		f = core.Flow()
-		f.affix(core.Transformer())
-		f.subresource(sector)
-		sector.affix(f)
-		output(f)
-
-		f.process((data,))
-		f.terminate(self)
+	def options(self, context, content):
+		"""
+		Facilitate an OPTIONS request for the &Resource.
+		"""
+		pass
 
 	def adapt(self,
-			sector, request, response, input, output,
-			str=str, len=len, create_flow=core.Flow,
+			context:object, path:Path, query:dict, px:ProtocolTransaction,
+			str=str, len=len, partial=functools.partial
 		):
-		# input and output are callbacks that accept Flow's to connect
-		# to the request's I/O
+		"""
+		Adapt a single HTTP transaction to the configured resource.
+		"""
 
-		if input is not None:
-			# Buffer and transform the input to the callable.
-			fi = create_flow(core.Collect.list)
-			sector.dispatch(fi)
-			input(fi)
+		if px.connect_input is not None:
+			if False and self.limit == 0:
+				# XXX: zero limit with entity body.
+				px.host.error(413, path, query, px, None)
+				return
 
-			def transformed(flow, call=self.call, args=(sector,request,response)):
-				store = flow.sequence[0].storage
-				data_input = b''.join(store)
-				call(*args)
+			# Buffer and transform the input to the callable adherring to the limit.
+			fi = libio.Flow()
+			cl = libio.Collect.list()
+			collection = cl.storage
+			fi.requisite(cl)
+			px.connection.dispatch(fi)
+			fi.atexit(partial(self.transformed, context, collection, path, query, px))
+			px.connect_input(fi)
 
-			fi.atexit(transformed)
 			return fi
 		else:
-			result = self.call(sector, request, response, None)
+			return self.execute(context, None, path, query, px)
 
-			ct, data = adapt(None, request.media_range, result)
-			response.add_headers([
-				(b'Content-Type', str(ct).encode('utf-8')),
-				(b'Content-Length', str(len(data)).encode('utf-8')),
-			])
-			if request.terminal:
-				response.add_headers([
-					(b'Connection', b'close')
-				])
-
-			response.initiate((request.version, b'200', b'OK'))
-
-			f = core.Flow()
-			f.requisite(core.Iterate())
-			f.sequence[0].requisite(terminal=True)
-			sector.dispatch(f)
-
-			# connect output and initiate the iterator
-			output(f)
-			f.process([(data,)])
-		return f
 	__call__ = adapt
+
+class Index(Resource):
+	"""
+	A Resource that represents a set of Resources and the containing resource.
+	"""
+
+	@Resource.method()
+	def __index__(self, resource, path, query, px):
+		"List of interfaces for service management."
+
+		return [
+			name for name, method in self.__class__.__dict__.items()
+			if isinstance(method, libhttp.Resource) and not name.startswith('__')
+		]
+
+	@__index__.getmethod('text/xml')
+	def __index__(self, resource, query):
+		"""
+		Generate the index from the &Resource methods.
+		"""
+		xmlctx = libxml.Serialization()
+
+		resources = [
+			name for name, method in self.__class__.__dict__.items()
+			if isinstance(method, libhttp.Resource) and not name.startswith('__')
+		]
+
+		xmlgen = xmlctx.root(
+			'index', itertools.chain.from_iterable(
+				xmlctx.element('resource', None, name=x)
+				for name, rsrc in resources
+			),
+			namespace='https://fault.io/xml/http/resources'
+		)
+
+		return b''.join(xmlgen)
+
+	def __resource__(self, resource, path, query, px):
+		pass
+
+	def __call__(self, path, query, px,
+			partial=functools.partial, tuple=tuple, getattr=getattr
+		):
+		"""
+		Select the command method from the given path.
+		"""
+		points = path.points
+
+		if path.index:
+			protocol_xact_method = functools.partial(self.__index__)
+		elif points:
+			protocol_xact_method = getattr(self, points[0], None)
+			if protocol_xact_method is None:
+				return px.host.error(404, path, query, px, None)
+		else:
+			return px.host.error(404, path, query, px, None)
+
+		return protocol_xact_method(self, path, query, px)
+
+class Methods(object):
+	"""
+	Collection of HTTP methods for a requested resource.
+	"""
+
+	def __call__(self, path, query, px):
+		m = getattr(self, px.request.method)
+		return protocol_xact_method(path, query, px)
+
+class Dictionary(dict):
+	"""
+	A set of resources managed as a mapping.
+	"""
+	__slots__ = ()
+
+	def __call__(self, path, query, px):
+		if path.points not in self:
+			px.host.error(404, path, query, px, None)
+			return
+
+		mime, data, mode = self[path.points]
+
+		px.response.add_headers([
+			(b'Content-Type', mime.encode('utf-8')),
+			(b'Content-Length', str(len(data)).encode('utf-8')),
+		])
+		px.iterate_output([(data,)])
+
+class FileSystem(object):
+	"""
+	Transaction processor providing access to a set of search paths in order
+	to resolve a Resource.
+
+	The MIME media type is identified by the file extension.
+	"""
+
+	def __init__(self, *routes):
+		self.routes = routes
+
+	def __call__(self, path, query, px):
+		suffix = path.points
+		for route in self.routes:
+			file = route.extend(suffix)
+			if file.exists():
+				px.sendfile(file)
+				break
+		else:
+			# No such resource.
+			px.host.error(404, path, query, px, None)

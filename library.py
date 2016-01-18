@@ -14,6 +14,8 @@ Local = core.Local
 Projection = core.Projection
 Layer = core.Layer # Base class for all layer contexts
 Interface = core.Interface
+Connection = core.Connection
+Controller = core.Controller
 
 Resource = core.Resource
 Extension = core.Extension
@@ -35,8 +37,7 @@ Trace = core.Trace
 Processor = core.Processor
 Unit = core.Unit
 Sector = core.Sector
-Library = core.Library
-Executable = core.Executable
+Module = core.Module
 Control = core.Control
 Subprocess = core.Subprocess
 Scheduler = core.Scheduler
@@ -47,6 +48,7 @@ Flow = core.Flow
 Thread = core.Thread
 Call = core.Call
 Protocol = core.Protocol
+QueueProtocol = core.QueueProtocol
 
 Null = core.Null
 

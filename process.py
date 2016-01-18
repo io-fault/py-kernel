@@ -448,13 +448,7 @@ class Representation(object):
 		Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
 
-		global Subprocess
-
-		pid = libfork.Fork.dispatch(self.boot, *tasks)
-		subprocess = Subprocess()
-		subprocess.requisite((pid,))
-
-		return subprocess
+		return libfork.Fork.dispatch(self.boot, *tasks)
 
 	def boot(self, *tasks):
 		"""

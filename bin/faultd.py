@@ -13,16 +13,17 @@ def initialize(unit):
 	# Avoid import as it exec() if it's not the faultd hardlink.
 	from .. import libroot
 	from .. import libservice
-	from .. import library
+	from .. import library as libio
 
 	# init listening interfaces
-	library.core.Ports.load(unit)
+	libio.core.Ports.load(unit)
 
 	# No command line options atm. Maybe an override for the faultd directory.
 	command_params = unit.context.process.invocation.parameters
 
 	# Root Daemon Control
-	root_sector = libroot.Control(libservice.identify_route())
+	root_sector = libroot.Control()
+	root_sector.requisite(libservice.identify_route())
 
 	unit.place(root_sector, "control")
 	root_sector.subresource(unit)
@@ -61,5 +62,5 @@ if __name__ == '__main__':
 		os.execl(path, *command)
 		assert False # should not reach after execl
 
-	from .. import library
-	library.execute(faultd = (initialize,))
+	from .. import library as libio
+	libio.execute(faultd = (initialize,))

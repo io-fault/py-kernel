@@ -1,7 +1,7 @@
 """
 faultd service interface for automating configuration management during daemon downtime.
 
-Deals directly with the file system and should only be used while the fault daemon is not running.
+Deals directly with the file system and should only be used while faultd is not running.
 Invoking without arguments displays help to standard error.
 """
 
@@ -168,7 +168,7 @@ def command_report(srv):
 	command = [srv.executable]
 	command.extend(srv.parameters)
 
-	docs = srv.documentation
+	docs = "" #srv.documentation
 	dist = srv.concurrency
 	reqs = ' '.join(srv.requirements)
 	envvars = ' '.join(['%s=%r' %(k, v) for k, v in srv.environment.items()])

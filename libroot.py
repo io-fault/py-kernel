@@ -38,284 +38,239 @@ import sys
 import signal
 import functools
 import itertools
+import typing
 
 from ..fork import library as libfork
 from ..routes import library as libroutes
 from ..chronometry import library as libtime
 
 from . import libservice
-from . import core
-from . import library
+from . import library as libio
 from . import libhttp
 
-class HTTP(library.Sector):
+class HumanInterface(libhttp.Index):
+	pass
+
+class HumanInterfaceSupport(libhttp.Index):
+	pass
+
+class Commands(libhttp.Index):
 	"""
-	HTTP Control Interface.
+	HTTP Control API used by control (Host) connections.
 
-	Instances represent a connection.
+	GET Retrieves documentation, POST performs.
 	"""
 
-	@libhttp.resource(limit=0)
-	def http_sleep(self, request, response, input):
-		"Send a stop signal associated with a timer to pause the process group."
+	def __init__(self, services, managed):
+		self.managed = managed
+		self.services = services
 
-		return "not implemented"
+	@libhttp.Resource.method()
+	def sleep(self, resource, parameters) -> (str, str):
+		"""
+		Send a stop signal associated with a timer to pause the process group.
+		"""
 
-	@libhttp.resource(limit=0)
-	def http_enable(self, request, response, input):
-		"Enable the service, but do not start it."
+		if service.status == 'executed':
+			service.subprocess.signal(signal.SIGSTOP)
+			return (service.name, "service signalled to stop")
+		else:
+			return (service.name, "cannot signal service when not running")
 
-		srv = request.managed.service
-		path = request.subpath
+	@libhttp.Resource.method()
+	def enable(self, resource, parameters) -> typing.Tuple[str, str]:
+		"""
+		Enable the service, but do not start it.
+		"""
 
-		srv.enabled = True
-		srv.store_enabled()
+		service = self.services[parameters['service']]
+		service.enabled = True
+		service.store_enabled()
 
-		return 'enabled'
+		return (service.name, "enabled")
 
-	@libhttp.resource(limit=0)
-	def http_disable(self, request, response, input):
-		"Disable the service, but do not change its status."
+	@libhttp.Resource.method()
+	def disable(self, resource, parameters):
+		"""
+		Disable the service, but do not change its status.
+		"""
 
-		srv = request.managed.service
-		path = request.subpath
+		service = self.services[parameters['service']]
+		service.enabled = False
+		service.store_enabled()
 
-		srv.enabled = False
-		srv.store_enabled()
+		return (service.name, "disabled")
 
-		return 'disabled'
-
-	@libhttp.resource(limit=0)
-	def http_signal(self, request, response, input):
+	@libhttp.Resource.method()
+	def signal(self, resource, parameters):
 		"Send the given signal to the process."
 
-		srv = request.managed
-		sig = request.parameters.get('signal', 'SIGINFO')
-		if sig.isdigit():
-			signo = int(sig)
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
+		signo = int(parameters['number'])
+
+		if service.status == 'executed':
+			managed.subprocess.signal(signo)
+			return "service signalled"
 		else:
-			signo = signames[sig]
+			return "signal not sent as service has not been executed"
 
-		if srv.status == 'executed':
-			srv.subprocess.signal(signo)
-			return 'service signalled'
+	@libhttp.Resource.method()
+	def stop(self, resource, parameters):
+		"Signal the service to stop and inhibit from being restarted."
+
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
+
+		if service.enabled:
+			managed.inhibit_recovery = True
 		else:
-			return 'signal not sent as service has not been executed'
+			# No need.
+			managed.inhibit_recovery = None
 
-	@libhttp.resource(limit=0)
-	def http_stop(self, request, response, input):
-		ms = request.managed
+		managed.subprocess.signal(signal.SIGTERM)
+		return (service.name, "daemon signalled to terminate")
 
-		if ms.service.enabled:
-			ms.inhibit_recovery = True
+	@libhttp.Resource.method()
+	def restart(self, resource, parameters):
+		"Signal the service to stop (SIGTERM) and allow it to restart."
+
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
+
+		if service.status != 'executed':
+			return (service.name, "restart ineffective when not running")
+
+		managed.inhibit_recovery = False
+		managed.subprocess.signal(signal.SIGTERM)
+
+		return (service.name, "daemon signalled to restart")
+
+	@libhttp.Resource.method()
+	def reload(self, resource, parameters):
+		"Send a SIGHUP to the service."
+
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
+
+		if managed.subprocess is not None:
+			managed.subprocess.signal(signal.SIGHUP)
+			return (service.name, "daemon signalled to reload using SIGHUP")
 		else:
-			# don't bother
-			ms.inhibit_recovery = None
+			return (service.name, "reload ineffective when service is not running")
 
-		ms.subprocess.signal(signal.SIGTERM)
-		return 'daemon signalled to terminate'
-
-	@libhttp.resource(limit=0)
-	def http_restart(self, request, response, input):
-		ms = request.managed
-
-		if ms.status != 'executed':
-			return 'restart ineffective when not running'
-
-		ms.inhibit_recovery = False
-		ms.subprocess.signal(signal.SIGTERM)
-
-		return 'daemon signalled to restart'
-
-	@libhttp.resource(limit=0)
-	def http_reload(self, request, response, input):
-		ms = request.managed
-
-		if ms.subprocess is not None:
-			ms.subprocess.signal(signal.SIGHUP)
-			return 'daemon signalled to reload using SIGHUP'
-		else:
-			return 'reload ineffective when service is not running'
-
-	@libhttp.resource(limit=0)
-	def http_replace(self, request, response, input):
+	@libhttp.Resource.method()
+	def replace(self, resource, parameters):
+		service = self.services[parameters['service']]
 		# substitute the sectord process (code/process update)
 		# 1. write a substitution file to filesystem
 		# 2. signal hup
 		# 3. [sectord] check for substitution file on hup receive and begin natural halt
 		# 4. [sectord] store environment state recording interfaces
 		# 5. [sectord] exec to new process and load state from environment
-		return 'substitute not supported'
+		return (service.name, "substitute not supported")
 
-	@libhttp.resource(limit=0)
-	def http_start(self, request, response, input):
+	@libhttp.Resource.method()
+	def start(self, resource, parameters):
 		"""
 		Start the daemon unless it's already running; explicit starts ignore
 		&libservice.Service.enabled.
 		"""
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
 
-		ms = request.managed
-
-		if ms.status == 'executed':
-			return "already running"
+		if service.status == 'executed':
+			return (service.name, "already running")
 		else:
-			return ms.invoke()
+			managed.invoke()
+			return (service.name, "invoked")
 
-	@libhttp.resource(limit=0)
-	def http_execute(self, request, response, input):
-		"Execute the command associated with the service. Only applies to command types."
-
-		ms = request.managed
-
-		if ms.status == 'executed':
-			return "already running"
-		if ms.service.type != 'command':
-			return 'not a command service'
-		else:
-			return ms.invoke()
-
-	@libhttp.resource(limit=0)
-	def http_report(self, request, response, input):
+	@libhttp.Resource.method()
+	def environment(self, resource, parameters):
 		pass
 
-	@libhttp.resource(limit=0)
-	def http_commands(self, request, response, input):
-		return {k[0]: v.__doc__ for k, v in self.index.items() if k}
-
-	@libhttp.resource(limit=0)
-	def http_timestamp(self, request, response, input):
-		return libtime.now().select("iso")+'\n'
-
-	#http_if = libhttp.Mount(pkg, dir)
-
-	# fault.io/signal?number=9
-	# postgres/
-	index = {
-		(): http_report, # /service report (prioritize html)
-		('report',): http_report,
-
-		('',): http_commands, # /service/ command index
-		('commands',): http_commands,
-
-		('signal',): http_signal,
-
-		('enable',): http_enable,
-		('disable',): http_disable,
-
-		('start',): http_start,
-		('stop',): http_stop,
-		('restart',): http_restart,
-		('reload',): http_reload,
-		('replace'): http_replace,
-
-		('execute',): http_execute,
-	}
-
-	def method(self, request):
-		if request.managed is None:
-			return None
-
-		meth = self.index.get(request.subpath)
-
-		if meth is not None:
-			return functools.partial(meth, self)
-
-		return None
-
-	@libhttp.resource(limit=0)
-	def service_index(self, request, response, input):
-		"Root path."
-
-		return list(self.services)
-
-	def http_request_accept(self, layer, ins_connect, partial=functools.partial, tuple=tuple):
-		path_parts = layer.path.decode('utf-8').split('/')
-
-		empty, service_name, *path = path_parts
-
-		request = layer
-		request.service_name = service_name
-		request.subpath = tuple(path)
-		request.managed = self.services.get(service_name)
-
-		response = self.protocol.output_layer()
-
-		ins = self.protocol.distribute
-		out = self.protocol.serialize
-		out.enqueue(response) # reserve spot in output queue
-
-		out_connect = partial(out.connect, response)
-
-		path = request.path
-		if path == b'/':
-			method = functools.partial(self.service_index, self)
-		elif path == b'/root/timestamp':
-			method = functools.partial(self.http_timestamp, self)
-		elif path == b'/fault':
-			raise Exception("FAULT")
-		else:
-			method = self.method(request)
-
-		if method is None:
-			response.initiate((b'HTTP/1.1', b'404', b'NOT FOUND'))
-			notfound = b'No such resource.'
-			response.add_headers([
-				(b'Content-Type', b'text/plain'),
-				(b'Content-Length', str(len(notfound)).encode('utf-8'),)
-			])
-
-			if request.terminal:
-				response.add_headers([
-					(b'Connection', b'close'),
-				])
-
-			if request.content:
-				ins_connect(library.Null)
-
-			proc = library.Flow()
-			i = library.Iterate()
-			proc.requisite(i)
-			proc.subresource(self)
-			self.requisite(proc)
-			out_connect(proc)
-			proc.actuate()
-			proc.process([(notfound,)])
-			proc.terminate()
-		else:
-			proc = method(request, response, ins_connect, out_connect)
-			if proc is not None:
-				self.dispatch(proc)
-
-	@classmethod
-	def http_accept(Class, spawn, packet, chain=itertools.chain):
+	@libhttp.Resource.method()
+	def normalize(self, resource, parameters):
 		"""
-		Accept HTTP connections for interacting with the daemon.
+		Normalize the set of services by shutting down any running
+		disabled services and starting any enabled services.
+
+		Command services are ignored by &normalize.
 		"""
 
-		source, event = packet
-		sector = spawn.sector
+		for name, service in self.services.items():
+			managed = self.managed[name]
 
-		# service_name -> ManagedService
-		services = sector.controller.services
+			if service.enabled and service.status != 'executed':
+				yield (service.name, managed.invoke())
+			elif service.disabled and service.status == 'executed':
+				yield (service.name, managed.subprocess.signal(signal.SIGTERM))
 
-		# event is a iterable of socket file descriptors
-		for fd in chain(*event):
-			cxn = Class()
-			cxn.services = services
-			sector.dispatch(cxn)
+	@libhttp.Resource.method()
+	def execute(self, resource, parameters):
+		"""
+		Execute the command associated with the service. Only applies to command types.
+		"""
 
-			with cxn.xact() as xact:
-				io = xact.acquire_socket(fd)
-				p, fi, fo = libhttp.server_v1(xact, cxn.http_request_accept, *io)
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
 
-				#cxn.requisite(p, fi, fo)
-				cxn.dispatch(fo)
-				cxn.dispatch(fi)
-				cxn.dispatch(p)
-				cxn.protocol = p
-				fi.process(None)
+		if service.status == 'executed':
+			return (service.name, "already running")
+		if service.type != 'command':
+			return (service.name, "not a command service")
+		else:
+			managed.invoke()
+			return (service.name, "service invoked")
 
-class ServiceManager(library.Processor):
+	@libhttp.Resource.method()
+	def report(self, resource, parameters):
+		pass
+
+	@libhttp.Resource.method()
+	def timestamp(self, resource, parameters):
+		"Return the faultd's perception of time."
+		return libtime.now().select("iso")
+
+	# /if/signal?number=9
+
+	@libhttp.Resource.method()
+	def __resource__(self, resource, path, query, px):
+		pass
+
+	@libhttp.Resource.method()
+	def list(self, resource, parameters):
+		"List the set of configured services."
+
+		# list all if no filter
+		service_set = [x for x in self.services.keys()]
+		return service_set
+
+	@libhttp.Resource.method()
+	def create(self, resource, parameters):
+		"Create a service."
+
+		name = parameters['service']
+
+	@libhttp.Resource.method()
+	def void(self, resource, parameters):
+		"Terminate the service and destroy it's stored configuration."
+
+		name = parameters['service']
+		m = self.managed[name]
+		m.inhibit_recovery = True
+		m.subprocess.signal(signal.SIGKILL)
+		m.terminate()
+		s = self.services[name]
+		s.void()
+
+	@libhttp.Resource.method()
+	def interface(self, resource, parameters):
+		"Add a set of interfaces"
+
+		name = parameters['service']
+
+class ServiceManager(libio.Processor):
 	"""
 	Service daemon state and interface.
 
@@ -419,13 +374,13 @@ class ServiceManager(library.Processor):
 			self.subprocess = sub # need for control interface (http)
 
 			# stderr stopgap; probably move to a log file managed by this class.
-			f = library.Flow()
+			f = libio.Flow()
 			def gah(s):
 				for x in s:
 					sys.stderr.write(x.decode('utf-8'))
 				sys.stderr.flush()
-			pt = library.Functional(gah)
-			f.requisite(*(library.core.meter_input(stderr) + (pt,)))
+			pt = libio.Functional(gah)
+			f.requisite(*(libio.core.meter_input(stderr) + (pt,)))
 
 			sector.dispatch(f)
 			f.process(None)
@@ -500,7 +455,7 @@ class ServiceManager(library.Processor):
 # A given group has a set of configured interfaces; these interfaces
 # are allocated by the parent process as they're configured.
 
-class Control(library.Control):
+class Control(libio.Control):
 	"""
 	The (io.path)`/control` sector of the root daemon (faultd) managing a set of services.
 
@@ -508,12 +463,6 @@ class Control(library.Control):
 	natural exit signals as it waits for administrative termination
 	signal.
 	"""
-
-	def __init__(self, route):
-		super().__init__()
-		self.route = route.rebase()
-		self.services = {} # name => ManagedService() instances
-		self.root = None
 
 	def halt(self, source):
 		self.context.process.log("halt requested")
@@ -524,9 +473,21 @@ class Control(library.Control):
 		# the provided HTTP interface allows modification to the service set.
 		pass
 
+	def requisite(self, route:libroutes.File):
+		self.route = route.rebase()
+
 	def actuate(self):
+		"""
+		Create the faultd context if it does not exist.
+		This is performed in actuate because it is desirable
+		to trigger a &libfork.Panic when an exception occurs.
+		"""
 		# initialize controld service directory
 		super().actuate()
+
+		self.services = {} # name => ManagedService() instances
+		self.managed = {} # the ServiceManager instances dispatched in io://faultd/bin/
+		self.root = None
 
 		srv = libservice.Service(self.route, 'root')
 		os.environ['FAULTD_DIRECTORY'] = self.route.fullpath
@@ -552,50 +513,77 @@ class Control(library.Control):
 		# this reference will be simply dropped.
 
 		srv_list = self.route.subnodes()[0]
-		services = {}
-		services.update(
+		self.services.update(
 			(x.identity, srv.coservice(x.identity))
 			for x in srv_list
 		)
 
-		# bind http control interface
-		endpoint = library.endpoint('local', (srv.route/"if").fullpath, "0")
-		self.controller.ports.bind('http', endpoint)
-		# XXX: needs to be sourced from configuration
-		self.controller.ports.bind('http', library.endpoint('ip4', '127.0.0.1', 8181))
+		self.root_paths = {
+			'/': HumanInterface(),
+			'/sys/': Commands(self.services, self.managed),
+			'/hif/': HumanInterfaceSupport(),
+		}
 
-		os.chdir(srv.route.fullpath)
-		self.boot(services)
+		# bind http control interface; predefined.
+		stdif = libio.endpoint('local', (srv.route/"if").fullpath, "0")
+
+		self.controller.ports.bind('http', stdif)
+		for slot, binds in srv.interfaces.items():
+			ports.bind(slot, *itertools.starmap(libio.endpoint, binds))
+
+		control = libhttp.Host()
+		control.requisite(self.root_paths, 'control')
+		scheduler = libhttp.Host()
+		scheduler.requisite({}, 'scheduler')
 
 		hi = libhttp.Interface()
-		hi.requisite('http', HTTP.http_accept)
+		libio.Interface.requisite(hi, 'http', hi.accept)
+		libhttp.Interface.requisite(hi, libhttp.server_v1, control, scheduler)
 		self.dispatch(hi)
+
+		os.chdir(srv.route.fullpath)
+		self.context.enqueue(self.boot)
 
 		return self
 
-	def boot(self, services):
-		"Start all the *enabled* services."
+	def manage_service(self, unit, s:libservice.Service):
+		"""
+		Install the service's manager for execution.
+		"""
+
+		S = libio.Sector()
+		unit.place(S, "bin", s.name)
+		S.subresource(unit)
+		S.actuate()
+
+		d = ServiceManager()
+		d.requisite(s, self.root)
+		# HTTP needs to be able to find the SM to interact with it.
+		self.managed[s.name] = d
+
+		d.subresource(S)
+		S.dispatch(d)
+
+	def forget_service(self, s:libservice.Service):
+		"""
+		Remove the service from the managed list and the service set.
+		"""
+		raise Exception('not implemented')
+
+	def boot(self):
+		"""
+		Start all the *enabled* services and mention all the disabled ones.
+		"""
 
 		unit = self.context.association()
-		root = self.root
 
 		# invocation. each subprocess gets its own sector
 		# the RService instances manages the core.Subprocess instance
 		# running the actual system [sub] process.
-		for sn, s in services.items():
+		for sn, s in self.services.items():
 			s.load()
 			if s.type == 'root':
+				# this process/sector.
 				continue
 
-			S = library.Sector()
-			unit.place(S, "bin", s.name)
-			S.subresource(unit)
-			S.actuate()
-
-			d = ServiceManager()
-			d.requisite(s, root)
-			# HTTP needs to be able to find the SM to interact with it.
-			self.services[s.name] = d
-
-			d.subresource(S)
-			S.dispatch(d)
+			self.manage_service(unit, s)

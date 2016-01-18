@@ -11,81 +11,35 @@ to the service's process in order to issue the actual command.
 
 Control can dispatch commands or wait for their completion.
 
-.bin.control service_name dispatch start|restart|stop|reload (HUP) "comment"
-.bin.control service_name wait # waits until the service's process exits
-.bin.control service_name disable "comment"
-.bin.control service_name enable "comment"
-.bin.control service_name signal signo "comment"
+.control (uri|env) start|restart|stop|reload <service_name> "comment"
+.control (uri|env) wait <service_name> # waits until the service's process exits
+.control (uri|env) disable|enable <service_name> "comment"
+.control (uri|env) signal <service_name> signo "comment"
 """
 
 import sys
 import os
 import functools
 import itertools
+import json
 
 from ...internet import libri
+from ...routes import library as libroutes
 
+from .. import libcommand
 from .. import libhttp
 from .. import library as libio
-from .. import libservice
-
-class HTTP(libio.Sector):
-	"""
-	Control Client
-	"""
-
-	def http_transaction_open(self, layer, partial=functools.partial, tuple=tuple):
-		ep, request = self.response_endpoints[0]
-		del self.response_endpoints[0]
-
-		ep(self, request, layer, functools.partial(self.protocol.distribute.connect, layer))
-
-	def http_transaction_close(self, layer, flow):
-		# called when the input flow of the request is closed
-		if flow is not None:
-			flow.terminate()
-
-	def http_request(self, endpoint, layer, flow = None):
-		"""
-		Emit an HTTP request.
-		"""
-
-		self.response_endpoints.append((endpoint, layer))
-
-		out = self.protocol.serialize
-		out.enqueue(layer)
-		out.connect(layer, flow)
-
-	@classmethod
-	def open(Class, sector, endpoint):
-		"""
-		Open an HTTP connection inside the Sector.
-		"""
-
-		# event is an iterable of socket file descriptors
-		cxn = Class()
-		sector.dispatch(cxn)
-
-		with cxn.xact() as xact:
-			io = xact.connect(endpoint.protocol, endpoint.address, endpoint.port)
-
-			p, fi, fo = libhttp.client_v1(
-				xact, cxn.http_transaction_open, cxn.http_transaction_close, *io)
-
-			cxn.protocol = p
-			cxn.process((p, fi, fo))
-			cxn.response_endpoints = []
-			fi.process(None)
-
-		return cxn
+from .. import libservice # fs-socket resolution
 
 def response_collected(sector, request, response, flow):
 	events = flow.sequence[0].storage
-	for x in itertools.chain.from_iterable(events):
-		if x:
-			print(x)
+	for x in itertools.chain(*itertools.chain(*events)):
+		sys.stderr.buffer.write(x)
+	sys.stderr.write('\n')
 
-def response_endpoint(sector, request, response, connect):
+def response_endpoint(context, request, response, connect):
+	sector = context.sector
+
 	f = libio.Flow()
 	f.requisite(libio.Collect.list())
 	sector.dispatch(f)
@@ -93,13 +47,17 @@ def response_endpoint(sector, request, response, connect):
 	f.atexit(functools.partial(response_collected, sector, request, response))
 	connect(f)
 
-def initialize(unit):
-	libio.core.Ports.load(unit)
+def main(call):
+	root_sector = call.sector
+	proc = root_sector.context.process
 
-	proc = unit.context.process
 	iparams = proc.invocation.parameters['system']['arguments']
 
-	target, service, command, *params = iparams
+	target, command, *params = iparams
+	if params:
+		service, *params = params
+	else:
+		service = None
 
 	if target == 'env':
 		# Uses FAULTD_DIRECTORY environment.
@@ -108,8 +66,8 @@ def initialize(unit):
 		ri = route / 'root' / 'if'
 		struct = {
 			'scheme': 'http',
-			'host': 'services', # Irrelevant for local host.
-			'path': [],
+			'host': 'control',
+			'query': [],
 		}
 		endpoint = libio.endpoint('local', ri.fullpath, "0")
 	else:
@@ -118,38 +76,47 @@ def initialize(unit):
 
 		if struct['scheme'] == 'file':
 			path = libri.http(struct)
-			ri = routeslib.File.from_absolute('/'+'/'.join(struct['path']))
+			ri = libroutes.File.from_absolute('/'+'/'.join(struct['path']))
 			protocol = 'http'
-
 		else:
 			if struct['scheme'] == 'https':
-				port = struct.get('port', 8080)
+				port = struct.get('port', 440)
 			else:
 				port = struct.get('port', 80)
 
 			endpoint = libio.endpoint('ip4', struct['host'], port)
 
-	struct['path'].extend((service, command))
+	if command != 'index':
+		struct['path'] = ['sys', command]
+	else:
+		struct['path'] = ['sys', '']
 
-	root_sector = libio.Sector()
-	unit.place(root_sector, "bin", "fio-control")
-	root_sector.subresource(unit)
-	root_sector.actuate()
-
-	hc = HTTP.open(root_sector, endpoint)
+	hc = libhttp.Client.open(root_sector, endpoint)
 
 	req = libhttp.Request()
 	path = libri.http(struct)
-	print(struct, path)
 
-	req.initiate((b'GET', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
+	# The operations performed by .bin.control have side-effects.
+	parameters = json.dumps({'service': service}).encode('utf-8')
+
+	req.initiate((b'POST', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
 	req.add_headers([
 		(b'Host', b'services'),
 		(b'Connection', b'close'),
 		(b'Accept', b'text/plain'),
+		(b'Content-Type', b'application/json'),
+		(b'Content-Length', str(len(parameters)).encode('ascii')),
 	])
-	hc.http_request(response_endpoint, req, None)
+
+	fi = libio.Flow()
+	i = libio.Iterate()
+	i.requisite(terminal=True)
+	fi.requisite(i)
+	root_sector.dispatch(fi)
+
+	hc.http_request(response_endpoint, req, fi)
+	fi.process([(parameters,)])
 
 if __name__ == '__main__':
 	from .. import library
-	libio.execute(control = (initialize,))
+	libcommand.execute()

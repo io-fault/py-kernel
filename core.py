@@ -25,6 +25,7 @@ import traceback
 import collections.abc
 import types
 import typing
+import codecs
 
 from ..fork import libhazmat
 from ..routes import library as libroutes
@@ -587,10 +588,27 @@ class Transaction(object):
 			self.unit = None
 			self.context = None
 
+	def detours(self, kport:int, locator=('octets', 'acquire', 'socket')):
+		"""
+		Allocate &Detour instnaces for the input and output of the given
+		kernel port (file descriptor).
+		"""
+		global meter_input, meter_output
+
+		r, w = self.traffic(locator, kport)
+
+		rd = Detour()
+		wd = Detour()
+		rd.requisite(r)
+		wd.requisite(w)
+
+		return (rd, wd)
+
 	def acquire_socket(self, fd):
 		"""
 		Allocate Transformer resources associated with the given file descriptors.
 		"""
+		global meter_input, meter_output
 
 		locator = ('octets', 'acquire', 'socket')
 		r, w = self.traffic(locator, fd)
@@ -936,6 +954,15 @@ class Transaction(object):
 class Resource(object):
 	"""
 	Base class for the Resource and Processor hierarchy making up a fault.io process.
+
+	[ Properties ]
+
+	/context
+		The execution context that can be used to enqueue tasks,
+		and provides access to the root &Unit.
+
+	/controller
+		The &Resource containing this &Resource.
 	"""
 
 	context = None
@@ -979,6 +1006,20 @@ class Resource(object):
 
 		self.controller_reference = Ref(ascent)
 		self.context = ascent.context
+
+	def relocate(self, ascent):
+		"""
+		Relocate the Resource into the &ascent Resource.
+
+		Primarily used to relocate &Processors from one sector into another.
+		Controller resources may not support move operations; the origin
+		location must support the erase method and the destination must
+		support the acquire method.
+		"""
+
+		controller = self.controller
+		ascent.acquire(self)
+		controller.eject(self)
 
 	def structure(self):
 		"""
@@ -1449,6 +1490,7 @@ class Unit(Processor):
 		"""
 
 		for libname, route in paths.items():
+			continue # Ignore libraries for the time being.
 			lib = Library(route)
 			self.place(lib, 'lib', libname)
 			lib.subresource(self)
@@ -1586,6 +1628,22 @@ class Sector(Processor):
 			self.fault(exc)
 
 		return super().actuate()
+
+	def eject(self, processor):
+		"""
+		Remove the processor from the Sector without performing termination.
+		Used by &Resource.relocate.
+		"""
+
+		self.processors[processor.__class__].discard(processor)
+
+	def acquire(self, processor):
+		"""
+		Add a process to the Sector; the processor is assumed to have been actuated.
+		"""
+
+		processor.subresource(self)
+		self.processors[processor.__class__].add(processor)
 
 	def requisite(self, *procs):
 		"""
@@ -1750,8 +1808,14 @@ class Connection(Sector):
 
 	[ Properties ]
 
-	/endpoint
+	/(&Endpoint)`endpoint`
 		The remote address used to establish the Connection.
+
+	/(&Flow)`input`
+		The &Flow that receives from the remote endpoint.
+
+	/(&Flow)`output`
+		The &Flow that sends to the remote endpoint.
 	"""
 
 	def requisite(self, endpoint, transports=None):
@@ -1789,20 +1853,20 @@ class Control(Sector):
 
 		unit.terminate()
 
-	def halt(self, source):
+	def halt(self, source, timeout=None):
 		"""
 		Handle an administrative or automated request to halt the daemon.
 		Shuts down acquire slots from &Interfaces in order to cease gaining work.
-		The &Interface instances assigned to the root Sector will be removed after
-		being flushed. Subsequently, the root Sector will exit when its work is complete.
+		If the process does not terminate in the allotted time or another halt
+		is received during termination, exit immediately without waiting for
+		natural termination to occur.
 		"""
 
 		unit = self.context.association()
 
-	# XXX: stop/continue?
 	def pause(self):
 		"""
-		Handle an administrative request to pause (SIGSTOP) the daemon.
+		Handle a request to pause (SIGSTOP) the daemon.
 		"""
 
 		pass
@@ -1814,83 +1878,20 @@ class Control(Sector):
 
 		pass
 
-class SectorModule(Sector):
+class Module(Sector):
 	"""
 	A Sector that is initialized by a specified module.
 
-	&SectorModule instances are intended to be root &Sector instances within a &Unit.
+	&Module instances are intended to be root &Sector instances within a &Unit.
 	It is expected that the execution context is associated with the unit in which
 	it exists: `self.context.association() == self.controller`.
 	"""
 
-	class Access(object):
-		__slots__ = ('_interfaces_',)
-
-		def __init__(self, lib, exports, partial=functools.partial):
-			self._interfaces_ = {k:partial(v,lib) for k,v in exports.items()}
-
-		def __getattr__(self, attr):
-			try:
-				return self._interfaces_[attr]
-			except KeyError:
-				raise AttributeError(attr)
-
-	class API(object):
-		"""
-		API Parameter builder for API class exports.
-
-		Supports the @api decorator.
-		"""
-
-		def __init__(self, sector):
-			self.__sector = sector
-			self.__params = {}
-			self.__class = None
-
-		def version(self, vspec):
-			self.__params['version'] = vspec
-			return self
-
-		def __call__(self, commit):
-			# commit the API class to its configured slot
-			self.__class = commit
-
-	# Requisites
-	exports = None
-	autostart = None
-	module = None
-	route = None
-
-	def requisite(self, route):
-		if route.spec() is None:
-			raise ImportError(route.fullname)
-
+	Type = None
+	def requisite(self, route, Type=types.ModuleType):
+		if Type and Type is not types.ModuleType:
+			self.Type = Type
 		self.route = route
-
-	def prepare(self, mod):
-		"""
-		Prepare the module's dictionary.
-
-		Provisions:
-
-		/export
-			&add_export
-		/boot
-			&add_autostart
-		/lib
-			Unit &Libraries instance.
-		/io
-			&io.library module.
-		"""
-
-		mod.export = self.add_export
-		mod.api = self.API(self)
-		mod.boot = self.add_autostart
-		mod.lib = self.context.association().libraries
-		mod.sector = weakref.ref(self)
-
-		from . import library
-		mod.io = library
 
 	@classmethod
 	def from_fullname(Class, path, ir_from_fullname=libroutes.Import.from_fullname):
@@ -1898,74 +1899,14 @@ class SectorModule(Sector):
 		rob.requisite(ir_from_fullname(path))
 		return rob
 
-	def add_export(self, callable, name=None):
-		"Register the callable as an API entry point."
-
-		self.exports[name or callable.__name__] = callable
-		return callable
-
-	def add_autostart(self, callable):
-		"Identify a module function as a Processor to be ran on actuation."
-
-		self.autostart.append(callable)
-		return callable
-
-	def api(self):
-		"Return an &Access instance to the module's exports."
-
-		return self.Access(self, self.exports)
-
-	def actuate(self, ModuleType=types.ModuleType):
-		super().actuate()
-
-		self.exports = {}
-		self.autostart = []
-
-		mod = ModuleType(self.route.fullname)
-
-		self.module = mod
-		self.prepare(mod)
-		self.route.spec().loader.exec_module(mod)
-
-		# XXX: interrupts sectors
-		for autostart in self.autostart:
-			autostart(self)
-
-		# Remove reference cycles.
-		del self.module.export
-		del self.module.boot
-
-		return self
-
-class Executable(SectorModule):
-	"""
-	A root Sector that is sourced by a module.
-
-	&Executable instances are normally loaded into "/bin"
-	"""
-
-class Library(SectorModule):
-	"""
-	A root &Sector that is specially managed by &Unit instances inside
-	the "/lib" directory in the runtime tree.
-
-	Libraries expose API for use by other libraries and executing &Sector instances.
-	They have the advantage of maintaining caches that can be used by all
-	root &Sector instances being managed by a &Unit.
-
-	Libraries are implemented with Python modules that define the exposed API.
-	"""
-
 	def actuate(self):
-		"""
-		Call the `lib_init` function in the module.
-		"""
-
 		super().actuate()
 
-		if 'lib_init' in self.module.__dict__:
-			return self.module.lib_init(self)
+		mod = self.route.module(trap=False)
+		if self.Type is not None:
+			mod.__class__ = self.Type
 
+		self.context.enqueue(functools.partial(mod.initialize, self))
 		return self
 
 class Subprocess(Processor):
@@ -2428,19 +2369,23 @@ class Coroutine(Processor):
 
 class Interface(Sector):
 	"""
-	An Interface Sector used to manage a set of Connection instances.
+	An Interface Sector used to manage a set of Connection instances spawned from
+	a set of listening sockets configured by the &Unit's &Ports.
 
-	Usually, Interfaces are the mechanism used to automate the aquisition of sockets
-	in the /dev/ports device;
-	a link back is provided to allow natural halting of a daemon process. Ports being
-	the primary way that a daemon acquires new work, a &Control instance can begin
-	the administrative termination process by closing the listening sockets acquired
-	by the &Interface instances.
+	[ Properties ]
+
+	/bindings
+		The set of listening interfaces bound.
+
+	/funnel
+		The Flow that aggregates accepted sockets
+		and calls the configured callback.
 	"""
 
 	bindings = None
 	spawn = None
 	slot = None
+	Connection = Connection
 
 	def structure(self):
 		p = [
@@ -2450,22 +2395,24 @@ class Interface(Sector):
 		]
 		return (p, ())
 
-	def requisite(self, slot, spawn, inverse=False):
+	def requisite(self, slot, spawn):
 		"""
+		Select the &Ports slot to acquire listening sockets from.
+
+		[ Parameters ]
+
 		/slot
 			The slot to acquire from the &Ports instance assigned to "/dev/ports".
 
 		/spawn
-			The function used to initialize the subsector created to handle a connection.
+			The function used to create the &Connection instance.
 		"""
 
 		self.slot = slot
 		self.spawn = spawn
-		self.inverse = inverse # XXX: inverse being client connections; unused
 
 	def actuate(self):
 		global Flow, Sector
-
 		super().actuate()
 
 		self.bindings = set()
@@ -2473,23 +2420,74 @@ class Interface(Sector):
 		self.funnel = Funnel()
 		Funnel.requisite(self.funnel) # defaults
 		Flow.requisite(self.funnel, Spawn(self.spawn))
+
 		self.dispatch(self.funnel)
 
-		if self.inverse:
-			pass
-		else:
-			ports = self.context.association().ports
-			fds = ports.acquire(self.slot)
+		ports = self.context.association().ports
+		fds = ports.acquire(self.slot)
 
-			with self.xact() as xact:
-				add = self.bindings.add
+		with self.allocate() as xact:
+			add = self.bindings.add
 
-				for x in xact.listen(self.funnel, fds.values()):
-					add(x)
-					self.dispatch(x)
-					x.process(None) # Start allocating.
+			for x in xact.listen(self.funnel, fds.values()):
+				add(x)
+				self.dispatch(x)
+				x.process(None) # Start allocating.
 
 		return self
+
+	@staticmethod
+	def accept(spawn, packet, transports=(), chain=itertools.chain):
+		"""
+		Accept connections for the &Interface and prepare them to be sent to &route
+		for further interface-specific processing.
+
+		[ Parameters ]
+
+		/spawn
+			The &Spawn transformer that invoked &accept.
+		/packet
+			The sequence of sequences containing Kernel Port references (file descriptors).
+		/transports
+			The transport layers to configure &Transports transformers with.
+		"""
+		source, event = packet
+		sector = spawn.controller.sector # from the Funnel
+
+		# event is a iterable of socket file descriptors
+		with sector.allocate() as ifxact:
+			# Build the detours to be given to meter_input/meter_output.
+			# Detours are built directly here because we want
+			# access to the Transit's information and shouldn't
+			# make assumptions about its positiioning in the flow
+			# after meter_input/meter_output.
+			pairs = list(map(ifxact.detours, chain(*event)))
+
+			for i, o in pairs:
+				# configure rate constraints?
+				remote = o.transit.endpoint()
+				local = i.transit.endpoint()
+				if isinstance(remote, tuple):
+					# XXX: local socket workaround
+					remote = local
+
+				remote = endpoint(remote.address_type, remote.interface, remote.port)
+				ifaddr = endpoint(local.address_type, local.interface, local.port)
+
+				cxn = sector.Connection()
+				cxn.requisite(remote, transports=transports)
+				sector.dispatch(cxn) # actuate and assign the connection
+
+				with cxn.allocate() as xact:
+					mi = meter_input(i)
+					mo = meter_output(o)
+					p, fi, fo = sector.construct_connection_parts(xact, sector.route, mi, mo)
+					cxn.input = fi
+					cxn.output = fo
+					cxn.protocol = p
+
+					cxn.process((fo, fi, p))
+					fi.process(None) # sector.route call is possible after this.
 
 class Protocol(Processor):
 	"""
@@ -3243,6 +3241,19 @@ class Throttle(Meter):
 			# queue is empty
 			return None
 
+	def suspend(self, flow):
+		if flow.terminated:
+			return
+
+		if flow.permanent and self.draining is not False:
+			# the flow was permanently obstructed during
+			# a drain operation, which means the throttle
+			# needs to eject any transfers and release
+			# the drain lock.
+			drained_cb = self.draining
+			del self.draining
+			drained_cb()
+
 	def process(self, event, len=len):
 		"""
 		Enqueue a sequence of events for processing by the following Transformer.
@@ -3541,6 +3552,7 @@ class Flow(Processor):
 
 		self.obstructions[by] = (signal, condition)
 
+		# don't signal after termination/interruption.
 		if first and self.monitors:
 			# only signal the monitors if it wasn't already obstructed.
 			for sentry in self.monitors:
@@ -3656,6 +3668,7 @@ class Flow(Processor):
 		self.process = self.discarding
 
 		for x in self.sequence:
+			# signal terminate.
 			x.terminate()
 
 		if self.downstream:
@@ -3671,7 +3684,7 @@ class Flow(Processor):
 		of its exit.
 		"""
 
-		if self.terminated or self.terminating:
+		if self.terminated or self.terminating or self.interrupted:
 			return False
 
 		self.terminator = by
@@ -4188,6 +4201,7 @@ class Distributing(Extension):
 
 		# state is continuous.
 		self.state = self.state_function(Layer, self.accept, self.transport, self.close)
+		self.send = self.state.send
 		next(self.state)
 
 	def requisite(self, input):
@@ -4195,7 +4209,15 @@ class Distributing(Extension):
 
 	def process(self, events, source=None, partial=functools.partial):
 		Protocol = self.controller
-		Protocol.context.enqueue(partial(self.state.send, events))
+		Protocol.context.enqueue(partial(self.inject, self.send, events))
+
+	def inject(self, read_state, events):
+		try:
+			read_state(events) # self.state.send
+		except BaseException as exc:
+			# Distributing is an extension of the immediate controller,
+			# so fault it.
+			self.controller.fault(exc)
 
 	def receiver_obstructed(self, flow):
 		self.input.obstruct(flow, Condition(flow, 'obstructed'))
@@ -4279,6 +4301,8 @@ class Distributing(Extension):
 
 	def accept(self, layer, Queue=collections.deque, partial=functools.partial):
 		"""
+		Accept a protocol transaction from the remote end.
+
 		Initialize a Layer context allowing events to be queued until a Flow is connected.
 		"""
 
@@ -4369,7 +4393,6 @@ class ParallelProtocol(Protocol):
 	Parallel Channel Protocol. Used for supporting protocols like HTTP 2.0.
 	"""
 
-import codecs
 def Encoding(
 		transformer,
 		encoding:str='utf-8',
@@ -4400,7 +4423,6 @@ def Encoding(
 	while True:
 		input = (yield output)
 		output = operation(input)
-del codecs
 
 class Circulation(Device):
 	"""
@@ -4415,14 +4437,11 @@ class Circulation(Device):
 		Acquire the ports used to facilitate communication.
 		"""
 		ports = self.controller.ports
-
 		site = ports.acquire('site')
 
 class Ports(Device):
 	"""
-	Listening Ports Device.
-
-	&Ports manages the set of listening sockets used by a &Unit.
+	&Ports manages the set of Kernel Ports (listening sockets) used by a &Unit.
 	Ports consist of a mapping of a set identifiers and the set of actual listening
 	sockets.
 
@@ -4438,7 +4457,6 @@ class Ports(Device):
 	actuated = True
 	terminated = False
 	interrupted = False
-
 	device_entry = 'ports'
 
 	def structure(self):
@@ -4475,11 +4493,14 @@ class Ports(Device):
 			if x.protocol == 'local':
 				if x.route.exists() and x.route.type() == "socket":
 					x.route.void()
+				else:
+					# XXX: more appropriate error
+					raise Exception("cannot overwrite file that is not a socket file")
 
 		for ep, fd in zip(endpoints, self.context.bindings(*endpoints)):
 			add(ep, fd)
 
-	def acquire(self, slot):
+	def acquire(self, slot:collections.abc.Hashable):
 		"""
 		Acquire a set of listening &Transformer instances.
 		Each instance should be managed by a &Flow that constructs
