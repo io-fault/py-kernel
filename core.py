@@ -27,7 +27,8 @@ import types
 import typing
 import codecs
 
-from ..fork import libhazmat
+from ..system import libhazmat
+from ..system import libmemory
 from ..routes import library as libroutes
 from ..internet import library as libnet
 from ..chronometry import library as libtime
@@ -919,7 +920,7 @@ class Transaction(object):
 
 		return sp
 
-	def stream_file(self, path:str, range:tuple, *downstream, Segments=libhazmat.Segments):
+	def stream_file(self, path:str, range:tuple, *downstream, Segments=libmemory.Segments):
 		"""
 		Construct a new Flow with an initial Iterate Transformer
 		flowing shared memory segments from the memory mapped file.

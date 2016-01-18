@@ -31,8 +31,8 @@ from . import core
 from . import traffic
 from .kernel import Interface as Kernel
 
-from ..fork import library as libfork # cpu and memory
-from ..fork import libhazmat
+from ..system import library as libsys # cpu and memory
+from ..system import libhazmat
 from ..internet import libri
 
 from ..chronometry import library as libtime
@@ -263,13 +263,13 @@ class Fabric(object):
 	def critical(self, controller, context, callable, *args):
 		"""
 		Create a dedicated thread that is identified as a critical resource where exceptions
-		trigger &libfork.Panic exceptions in the main thread.
+		trigger &libsys.Panic exceptions in the main thread.
 
 		The additional &context parameter is an arbitrary object describing the resource;
 		often the object whose method is considered critical.
 		"""
 
-		self.spawn(weakref.ref(controller), libfork.critical, (context, callable) + args)
+		self.spawn(weakref.ref(controller), libsys.critical, (context, callable) + args)
 
 	def spawn(self, controller, callable, args, create_thread = libhazmat.create_thread):
 		"""
@@ -427,7 +427,7 @@ class Representation(object):
 			unit = Unit()
 			unit.requisite(identity, roots, process = proc, Context = Context)
 			lpd[identity] = unit
-			proc._enqueue(functools.partial(libfork.critical, None, unit.actuate))
+			proc._enqueue(functools.partial(libsys.critical, None, unit.actuate))
 
 		lpd[None] = unit # determines primary program
 		return proc
@@ -448,7 +448,7 @@ class Representation(object):
 		Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
 
-		return libfork.Fork.dispatch(self.boot, *tasks)
+		return libsys.Fork.dispatch(self.boot, *tasks)
 
 	def boot(self, *tasks):
 		"""
@@ -458,17 +458,17 @@ class Representation(object):
 		if self.kernel is not None:
 			raise RuntimeError("already booted")
 
-		libfork.fork_child_cleanup.add(self.void)
+		libsys.fork_child_cleanup.add(self.void)
 
 		# kernel interface: watch pid exits, process signals, and enqueue events
 		self.kernel = Kernel()
-		self.enqueue(*[functools.partial(libfork.critical, None, x) for x in tasks])
+		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
 
 		self.fabric.increase(1) # general purpose threads
 		self.fabric.spawn(None, self.main, ())
 
 		# replace boot() with protect() for main thread protection
-		libfork.Fork.substitute(libfork.protect)
+		libsys.Fork.substitute(libsys.protect)
 
 	def main(self):
 		"""
@@ -481,7 +481,7 @@ class Representation(object):
 		except BaseException as critical_loop_exception:
 			self.error(self.loop, critical_loop_exception, title = "Task Loop")
 			raise
-			raise libfork.Panic("exception escaped process loop") # programming error in Process.loop
+			raise libsys.Panic("exception escaped process loop") # programming error in Process.loop
 
 	def terminate(self, exit = None):
 		"""
@@ -498,7 +498,7 @@ class Representation(object):
 		if not __process_index__:
 			if exit is None:
 				# no exit provided, so use our own exit code
-				libfork.interject(libfork.SystemExit(250).raised)
+				libsys.interject(libsys.SystemExit(250).raised)
 			else:
 				self.invocation.exit(exit)
 
@@ -602,7 +602,7 @@ class Representation(object):
 		nunits = len(__process_index__[self]) - 1
 
 		p = [
-			('pid', libfork.current_process_id),
+			('pid', libsys.current_process_id),
 			('tasks', ntasks),
 			('threads', ngthreads),
 			('general tasks', nftasks),

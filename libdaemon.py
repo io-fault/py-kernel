@@ -58,7 +58,7 @@ from . import library as libio
 from . import libhttp
 
 from ..routes import library as libroutes
-from ..fork import library as libfork
+from ..system import library as libsys
 
 class HTTP(libio.Sector):
 	"""
@@ -76,7 +76,7 @@ class HTTP(libio.Sector):
 		"""
 
 		unit = self.context.association()
-		unit.result = libfork.SystemExit.exiting_for_restart
+		unit.result = libsys.SystemExit.exiting_for_restart
 
 		self.atexit(lambda x: unit.terminate())
 
@@ -336,14 +336,14 @@ class Control(libio.Control):
 
 		def errprint(*args, **kw):
 			'Override for print to default to standard error and qualify origin in output.'
-			global libfork, sys
+			global libsys, sys
 			nonlocal dprint, self
 
 			kw.setdefault('file', sys.stderr)
 			kw.setdefault('flush', True)
 			sid = self.context.association().identity
 			fid = self.fork_id
-			pid = libfork.current_process_id
+			pid = libsys.current_process_id
 
 			dprint("[builtins.print(%s:%d/%d)]:"%(sid,fid,pid), *args, **kw)
 

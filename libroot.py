@@ -40,7 +40,7 @@ import functools
 import itertools
 import typing
 
-from ..fork import library as libfork
+from ..system import library as libsys
 from ..routes import library as libroutes
 from ..chronometry import library as libtime
 
@@ -444,7 +444,7 @@ class ServiceManager(libio.Processor):
 
 		env['SERVICE_NAME'] = service.name
 
-		ki = libfork.KInvocation(*service.execution(), environ=env)
+		ki = libsys.KInvocation(*service.execution(), environ=env)
 		self.invocation = ki
 
 # faultd manages services via a set of directories that identify the service
@@ -480,7 +480,7 @@ class Control(libio.Control):
 		"""
 		Create the faultd context if it does not exist.
 		This is performed in actuate because it is desirable
-		to trigger a &libfork.Panic when an exception occurs.
+		to trigger a &libsys.Panic when an exception occurs.
 		"""
 		# initialize controld service directory
 		super().actuate()
@@ -504,7 +504,7 @@ class Control(libio.Control):
 			srv.prepare()
 			srv.load()
 
-		srv.pid = libfork.current_process_id
+		srv.pid = libsys.current_process_id
 		srv.store_pid()
 		self.root = srv
 		srv.critical("starting daemon")

@@ -2,7 +2,7 @@
 Public acccess to common Processing classes and process management classes.
 """
 
-from ..fork import library as libfork
+from ..system import library as libsys
 from . import core
 from . import process
 
@@ -71,7 +71,7 @@ def execute(*identity, **units):
 	else:
 		ident = 'root'
 
-	sysinv = libfork.Invocation.system()
+	sysinv = libsys.Invocation.system()
 	sp = process.Representation.spawn(sysinv, Unit, units, identity=ident)
 	# import root function
-	libfork.control(sp.boot)
+	libsys.control(sp.boot)
