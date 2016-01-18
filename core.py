@@ -27,8 +27,8 @@ import types
 import typing
 import codecs
 
-from ..system import libhazmat
 from ..system import libmemory
+from ..system import library as libsys
 from ..routes import library as libroutes
 from ..internet import library as libnet
 from ..chronometry import library as libtime
@@ -2890,7 +2890,7 @@ class Dispatcher(Transformer):
 		"""
 
 		rob = Class()
-		rob.requisite(function, libhazmat.create_knot())
+		rob.requisite(function, libsys.create_lock())
 		return rob
 
 	# races with general purpose threads > 1; serialization order is not guaranteed
@@ -2928,7 +2928,7 @@ class Generator(Dispatcher):
 		"Install a generator function to support transformations."
 
 		self.generator = function(self)
-		super().requisite(self.generator.send, serialization = libhazmat.create_knot())
+		super().requisite(self.generator.send, serialization = libsys.create_lock())
 		self.generator_function = function
 
 	def subresource(self, ascent):

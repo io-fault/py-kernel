@@ -271,7 +271,7 @@ class Fabric(object):
 
 		self.spawn(weakref.ref(controller), libsys.critical, (context, callable) + args)
 
-	def spawn(self, controller, callable, args, create_thread = libhazmat.create_thread):
+	def spawn(self, controller, callable, args, create_thread = libsys.create_thread):
 		"""
 		Add a thread to the fabric.
 		This expands the "parallel" capacity of a &Process.
@@ -280,7 +280,7 @@ class Fabric(object):
 		tid = create_thread(self.thread, (controller, (callable, args)))
 		return tid
 
-	def thread(self, *parameters, gettid = libhazmat.identify_thread):
+	def thread(self, *parameters, gettid = libsys.identify_thread):
 		"""
 		Manage the execution of a general purpose thread or a dedicated thread.
 		"""
@@ -307,7 +307,7 @@ class Fabric(object):
 		except BaseException as exception:
 			self.process.error(controller, exception, "Thread")
 
-	def loop(self, *parameters, gettid = libhazmat.identify_thread):
+	def loop(self, *parameters, gettid = libsys.identify_thread):
 		"""
 		Internal use only.
 
@@ -392,7 +392,7 @@ class Representation(object):
 	"""
 
 	@staticmethod
-	def current(tid = libhazmat.identify_thread):
+	def current(tid = libsys.identify_thread):
 		"""
 		Resolve the current logical process based on the thread's identifier.
 		&None is returned if the thread was not created by a &Process.
