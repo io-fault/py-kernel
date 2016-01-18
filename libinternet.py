@@ -6,12 +6,11 @@ Provides DNS resolvers and endpoint construction facilities.
 
 import socket # getaddrinfo
 
-from . import core
-
+from . import library as libio
 from ..internet import libri
 from ..internet import library as netlib
 
-class DNS(core.Library):
+class DNS(libio.Controller):
 	"""
 	Library managing the dispatch of DNS queries.
 	"""
