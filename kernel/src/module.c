@@ -611,7 +611,7 @@ interface_exit(PyObj self, PyObj args)
 }
 
 /*
- * interface_wait() - collect and process traffic events
+ * interface_wait() - collect and process kqueue events
  */
 static PyObj
 interface_wait(PyObj self, PyObj args)
@@ -629,7 +629,7 @@ interface_wait(PyObj self, PyObj args)
 		return(NULL);
 
 	/*
-	 * *Negative* numbers signal indefinate.
+	 * *Negative* numbers signal indefinite.
 	 */
 	if (sleeptime >= 0)
 		waittime.tv_sec = sleeptime;
@@ -648,7 +648,6 @@ interface_wait(PyObj self, PyObj args)
 		PyErr_SetFromErrno(PyExc_OSError);
 		return(NULL);
 	}
-	error = 0;
 
 	/*
 	 * Process the collected events.
@@ -766,9 +765,9 @@ interface_wait(PyObj self, PyObj args)
 		if (r != NULL)
 			Py_DECREF(r);
 
-		if (!PySet_Clear(kif->kif_cancellations))
+		if (PySet_Clear(kif->kif_cancellations))
 		{
-			/* error */
+			/* error? Documentation (3.5) doesn't state error code. */
 			Py_DECREF(rob);
 			return(NULL);
 		}
