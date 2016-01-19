@@ -226,12 +226,10 @@ class Local(tuple):
 
 class Coprocess(tuple):
 	"""
-	A reference to a coprocess interface.
+	A reference to a coprocess interface. Used by &.libdaemon based processes
+	in order to refer to each other.
 
 	Used by distributed services in order to refer to custom listening interfaces.
-
-	XXX: Unused.
-	# ~/.faultd/service/if/2:custom; actual socket or should it use a multiplexing connection?
 	"""
 
 	__slots__ = ()
@@ -248,7 +246,7 @@ class Coprocess(tuple):
 
 	@property
 	def port(self):
-		"Specific listening port; string."
+		"The Host header to use to connect to."
 
 	@classmethod
 	def create(Class, coprocess_id, port):
@@ -381,6 +379,9 @@ class Join(object):
 	An object whose purpose is to join the completion of multiple
 	processors into a single event. Joins are used to simplify coroutines
 	whose progression depends on a set of processors instead of one.
+
+	Joins also enable interrupts to trigger completion events so that
+	failures from unrelated Sectors can be communicated to callback.
 
 	[ Properties ]
 
@@ -549,7 +550,7 @@ class Layer(object):
 
 class Transaction(object):
 	"""
-	Resource allocation transaction.
+	Kernel resource allocation transaction.
 
 	Used to manage undo operations for exception management and consolidate allocation interfaces.
 
@@ -594,8 +595,6 @@ class Transaction(object):
 		Allocate &Detour instnaces for the input and output of the given
 		kernel port (file descriptor).
 		"""
-		global meter_input, meter_output
-
 		r, w = self.traffic(locator, kport)
 
 		rd = Detour()
@@ -790,9 +789,9 @@ class Transaction(object):
 			f.subresource(self.sector)
 			yield f
 
-	def system(self, invocation):
+	def command(self, invocation):
 		"""
-		Execute the &..fork.library.KInvocation inheriting standard input, output, and error.
+		Execute the &..system.library.KInvocation inheriting standard input, output, and error.
 
 		This is used almost exclusively by shell-type processes where the calling process
 		suspends TTY I/O until the child exits.
@@ -806,9 +805,9 @@ class Transaction(object):
 
 	def pipeline(self, kpipeline, input=None, output=None):
 		"""
-		Execute a &..fork.library.KPipeline object building an IO instance
+		Execute a &..system.library.KPipeline object building an IO instance
 		from the input and output file descriptors associated with the
-		first and last processes as described by its &..fork.library.Pipeline.
+		first and last processes as described by its &..system.library.Pipeline.
 
 		Additionally, a mapping of standard errors will be produced.
 		Returns a tuple, `(input, output, stderrs)`.
@@ -850,7 +849,7 @@ class Transaction(object):
 
 	def daemon(self, invocation, close=os.close):
 		"""
-		Execute the &..fork.library.KInvocation instance with stdin and stdout closed.
+		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
 		Standard error's file descriptor is returned as a &Detour along with
 		the &Subprocess: (&Subprocess, &Detour).
 		"""
@@ -888,7 +887,7 @@ class Transaction(object):
 
 	def daemon_stderr(self, stderr, invocation, close=os.close):
 		"""
-		Execute the &..fork.library.KInvocation instance with stdin and stdout closed.
+		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
 		The &stderr parameter will be passed in as the standard error file descriptor,
 		and then *closed* before returning.
 
@@ -1790,6 +1789,8 @@ class Controller(Sector):
 
 	&Controller sectors are first different from regular Sectors in that
 	they do not exit when empty as they provide a service.
+
+	Controller sectors should be subclassed in order to be used.
 	"""
 
 	def reaped(self):
@@ -2265,6 +2266,12 @@ class Thread(Processor):
 	A &Processor that runs a callable in a dedicated thread.
 	"""
 
+	@classmethod
+	def queueprocessor(Class):
+		raise NotImplementedError
+		t = Class()
+		t.requisite(self._queue_process)
+
 	def requisite(self, callable):
 		self.callable = callable
 
@@ -2372,6 +2379,11 @@ class Interface(Sector):
 	"""
 	An Interface Sector used to manage a set of Connection instances spawned from
 	a set of listening sockets configured by the &Unit's &Ports.
+
+	! NOTE:
+		&Interface instances are *not* &Controller's because
+		their existence is dependent on the flows that accept
+		connections in need of processing.
 
 	[ Properties ]
 
@@ -2609,7 +2621,7 @@ class Transports(Transformer):
 
 	def requisite(self, opposite):
 		"Opposite transformer is needed to propagate opposing reactions."
-
+		global weakref
 		self.opposite_transformer = weakref.ref(opposite)
 
 	operations = ()
@@ -2621,6 +2633,12 @@ class Transports(Transformer):
 		read transports and write transports. The positioning is subjective,
 		so if the input Transformer is being configured, the first item in
 		the pair should be the input operations.
+
+		[ Parameters ]
+
+		/polarity
+			Identifies the direction that is being configured;
+			must be either `1` for input or `-1` for output.
 		"""
 
 		self.polarity = polarity
@@ -2674,12 +2692,14 @@ class Transports(Transformer):
 						opp.drained()
 					else:
 						opp.controller.terminate(by=self)
+
+					# If it's permanent, no drain completion is necessary.
 					return None
 				else:
 					# signal transport that termination needs to occur
 					self.stack[0].terminate(self.polarity)
 					self.process(())
-					# drain is complete when shutdown is received
+
 					return self.atshutdown
 
 		# Not terminating, no flushes necessary.
@@ -2709,43 +2729,45 @@ class Transports(Transformer):
 			# No processing if empty.
 			self.emit(events)
 
-		# Termination must be checked everytime.
-		if self.stack[0].terminated and not termination:
-			# *fully* terminated. pop item after allowing the opposite to complete
+		# Termination must be checked everytime unless process() was called from here
+		if not termination:
+			if self.stack[0].terminated:
+				# *fully* terminated. pop item after allowing the opposite to complete
 
-			# This needs to be done as the transport needs the ability
-			# to flush any remaining events in the opposite direction.
-			opp = self.opposite
-			# (Avoid an infinite loop using the termination keyword.)
-			opp.process((), termination=True)
+				# This needs to be done as the transport needs the ability
+				# to flush any remaining events in the opposite direction.
+				opp = self.opposite
+				# (Avoid an infinite loop using the termination keyword.)
+				opp.process((), termination=True)
 
-			del self.stack[0]
-			# operations is perspective sensitive
-			if self.polarity > 0:
-				# recv/input
-				del self.operations[-1]
-				del opp.operations[0]
-			else:
-				# send/output
-				del self.operations[0]
-				del opp.operations[-1]
+				del self.stack[0] # both sides; stack is shared.
 
-			if not self.stack:
-				# signal drain completion if stack is empty
-				opp.drained()
-				self.drained()
-			else:
-				# Otherwise, the next stack needs to terminated,
-				# if the controller is terminating.
-				if opp.controller.terminating:
-					opp.stack[0].terminate(-self.polarity)
-				if self.controller.terminating:
-					self.stack[0].terminate(self.polarity)
+				# operations is perspective sensitive
+				if self.polarity > 0:
+					# recv/input
+					del self.operations[-1]
+					del opp.operations[0]
+				else:
+					# send/output
+					del self.operations[0]
+					del opp.operations[-1]
 
-		elif opposite_has_work and not termination:
-			# Use recursion on purpose to allow
-			# the maximum stack depth to block an infinite loop.
-			self.opposite.process(())
+				if not self.stack:
+					# signal drain completion if stack is empty
+					opp.drained()
+					self.drained()
+				else:
+					# Otherwise, the next stack needs to terminated,
+					# if the controller is terminating.
+					if opp.controller.terminating:
+						opp.stack[0].terminate(-self.polarity)
+					if self.controller.terminating:
+						self.stack[0].terminate(self.polarity)
+
+			elif opposite_has_work:
+				# Use recursion on purpose to allow
+				# the maximum stack depth to block an infinite loop.
+				self.opposite.process(())
 
 class Reactor(Transformer):
 	"""
@@ -3802,22 +3824,6 @@ class Funnel(Flow):
 			super().terminate(by=by)
 		# Termination induced by flow is ignored.
 
-class Distributor(Processor):
-	"""
-	Processor performing the distribution of events emitted into &process.
-
-	! DEVELOPER:
-		Not implemented.
-	"""
-
-	def __init__(self):
-		pass
-
-	def process(self, event, source=None):
-		"""
-		"""
-		raise NotImplementedError
-
 class Fork(Terminal):
 	"""
 	A &Terminal that distributes events to a set of Flows based on the identified key.
@@ -4220,7 +4226,7 @@ class Distributing(Extension):
 			self.controller.fault(exc)
 
 	def receiver_obstructed(self, flow):
-		self.input.obstruct(flow, Condition(flow, 'obstructed'))
+		self.input.obstruct(flow, Condition(flow, ('obstructed',)))
 
 	def receiver_cleared(self, flow):
 		self.input.clear(flow)
@@ -4360,13 +4366,12 @@ class QueueProtocol(Protocol):
 
 	def requisite(self, accept, input, output):
 		"""
-		Configure the I/O flows for the protocol.
+		Configure the I/O flows and callbacks for protocol transaction processing.
 		"""
 
 		s = self.serialize = Sequencing(self.protocol_output)
 		s.subresource(self)
 
-		# reads need to know how to affix
 		d = self.distribute = Distributing(self.input_layer, self.protocol_input, accept)
 		d.subresource(self)
 
@@ -4374,26 +4379,29 @@ class QueueProtocol(Protocol):
 
 		s.requisite(output)
 		d.requisite(input)
-		input.atexit(self.dependency_exit)
-		output.atexit(self.dependency_exit)
+		input.atexit(self.input_closed)
+		output.atexit(self.output_closed)
 
-	def dependency_exit(self, flow):
+	def input_closed(self, flow):
+		if self.exits == 1:
+			self.exit()
+		self.exits += 1
+
+
+	def output_closed(self, flow):
+		if self.exits == 1:
+			self.exit()
+		self.exits += 1
+
+	def exit(self):
 		"""
 		Called when either the input or output flow exits.
 		"""
 
-		if self.exits:
-			self.distribute.state.close() # bit of a hack to allow cleanup
-			self.terminated = True
-			self.terminating = False
-			self.controller.exited(self)
-
-		self.exits += 1
-
-class ParallelProtocol(Protocol):
-	"""
-	Parallel Channel Protocol. Used for supporting protocols like HTTP 2.0.
-	"""
+		self.distribute.state.close() # bit of a hack to allow cleanup
+		self.terminated = True
+		self.terminating = False
+		self.controller.exited(self)
 
 def Encoding(
 		transformer,
