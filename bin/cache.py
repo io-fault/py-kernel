@@ -16,7 +16,7 @@ from ...chronometry import library as libtime
 from ...chronometry import libflow
 from ...internet import libri
 from ...routes import library as libroutes
-from ...computation import library as libcomp
+from ...computation import library as libc
 from .. import library as libio
 
 from .. import security
@@ -30,7 +30,7 @@ radar = libflow.Radar()
 gtls = None
 
 def count(name, event):
-	xfer = libcomp.sum_lengths(event)
+	xfer = libc.sum_lengths(event)
 	transfer_counter[name] += xfer
 
 with open('/x/realm/ssl/certs/ca-bundle.crt', 'rb') as f:
@@ -43,6 +43,7 @@ def response_endpoint(protocol, request, response, connect, transports=(), tls=N
 	sector = protocol.sector
 	global gtls
 	gtls = tls
+	print(request)
 	print(response)
 	if tls:
 		print(tls)
@@ -60,10 +61,10 @@ def response_endpoint(protocol, request, response, connect, transports=(), tls=N
 		print(target)
 		trace = libio.Trace()
 
-		track = libcomp.compose(functools.partial(radar.track, path), libcomp.sum_lengths)
+		track = libc.compose(functools.partial(radar.track, path), libc.sum_lengths)
 		trace.monitor("rate", track)
 
-		track = libcomp.partial(count, path)
+		track = libc.partial(count, path)
 		trace.monitor("total", track)
 
 		f = xact.flow((libio.Iterate(), trace), target)
