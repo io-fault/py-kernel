@@ -7,6 +7,8 @@ initialization and termination sequences.
 Additionally, libdaemon provides a message bus for communicating with other daemons of the
 same configuration.
 
+
+
 #!text
 	/sectors [/bin/ contains the unactuated module set; /control is sectord]
 	|- worker1 [/bin/ contains the actuated module set; /control is sectord with non-zero fork_id]
@@ -26,17 +28,15 @@ same configuration.
 /control - Control Signalling Interface
 	/terminate
 		Power Down the [system] Process
-	/sleep
-		Cause the task queue to pause for the given interval
 	/inject
 		Introspection Interface; debugging; profiling
 
 /circulate - Broadcasting Interface
-	/daemon
+	/coprocess
 		Channel to other Processes in the daemon. (maybe virtual/implicit)
 	/site
 		System Sets are closely connected (same system or network)
-	/graph
+	/application
 		Set of sites; the entire graph
 
 /message - Direct Messaging
@@ -60,17 +60,37 @@ from . import libhttp
 from ..routes import library as libroutes
 from ..system import library as libsys
 
-class HTTP(libio.Sector):
+class Commands(libhttp.Index):
 	"""
-	Request-Accept callbacks and job management for HTTP.
+	HTTP Control API used by control (Host) connections.
 	"""
 
-	@libhttp.Resource.method()
-	def control_index(self, request, response, input):
+	def __init__(self):
 		pass
 
-	@libhttp.Resource.method(limit=0)
-	def terminate(self, request, response, input):
+	@libhttp.Resource.method()
+	def inject(self, resource, parameters) -> str:
+		"""
+		Inject arbitrary code for introspective purposes.
+		"""
+
+		return None
+
+	@libhttp.Resource.method()
+	def report(self, resource, parameters):
+		"""
+		Build a report describing the process.
+		"""
+
+		return None
+
+	@libhttp.Resource.method()
+	def timestamp(self, resource, parameters):
+		"Return the faultd's perception of time."
+		return libtime.now().select("iso")
+
+	@libhttp.Resource.method()
+	def terminate(self, resource, parameters):
 		"""
 		Issue &Unit.terminate after the Connection's Sector exits.
 		"""
@@ -82,114 +102,9 @@ class HTTP(libio.Sector):
 
 		return 'terminating\n'
 
-	@libhttp.Resource.method(limit=1024)
-	def sleep(self, request, response, input):
-		pass
-
-	@libhttp.Resource.method(limit=1024)
-	def inject(self, request, response, input):
-		pass
-
-	@libhttp.Resource.method(limit=0)
-	def circulate_index(self, request, response, input):
-		pass
-
-	@libhttp.Resource.method(limit=1024)
-	def circulate_sectors(self, request, response, input):
-		pass
-
-	@libhttp.Resource.method(limit=0)
-	def circulate_site(self, request, response, input):
-		pass
-
 	@libhttp.Resource.method()
-	def circulate_graph(self, request, response, input):
+	def __resource__(self, resource, path, query, px):
 		pass
-
-	@libhttp.Resource.method()
-	def report(self, request, response, input):
-		pass
-
-	index = {
-		b'/control': control_index,
-		b'/control/terminate': terminate,
-		b'/control/sleep': sleep,
-		b'/control/inject': inject,
-		b'/control/report': report,
-
-		# Message Injection
-		b'/circulate': circulate_index,
-		b'/circulate/sectors': circulate_sectors,
-		b'/circulate/site': circulate_site,
-		b'/circulate/graph': circulate_graph,
-	}
-
-	def http_request_accept(self, layer, connect, partial=functools.partial):
-		request = layer
-		response = self.protocol.output_layer()
-
-		ins = self.protocol.distribute
-		out = self.protocol.serialize
-		out.enqueue(response)
-
-		out_connect = partial(out.connect, response)
-
-		# conditionally provide flow connection callback.
-		if request.length is not None:
-			ins_connect = partial(ins.connect, request)
-		else:
-			# there is no content flow
-			ins_connect = None
-
-		method = self.index.get(layer.path)
-		if method is None:
-			response.initiate((request.version, b'404', b'NOT FOUND'))
-			if request.terminal:
-				response.add_headers([
-					(b'Connection', b'close'),
-				])
-
-			notfound = b'No such resource.'
-			response.add_headers([
-				(b'Content-Type', b'text/plain'),
-				(b'Content-Length', str(len(notfound)).encode('utf-8'),)
-			])
-
-			if request.content:
-				ins_connect(libio.Null)
-
-			proc = libio.Flow()
-			i = libio.Iterate()
-			proc.requisite(i)
-			self.dispatch(proc)
-			out_connect(proc)
-			proc.process([(notfound,)])
-		else:
-			proc = method(self, request, response, ins_connect, out_connect)
-			if proc is not None:
-				self.dispatch(proc)
-
-	@classmethod
-	def http_accept(Class, spawn, packet, chain=itertools.chain):
-		"""
-		Accept an HTTP connection for interacting with the daemon.
-		"""
-
-		source, event = packet
-		sector = spawn.sector
-
-		# event is a iterable of socket file descriptors
-		for fd in chain(*event):
-			cxn = Class()
-			sector.dispatch(cxn)
-
-			with cxn.xact() as xact:
-				io = xact.acquire_socket(fd)
-				p, fi, fo = libhttp.server_v1(xact,
-					cxn.http_request_accept, *io)
-
-				cxn.process((p, fi, fo))
-				cxn.protocol = p
 
 class Control(libio.Control):
 	"""
@@ -290,9 +205,12 @@ class Control(libio.Control):
 			The fork-id; the number associated with the fork.
 		"""
 
+		control_host = libhttp.Host()
+		control_host.requisite({'/sys/': Commands()}, 'control')
+
 		hi = libhttp.Interface()
-		libio.Interface.requisite(hi, ('control', fid), HTTP.http_accept)
-		libhttp.Interface.requisite(hi, libhttp.server_v1)
+		libio.Interface.requisite(hi, ('control', fid), hi.accept)
+		libhttp.Interface.requisite(hi, libhttp.server_v1, control_host)
 		self.dispatch(hi)
 
 	def subactuate(self):
