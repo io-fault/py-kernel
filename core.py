@@ -3684,7 +3684,6 @@ class Flow(Processor):
 		Drain the Flow and finish termination by signalling the controller
 		of its exit.
 		"""
-
 		if self.terminated or self.terminating or self.interrupted:
 			return False
 
@@ -4280,7 +4279,8 @@ class Distributing(Extension):
 		if layer.content:
 			flow = self.flows.pop(layer)
 			if flow is None:
-				# no flow connected.
+				# no flow connected, but expected to be.
+				# just leave a note for .connect that it has been closed.
 				self.flows[layer] = 'closed'
 			else:
 				flow.ignore(self.receiver_obstructed, self.receiver_cleared)
@@ -4383,6 +4383,7 @@ class QueueProtocol(Protocol):
 		"""
 
 		if self.exits:
+			self.distribute.state.close() # bit of a hack to allow cleanup
 			self.terminated = True
 			self.terminating = False
 			self.controller.exited(self)

@@ -534,36 +534,39 @@ def v1_input(
 		# notify the protocol that the transaction is ready
 		ready(layer)
 
-		body_complete = False
-		while not body_complete:
-			for x in events:
-				if x == EOM:
-					body_complete = True
-					break
+		try:
+			body_complete = False
+			while not body_complete:
+				for x in events:
+					if x == EOM:
+						body_complete = True
+						break
 
-				# not an eof event, so extend state and process as needed
-				local_state[x[0]](x[1])
+					# not an eof event, so extend state and process as needed
+					local_state[x[0]](x[1])
 
-				if trailer_sequence:
-					layer.trailer(trailer_sequence)
+					if trailer_sequence:
+						layer.trailer(trailer_sequence)
+					else:
+						if body:
+							# send the body to the connected Flow
+							transport(layer, (body,))
+
+							# empty body sequence and reconfigure its callback
+							body = []
+							local_state[content] = local_state[chunk] = body.append
+
 				else:
-					if body:
-						# send a copy of the body onward
-						transport(layer, (body,))
-
-						body = []
-						local_state[content] = local_state[chunk] = body.append
-
-			else:
-				# need more for EOM
-				events = iter(chain(*(yield)))
-			# for x in events
+					# need more for EOM
+					events = iter(chain(*(yield)))
+				# for x in events
+			# while not body_complete
+		except GeneratorExit:
+			raise
 		else:
-			# pop transaction
 			finish(layer)
 			layer = None
 
-		# while not body_complete
 	# while not close_state
 
 	# During Protocol Substitution, the disassembler
