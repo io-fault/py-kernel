@@ -138,6 +138,7 @@ def initialize(unit):
 			for i in a:
 				ip = i[-1][0]
 				y = libio.endpoint('ip4', ip, x.port)
+				print('Possible host:', y)
 			lendpoints.append((struct, y))
 		else:
 			lendpoints.append((struct, x))
