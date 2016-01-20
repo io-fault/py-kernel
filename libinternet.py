@@ -5,10 +5,10 @@ Provides DNS resolvers and endpoint construction facilities.
 """
 
 import socket # getaddrinfo
-
 from . import library as libio
+
 from ..internet import libri
-from ..internet import library as netlib
+from ..internet import library as libi
 
 class DNS(libio.Controller):
 	"""
@@ -33,8 +33,8 @@ class DNS(libio.Controller):
 def service(service_name):
 	# Do not use directly.
 
-	if service_name in netlib.common_services:
-		return netlib.common_services[service_name]
+	if service_name in libi.common_services:
+		return libi.common_services[service_name]
 
 	raise NotImplementedError("no system service interface support")
 	# Fallback to system?
@@ -60,7 +60,7 @@ def endpoint(url, scheme=None, parse=libri.parse):
 	if onlydigits:
 		if port is None:
 			port = service(struct['scheme'])
-		endpoint = netlib.Endpoint.create_ip4(host, port)
+		endpoint = libi.Endpoint.create_ip4(host, port)
 	else:
 		# either domain or ip6
 		if ':' in host:
@@ -68,9 +68,9 @@ def endpoint(url, scheme=None, parse=libri.parse):
 			host = host[1:-1]
 			if port is None:
 				port = service(struct['scheme'])
-			endpoint = netlib.Endpoint.create_ip6(host, port)
+			endpoint = libi.Endpoint.create_ip6(host, port)
 		else:
 			# resolve address
-			endpoint = netlib.Reference.from_domain(host, struct['scheme'], port=port)
+			endpoint = libi.Reference.from_domain(host, struct['scheme'], port=port)
 
 	return struct, endpoint
