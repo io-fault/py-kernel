@@ -5,7 +5,7 @@ import itertools
 from .. import security as library
 
 from .. import core
-from . import library as testlib
+from . import library as libtest
 
 key = b"""
 -----BEGIN RSA PRIVATE KEY-----
@@ -68,8 +68,8 @@ TU5G4ur07EfyALq7
 """
 
 def test_Transports_io(test, chain=itertools.chain):
-	io_context = testlib.Context()
-	io_root = testlib.Root()
+	io_context = libtest.Context()
+	io_root = libtest.Root()
 	io_context.associate(io_root)
 
 	sctx = library.libcrypt.pki.Context(key = key, certificates = [certificate])
@@ -138,7 +138,27 @@ def test_Transports_io(test, chain=itertools.chain):
 		l.extend(x)
 	test/[x for x in l if x] == [b'xyz', server_inc[0]]
 
-if __name__ == '__main__':
-	import sys; from ...development import libtest
-	libtest.execute(sys.modules[__name__])
+	# termination can only occur when both sides have initiated termination.
+	ci.terminate()
+	test/ci.terminating == True
+	test/client.terminated == False
 
+	co.terminate()
+	while io_context.tasks:
+		io_context()
+	test/client.terminated == True
+	test/server.terminated == True # recevied termination
+
+	si.terminate()
+	so.terminate()
+	while io_context.tasks:
+		io_context()
+
+	test/so.terminated == True
+	test/si.terminated == True
+	test/co.terminated == True
+	test/ci.terminated == True
+
+if __name__ == '__main__':
+	import sys; from ...development.libtest import execute
+	execute(sys.modules[__name__])

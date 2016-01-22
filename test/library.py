@@ -17,8 +17,8 @@ class Context(object):
 		self.association = lambda: processor
 		processor.context = self
 
-	def enqueue(self, task, controller=None):
-		self.tasks.append(task)
+	def enqueue(self, *task, controller=None):
+		self.tasks.extend(task)
 
 	def __call__(self):
 		l = len(self.tasks)
@@ -46,9 +46,15 @@ class Transit(object):
 
 class Root(object):
 	"Root Processor Mimic; core.Unit substitute."
+	def __init__(self):
+		self.exits = []
+
+	def exited(self, procs):
+		self.exits.append(procs)
 
 	controller = None
 
 	def process(self, proc):
 		self.processor = proc
 		proc.subresource(self)
+		proc.actuate()

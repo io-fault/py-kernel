@@ -918,6 +918,12 @@ class Processor(Resource):
 		Whether or not the Processor is functioning.
 
 		Indicates that the processor was actuated and is neither terminated nor interrupted.
+
+		! NOTE:
+			Processors are functioning *during* termination; instances where
+			`Processor.terminating == True`.
+			Termination may cause limited access to functionality, but
+			are still considered functional.
 		"""
 
 		return self.actuated and not (self.terminated or self.interrupted)
@@ -1633,6 +1639,9 @@ class Sector(Processor):
 		"Empty the exit set and check for sector completion."
 
 		exits = self.exits
+		if exits is None:
+			# Warning about reap with no exits.
+			return
 		del self.exits
 
 		struct = self.processors
@@ -2458,19 +2467,18 @@ class Transports(Transformer):
 		"The transformer of the opposite direction for the Transports pair."
 		return self.opposite_transformer()
 
-	callbacks = None
-	def atshutdown(self, callback):
-		if self.callbacks is None:
-			self.callbacks = set()
-
-		self.callbacks.add(callback)
-
+	drain_cb = None
 	def drained(self):
-		callbacks = self.callbacks
-		if callbacks is not None:
-			del self.callbacks
-			for drain_complete_cb in callbacks:
-				drain_complete_cb()
+		drain_cb = self.drain_cb
+		if not self.stack:
+			flow = self.controller
+			if flow.terminating:
+				# terminal drain
+				pass
+
+		if drain_cb is not None:
+			del self.drain_cb
+			drain_cb()
 
 	def drain(self):
 		"""
@@ -2478,48 +2486,80 @@ class Transports(Transformer):
 
 		Buffers are left as empty as possible, so flow termination is the only
 		condition that leaves a requirement for drain completion.
-
-		Drain is how &Transport manages properly sequenced termination
-		for the security layer; TLS must be terminated prior to their
-		corresponding dependencies (Detours).
 		"""
 
 		if self.stack:
+			# Only block if there are items on the stack.
 			flow = self.controller
-			if flow.terminating:
+			if not flow.terminating and flow.functioning:
+				# Run empty process to flush.
+				self.process(())
+				return None
+			else:
+				# Terminal Drain.
 				if flow.permanent:
 					# flow is permanently obstructed and transfers
 					# are irrelevant at one level or another
 					# so try to process whatever is available, finish
 					# the drain operation so termination can finish.
 					self.process(())
-					opp = self.opposite
-					if opp.callbacks:
-						# Process anything available, and identify it as drained.
-						opp.process(())
-						opp.drained()
-					else:
-						opp.controller.terminate(by=self)
+					# If a given Transports side is dead, so is the other.
+					self.opposite.closed()
 
-					# If it's permanent, no drain completion is necessary.
+					# If it's permanent, no drain can be performed.
 					return None
 				else:
-					# signal transport that termination needs to occur
-					self.stack[0].terminate(self.polarity)
-					self.process(())
+					# Signal transport that termination needs to occur.
+					self.stack[-1].terminate(self.polarity)
+					# Send whatever termination signal occurred.
+					flow.context.enqueue(self.empty)
 
-					return self.atshutdown
+					return functools.partial(self.__setattr__, 'drain_cb')
+		else:
+			# No stack, not draining.
+			pass
 
-		# Not terminating, no flushes necessary.
-		# XXX: zero transfer?
+		# No stack or not terminating.
 		return None
 
-	def process(self, events, termination=False):
-		opposite_has_work = False
+	def closed(self):
+		# Closing the transport layers is closing
+		# the actual transport. This is how Transports()
+		# distinguishes itself from protocol managed layers.
 
+		self.drained()
+
+		flow = self.controller
+
+		# If the flow isn't terminating, then it was
+		# the remote end that caused the TL to terminate.
+		# In which case, the flow needs to be terminated by Transports.
+		if not flow.interrupted and not flow.terminated:
+			# Initiate termination.
+			if not flow.terminating:
+				# If called here, the drain() won't block on Transports.
+				flow.terminate(by=self)
+
+	def empty(self):
+		self.process(())
+
+	def terminal(self):
+		self.process(())
+		if not self.stack[-1].terminated:
+			o = self.opposite
+			of = o.controller
+			if of.terminating and of.functioning:
+				# Terminate other side if terminating and functioning.
+				self.stack[-1].terminate(-self.polarity)
+				o.process(())
+
+	def process(self, events):
 		if not self.operations:
-			self.emit(events)
+			# Opposite cannot have work if empty.
+			self.emit(events) # Empty transport stack acts a passthrough.
 			return
+
+		opposite_has_work = False
 
 		for ops in self.operations:
 			# ops tuple callables:
@@ -2538,44 +2578,40 @@ class Transports(Transformer):
 			self.emit(events)
 
 		# Termination must be checked everytime unless process() was called from here
-		if not termination:
-			if self.stack[0].terminated:
-				# *fully* terminated. pop item after allowing the opposite to complete
+		if opposite_has_work:
+			# Use recursion on purpose and allow
+			# the maximum stack depth to block an infinite loop.
+			self.opposite.process(())
 
-				# This needs to be done as the transport needs the ability
-				# to flush any remaining events in the opposite direction.
-				opp = self.opposite
-				# (Avoid an infinite loop using the termination keyword.)
-				opp.process((), termination=True)
+		stack = self.stack
 
-				del self.stack[0] # both sides; stack is shared.
+		if stack and stack[-1].terminated:
+			# *fully* terminated. pop item after allowing the opposite to complete
 
-				# operations is perspective sensitive
-				if self.polarity > 0:
-					# recv/input
-					del self.operations[-1]
-					del opp.operations[0]
-				else:
-					# send/output
-					del self.operations[0]
-					del opp.operations[-1]
+			# This needs to be done as the transport needs the ability
+			# to flush any remaining events in the opposite direction.
+			opp = self.opposite
 
-				if not self.stack:
-					# signal drain completion if stack is empty
-					opp.drained()
-					self.drained()
-				else:
-					# Otherwise, the next stack needs to terminated,
-					# if the controller is terminating.
-					if opp.controller.terminating:
-						opp.stack[0].terminate(-self.polarity)
-					if self.controller.terminating:
-						self.stack[0].terminate(self.polarity)
+			del stack[-1] # both sides; stack is shared.
 
-			elif opposite_has_work:
-				# Use recursion on purpose to allow
-				# the maximum stack depth to block an infinite loop.
-				self.opposite.process(())
+			# operations is perspective sensitive
+			if self.polarity == 1:
+				# recv/input
+				del self.operations[-1]
+				del opp.operations[0]
+			else:
+				# send/output
+				del self.operations[0]
+				del opp.operations[-1]
+
+			if stack:
+				if self.controller.terminating:
+					# continue termination.
+					self.stack[-1].terminate(self.polarity)
+					self.controller.context.enqueue(self.terminal)
+			else:
+				self.closed()
+				self.opposite.closed()
 
 class Reactor(Transformer):
 	"""
@@ -4000,6 +4036,7 @@ class Distributing(Extension):
 		"""
 		End of Layer context content. Flush queue and remove entries.
 		"""
+		global functools
 
 		if layer.content:
 			flow = self.flows.pop(layer)
@@ -4014,7 +4051,7 @@ class Distributing(Extension):
 			flow = None
 
 		if getattr(layer, 'terminal', False):
-			self.input.terminate(by=layer)
+			self.context.enqueue(functools.partial(self.input.terminate, by=layer))
 
 	def accept_event_connect(self, receiver:ProtocolTransactionEndpoint):
 		"""
