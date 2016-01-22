@@ -1,6 +1,5 @@
 """
 """
-
 import itertools
 
 from .. import security as library
@@ -73,29 +72,19 @@ def test_Transports_io(test, chain=itertools.chain):
 	io_root = testlib.Root()
 	io_context.associate(io_root)
 
-	sctx = library.pki.Context(key = key, certificates = [certificate])
-	cctx = library.pki.Context(certificates = [certificate])
+	sctx = library.libcrypt.pki.Context(key = key, certificates = [certificate])
+	cctx = library.libcrypt.pki.Context(certificates = [certificate])
 
 	client = cctx.connect()
 	server = sctx.accept()
 
-	client_tio = library.operations(client)
-	ci, co = core.Flow(), core.Flow()
-	ci.requisite(core.Transports(), core.Collect.list())
-	co.requisite(core.Transports())
+	cti, cto = core.Transports.create((client,))
+	ci = core.Flow(cti, core.Collect.list())
+	co = core.Flow(cto)
 
-	ci.sequence[0].requisite(co.sequence[0])
-	co.sequence[0].requisite(ci.sequence[0])
-	ci.sequence[0].configure(1, (client,), client_tio)
-
-	server_tio = library.operations(server)
-	si, so = core.Flow(), core.Flow()
-	si.requisite(core.Transports(), core.Collect.list())
-	so.requisite(core.Transports())
-
-	si.sequence[0].requisite(so.sequence[0])
-	so.sequence[0].requisite(si.sequence[0])
-	si.sequence[0].configure(1, (server,), server_tio)
+	sti, sto = core.Transports.create((server,))
+	si = core.Flow(sti, core.Collect.list())
+	so = core.Flow(sto)
 
 	sector = core.Sector()
 	io_root.process(sector)

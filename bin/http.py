@@ -78,9 +78,8 @@ def response_endpoint(protocol, request, response, connect):
 	sector.dispatch(fe)
 	fe.process([(str(request).encode('ascii'), b'\n', str(response).encode('ascii'), b'\n',)])
 
-def main(call):
-	root_sector = call.sector
-	proc = root_sector.context.process
+def main(sector):
+	proc = sector.context.process
 
 	sysparams = proc.invocation.parameters['system']['arguments']
 	protocol, endpoint, port, host, method, path, *options = sysparams
@@ -103,14 +102,14 @@ def main(call):
 		req.add_headers(((b'Accept', b'*/*'),))
 	req.add_headers(headers)
 
-	hc = libhttp.Client.open(root_sector, endpoint)
+	hc = libhttp.Client.open(sector, endpoint)
 
 	if req.content:
-		with root_sector.allocate() as xact:
+		with sector.allocate() as xact:
 			file = open('/dev/stdin', 'rb')
 			fi = xact.flow((libio.Parallel(),))
 			fi.sequence[0].requisite(input_thread, file)
-		root_sector.dispatch(fi)
+		sector.dispatch(fi)
 	else:
 		fi = None
 

@@ -1,7 +1,7 @@
 """
 Adapter for using &..traffic with &.library.Flow instances in &..io applications.
 
-Specifically geared for &.library.Detour instances.
+Specifically geared for &.library.KernelPort instances.
 
 ! WARNING:
 	Needs a semaphore to block before overflowing the queue.
@@ -12,6 +12,8 @@ import functools
 import collections
 from ..traffic import library
 
+allocate = library.kernel.Junction.rallocate
+
 # This is executed by the main io.library task queue of a SystemProcess instance.
 # It ends up being a sub-queue for I/O events and has similar logic for managing
 # exceptions.
@@ -19,7 +21,7 @@ from ..traffic import library
 def deliver_io_events(junction, events):
 	"""
 	Send the individual &events originally prepared by &separate_io_events to
-	their associated &Detour Transformers.
+	their associated &.library.KernelPort Transformers.
 	"""
 
 	popevent = events.popleft
@@ -46,7 +48,7 @@ def deliver_io_events(junction, events):
 					# send transfer regardless of termination
 					# data may be transferred while the termination
 					# condition is present, so its important it gets sent
-					# prior to running the Detour's termination.
+					# prior to running the KernelPort's termination.
 					detour.inject(xfer)
 
 				if term:

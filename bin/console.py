@@ -7,5 +7,5 @@ name = 'console'
 initialize = libconsole.initialize
 
 if __name__ == '__main__':
-	from .. import library as iolib
-	iolib.execute(console = (libconsole.initialize,))
+	from .. import library as libio
+	libio.execute(console = (libconsole.initialize,))

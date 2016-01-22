@@ -7,21 +7,23 @@ overhead involved.
 """
 
 from ..cryptography import library as libcrypt
+Transport = libcrypt.pki.Transport
 
 def operations(transport):
 	"""
-	Construct the input and output operations for use with a &.library.Transports instance.
+	Construct the input and output operations used by &.library.Transports instances.
+	All implementations accessible from &..cryptography expose the same features,
+	so &operations is implementation independent.
 	"""
 
-	input = (
-		transport.decipher, transport.pending_input, transport.pending_output,
+	return (
+		(transport.decipher, transport.pending_input, transport.pending_output),
+		(transport.encipher, transport.pending_output, transport.pending_input),
 	)
 
-	output = (
-		transport.encipher, transport.pending_output, transport.pending_input,
-	)
-
-	return (input, output)
+from . import library as libio
+libio.Transports.operation_set[Transport] = operations
+del libio
 
 _public_context = None
 

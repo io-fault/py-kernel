@@ -43,11 +43,13 @@ def response_endpoint(protocol, request, response, connect, transports=(), tls=N
 	sector = protocol.sector
 	global gtls
 	gtls = tls
+
 	print(request)
 	print(response)
 	if tls:
 		print(tls)
 		print(tls.peer_certificate.subject)
+
 	ri = request.resource_indicator
 	if ri["path"]:
 		path = libroutes.File.from_path(ri["path"][-1])
@@ -67,9 +69,7 @@ def response_endpoint(protocol, request, response, connect, transports=(), tls=N
 		track = libc.partial(count, path)
 		trace.monitor("total", track)
 
-		f = xact.flow((libio.Iterate(), trace), target)
-
-	sector.dispatch(f)
+		f = sector.flow((libio.Iterate(), trace), target)
 
 	f.atexit(functools.partial(response_collected, sector, request, response))
 	connect(f)
@@ -96,11 +96,14 @@ def dispatch(sector, url):
 
 	if struct['scheme'] == 'https':
 		tls = security_context.connect()
-		hc = libhttp.Client.open(sector, endpoint, transports=(tls, security.operations(tls)))
+		hc = libhttp.Client(endpoint, transports=(tls, security.operations(tls)))
 	else:
 		tls = None
-		hc = libhttp.Client.open(sector, endpoint)
+		pair, = sector.context.connect_stream((endpoint,))
+		hc = libhttp.Client(endpoint, *[libio.KernelPort(x) for x in pair])
 
+	sector.dispatch(hc)
+	hc.manage()
 	hc.http_request(functools.partial(response_endpoint, tls=tls), req, None)
 
 def process_exit(sector):

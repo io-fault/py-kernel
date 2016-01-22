@@ -21,6 +21,9 @@ Resource = core.Resource
 Extension = core.Extension
 Device = core.Device
 
+KernelPort = core.KernelPort
+Transports = core.Transports
+
 Transformer = core.Transformer
 Functional = core.Functional
 Reactor = core.Reactor # Transformer
@@ -51,6 +54,35 @@ Protocol = core.Protocol
 QueueProtocol = core.QueueProtocol
 
 Null = core.Null
+
+def pipeline(sector, kpipeline, input=None, output=None):
+	"""
+	Execute a &..system.library.KPipeline object building an IO instance
+	from the input and output file descriptors associated with the
+	first and last processes as described by its &..system.library.Pipeline.
+
+	Additionally, a mapping of standard errors will be produced.
+	Returns a tuple, `(input, output, stderrs)`.
+
+	Where stderrs is a sequence of file descriptors of the standard error of each process
+	participating in the pipeline.
+	"""
+
+	ctx = sector.context
+	pl = kpipeline()
+
+	try:
+		input = ctx.acquire('output', pl.input)
+		output = self.acquire('input', pl.output)
+
+		stderr = list(self.acquire('input', pl.standard_errors))
+
+		sp = Subprocess(*pl.process_identifiers)
+	except:
+		pl.void()
+		raise
+
+	return sp, input, output, stderr
 
 def execute(*identity, **units):
 	"""

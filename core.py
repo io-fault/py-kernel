@@ -27,12 +27,11 @@ import types
 import typing
 import codecs
 
-from ..system import libmemory
 from ..system import library as libsys
 from ..routes import library as libroutes
 from ..internet import library as libnet
 from ..chronometry import library as libtime
-from ..computation import library as libcomp
+from ..computation import library as libc
 
 class Expiry(Exception):
 	"""
@@ -592,15 +591,13 @@ class Transaction(object):
 
 	def detours(self, kport:int, locator=('octets', 'acquire', 'socket')):
 		"""
-		Allocate &Detour instnaces for the input and output of the given
+		Allocate &KernelPort instnaces for the input and output of the given
 		kernel port (file descriptor).
 		"""
 		r, w = self.traffic(locator, kport)
 
-		rd = Detour()
-		wd = Detour()
-		rd.requisite(r)
-		wd.requisite(w)
+		rd = KernelPort(r)
+		wd = KernelPort(w)
 
 		return (rd, wd)
 
@@ -613,10 +610,8 @@ class Transaction(object):
 		locator = ('octets', 'acquire', 'socket')
 		r, w = self.traffic(locator, fd)
 
-		rd = Detour()
-		wd = Detour()
-		rd.requisite(r)
-		wd.requisite(w)
+		rd = KernelPort(r)
+		wd = KernelPort(w)
 
 		return meter_input(rd), meter_output(wd)
 
@@ -649,10 +644,8 @@ class Transaction(object):
 		locator = ('octets', protocol)
 		r, w = self.traffic(locator, (str(address), port))
 
-		rd = Detour()
-		wd = Detour()
-		rd.requisite(r)
-		wd.requisite(w)
+		rd = KernelPort(r)
+		wd = KernelPort(w)
 
 		return meter_input(rd, transports=transports), meter_output(wd, transports=transports)
 
@@ -665,23 +658,19 @@ class Transaction(object):
 		/direction
 			One of `'input'` or `'output'`.
 		/fds
-			The file descriptors to be acquired as &Detour instances.
+			The file descriptors to be acquired as &KernelPort instances.
 		"""
 
 		traffic = self.traffic
 		locator = ('octets', 'acquire', dir)
 
-		xf = [Detour() for x in range(len(fds))]
-
-		for x, tr in zip(fds, xf):
+		for x in fds:
 			t = traffic(locator, x) # fault.traffic
-			tr.requisite(t)
-
-			yield tr
+			yield KernelPort(t)
 
 	def bind(self, interfaces, *transformers):
 		"""
-		Allocate &Detour instances associated with the given addresses
+		Allocate &KernelPort instances associated with the given addresses
 		for listening sockets.
 
 		This is used in cases where the listening socket has *not* yet
@@ -703,12 +692,10 @@ class Transaction(object):
 
 			locator = ('sockets', x.protocol)
 			t = traffic(locator, (str(x.address), x.port))
-			d = Detour()
-			d.requisite(t)
+			d = KernelPort(t)
 
-			flow = Flow()
+			flow = Flow(*(meter(d, alloc) + transformers))
 			flow.subresource(self.sector)
-			flow.requisite(*(meter(d, alloc) + transformers))
 
 			yield flow
 
@@ -727,11 +714,9 @@ class Transaction(object):
 		for x in fds:
 			locator = ('sockets', 'acquire')
 			t = traffic(locator, x)
-			d = Detour()
-			d.requisite(t)
+			d = KernelPort(t)
 
-			flow = Flow()
-			flow.requisite(*meter(d, allocate=alloc))
+			flow = Flow(*meter(d, allocate=alloc))
 			sector.dispatch(flow)
 			flow.connect(receiver)
 
@@ -743,9 +728,7 @@ class Transaction(object):
 		"""
 
 		t = self.traffic(('octets', 'file', 'append'), path)
-
-		d = Detour()
-		d.requisite(t)
+		d = KernelPort(t)
 
 		return meter_output(d)
 
@@ -758,36 +741,9 @@ class Transaction(object):
 
 		t = self.traffic(('octets', 'file', 'overwrite'), path)
 		position = os.lseek(t.port.fileno, 0, offset)
-
-		d = Detour()
-		d.requisite(t)
+		d = KernelPort(t)
 
 		return meter_output(d)
-
-	def flow(self, *sequences, chain=itertools.chain):
-		"""
-		Create a flow and designate the sequences of Transformers
-		as its requisites (pipeline).
-
-		Each arguments must be sequences of transformers.
-		"""
-		global Flow
-
-		f = Flow()
-		f.subresource(self.sector)
-		f.requisite(*chain(*sequences))
-
-		return f
-
-	def flows(self, count=2, range=range):
-		"Construct flows identifying the transaction's processor as its controller."
-		global Flow
-
-		u = self.unit
-		for x in range(count):
-			f = Flow()
-			f.subresource(self.sector)
-			yield f
 
 	def command(self, invocation):
 		"""
@@ -797,159 +753,7 @@ class Transaction(object):
 		suspends TTY I/O until the child exits.
 		"""
 
-		sp = Subprocess()
-		pid = invocation()
-		sp.requisite((pid,))
-
-		return sp
-
-	def pipeline(self, kpipeline, input=None, output=None):
-		"""
-		Execute a &..system.library.KPipeline object building an IO instance
-		from the input and output file descriptors associated with the
-		first and last processes as described by its &..system.library.Pipeline.
-
-		Additionally, a mapping of standard errors will be produced.
-		Returns a tuple, `(input, output, stderrs)`.
-
-		Where stderrs is a sequence of file descriptors of the standard error of each process
-		participating in the pipeline.
-		"""
-
-		pl = kpipeline()
-
-		try:
-			input = self.acquire('input', pl.input)
-			output = self.acquire('output', pl.output)
-
-			stderr = list(self.acquire('input', pl.standard_errors))
-
-			sp = Subprocess()
-			sp.requisite(pl.process_identifiers)
-		except:
-			pl.void()
-			raise
-
-		return sp, input, output, stderr
-
-	def pipeline_from_ports(self, kpipeline, input, output, *errors):
-		"""
-		Not Implemented.
-
-		Construct a pipeline from the given file descriptors (kernel ports), &input, &output, and
-		&errors. This interface is used to construct a pipeline whose I/O needs to be directed
-		to particular files.
-
-		&kpipeline expects that invoking application to manage the input and output from the pipeline,
-		but that is not desirable when directing the output to the filesystem.
-		"""
-
-		# only use file descriptors to allow user to select the FD's positioning
-		pass
-
-	def daemon(self, invocation, close=os.close):
-		"""
-		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
-		Standard error's file descriptor is returned as a &Detour along with
-		the &Subprocess: (&Subprocess, &Detour).
-		"""
-		global Subprocess
-
-		stdout = stdin = stderr = ()
-
-		try:
-			try:
-				# use dev/null?
-				stderr = os.pipe()
-				stdout = os.pipe()
-				stdin = os.pipe()
-
-				pid = invocation(fdmap=[(stderr[1], 2), (stdout[1], 1), (stdin[0], 0)])
-			finally:
-				# clean up file descriptors
-
-				for x in stderr[1:]:
-					close(x)
-				for x in stdout:
-					close(x)
-				for x in stdin:
-					close(x)
-
-			sp = Subprocess()
-			sp.requisite((pid,))
-		except:
-			close(stderr[0])
-			raise
-
-		stderr_read = list(self.acquire('input', stderr[0]))[0]
-
-		return (sp, stderr_read)
-
-	def daemon_stderr(self, stderr, invocation, close=os.close):
-		"""
-		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
-		The &stderr parameter will be passed in as the standard error file descriptor,
-		and then *closed* before returning.
-
-		Returns a &Subprocess instance containing a single Process-Id.
-
-		Used to launch a daemon with a specific standard error for monitoring purposes.
-		"""
-		global Subprocess
-
-		stdout = stdin = ()
-
-		try:
-			# use dev/null?
-			stdout = os.pipe()
-			stdin = os.pipe()
-
-			pid = invocation(fdmap=[(stderr, 2), (stdout[1], 1), (stdin[0], 0)])
-		finally:
-			# clean up file descriptors
-			close(stderr)
-
-			for x in stdout:
-				close(x)
-			for x in stdin:
-				close(x)
-
-		sp = Subprocess()
-		sp.requisite((pid,))
-
-		return sp
-
-	def stream_file(self, path:str, range:tuple, *downstream, Segments=libmemory.Segments):
-		"""
-		Construct a new Flow with an initial Iterate Transformer
-		flowing shared memory segments from the memory mapped file.
-
-		Returns a pair, the new Flow and a callable that causes the Flow to begin
-		transferring memory segments.
-
-		[ Parameters ]
-
-		/path
-			Local filesystem path to read from.
-
-		/range
-			A triple, (start, stop, size), or &None if the entire file should be used.
-			Where size is the size of the memory slices to emit.
-
-		/downstream
-			The set of &Transformer instances that follow the &Iterate instance.
-		"""
-		global Iterate, Flow
-
-		segs = Segments.open(path, range)
-		sector = self.sector
-
-		f = Flow()
-		i = Iterate()
-		f.requisite(i, *downstream)
-		sector.dispatch(f)
-
-		return f, functools.partial(f.process, s)
+		return Subprocess(invocation())
 
 class Resource(object):
 	"""
@@ -975,6 +779,11 @@ class Resource(object):
 	)
 
 	@property
+	def unit(self):
+		"Return the &Unit that contains this &Resource instance."
+		return self.context.association()
+
+	@property
 	def sector(self, isinstance=isinstance):
 		"Identify the &Sector holding the &Resource by scanning the &controller stack."
 
@@ -985,10 +794,6 @@ class Resource(object):
 			c = c.controller
 
 		return c
-
-	def __init__(self):
-		""
-		pass
 
 	def __repr__(self):
 		c = self.__class__
@@ -1279,18 +1084,42 @@ class Call(Processor):
 	Used as an abstraction to explicit enqueues, and trigger faults in Sectors.
 	"""
 
-	def requisite(self, call):
-		self.call = call
+	@classmethod
+	def partial(Class, call:collections.abc.Callable, *args, **kw):
+		"""
+		Create a call applying the arguments to the callable upon actuation.
+		The positional arguments will follow the &Sector instance passed as
+		the first argument.
+		"""
+		global functools
+		return Class(functools.partial(call, *args, **kw))
+
+	def __init__(self, call:functools.partial):
+		"""
+		The partial application to the callable to perform.
+		Usually, instantiating from &partial is preferrable;
+		however, given the presence of a &functools.partial instance,
+		direct initialization is better.
+
+		[ Parameters ]
+		/call
+			The callable to enqueue during actuation of the &Processor.
+		"""
+		self.source = call
 
 	def actuate(self):
-		self.context.enqueue(self.process)
+		self.context.enqueue(self.execution)
 		super().actuate()
 
-	def process(self, event=None, source=None):
+	def execution(self, event=None, source=None):
 		assert self.functioning
 
+		call = self.source.func
+		args = self.source.args
+		kw = self.source.keywords
+
 		try:
-			self.product = self.call(self)
+			self.product = call(self.controller, *args, **kw) # Execute Callable.
 			self.terminated = True
 			self.controller.exited(self)
 		except BaseException as exc:
@@ -1298,7 +1127,57 @@ class Call(Processor):
 			self.fault(exc)
 
 	def structure(self):
-		return ([('call', self.call)], ())
+		return ([('source', self.source)], ())
+
+class Coroutine(Processor):
+	"""
+	Processor for generator based coroutine.
+
+	Manages the generator state in order to signal the containing &Sector of its
+	exit. Generator coroutines are the common mechanism for serializing the dispatch of
+	work to relevant &Sector instances.
+	"""
+
+	def __init__(self, coroutine):
+		self.source = coroutine
+
+	@property
+	def state(self):
+		return self.unit.stacks[self]
+
+	@types.coroutine
+	def container(self):
+		"""
+		! INTERNAL:
+			Private Method.
+
+		Container for the coroutine's execution in order
+		to map completion to processor exit.
+		"""
+		try:
+			yield None
+			self.product = (yield from self.coroutine(self.sector))
+			self.controller.exited(self)
+		except BaseException as exc:
+			self.product = None
+			self.fault(exc)
+
+	def actuate(self, partial=functools.partial):
+		"""
+		Start the coroutine.
+		"""
+
+		state = self.container()
+		self.unit.stacks[self] = state
+
+		super().actuate()
+		self.context.enqueue(state.send)
+
+	def terminate(self):
+		self.state.close()
+
+	def interrupt(self):
+		self.state.throw(KeyboardInterrupt)
 
 class Unit(Processor):
 	"""
@@ -1668,7 +1547,7 @@ class Sector(Processor):
 			ps.actuate()
 
 	def terminate(self, by=None):
-		super().terminate(by)
+		super().terminate(by=by)
 
 		if self.processors:
 			# Rely on self.reap() to finish termination.
@@ -1736,6 +1615,20 @@ class Sector(Processor):
 
 		return gc.actuate()
 
+	def flow(self, *sequences, chain=itertools.chain):
+		"""
+		Create a flow and designate the sequences of Transformers
+		as its requisites (pipeline).
+
+		Each argument must be sequences of transformers.
+		"""
+		global Flow
+
+		f = Flow(*chain(*sequences))
+		self.dispatch(f)
+
+		return f
+
 	def reap(self, set=set):
 		"Empty the exit set and check for sector completion."
 
@@ -1781,7 +1674,6 @@ class Sector(Processor):
 
 		global Transaction
 		return Transaction(self)
-	xact = allocate
 
 class Controller(Sector):
 	"""
@@ -1811,7 +1703,7 @@ class Connection(Sector):
 	[ Properties ]
 
 	/(&Endpoint)`endpoint`
-		The remote address used to establish the Connection.
+		The remote endpoint that is communicating with the local endpoint.
 
 	/(&Flow)`input`
 		The &Flow that receives from the remote endpoint.
@@ -1820,23 +1712,30 @@ class Connection(Sector):
 		The &Flow that sends to the remote endpoint.
 	"""
 
-	def requisite(self, endpoint, transports=None):
-		"""
-		The endpoint that the Client will be connecting to.
-		"""
+	transports = ()
+	def __init__(self, endpoint, input, output, transports=()):
+		global Flow
+		super().__init__()
+
 		self.endpoint = endpoint
-		self.transports = transports
+		if transports:
+			raise NotImplementedError
+			for transport_layer in transports():
+				state, ops = transport_layer()
+			self.transports = ()
 
-	@classmethod
-	def open(Class, sector:Sector, endpoint, transports=None):
-		"""
-		Open a connection inside the given &sector.
-		"""
+		self.input = Flow(*meter_input(input))
+		self.output = Flow(*meter_output(output))
 
-		c = Class()
-		c.requisite(endpoint, transports=transports)
-		sector.dispatch(c) # actuate Client
-		return c
+	def actuate(self):
+		super().actuate()
+		self.process((self.input, self.output))
+
+	def manage(self, protocol, accept):
+		self.protocol = protocol
+		self.dispatch(protocol)
+		protocol.connect(accept, self.input, self.output)
+		self.input.process(None)
 
 class Control(Sector):
 	"""
@@ -1918,6 +1817,10 @@ class Subprocess(Processor):
 	management of subprocessor metadata such as the Process-Id of the child.
 	"""
 
+	def __init__(self, *pids):
+		self.process_exit_events = {}
+		self.active_processes = set(pids)
+
 	def structure(self):
 		p = [
 			x for x in [
@@ -1935,10 +1838,6 @@ class Subprocess(Processor):
 			return i, self.process_exit_events.get(i)
 
 		return None
-
-	def requisite(self, pids):
-		self.process_exit_events = {}
-		self.active_processes = set(pids)
 
 	def sp_exit(self, pid, event):
 		self.process_exit_events[pid] = event
@@ -2302,74 +2201,6 @@ class Thread(Processor):
 		"""
 		pass
 
-class Coroutine(Processor):
-	"""
-	Processor for generator based coroutine.
-
-	Manages the generator state in order to signal the containing &Sector of its
-	exit. Generator coroutines are the common mechanism for serializing the dispatch of
-	work to relevant &Sector instances.
-	"""
-
-	@classmethod
-	def from_callable(Class, generator_function):
-		"""
-		Construct a generator from a function taking the &Sector as a parameter.
-		"""
-
-		r = Class()
-		g = generator_function(r)
-		r.state = self.container(g)
-
-		return r
-
-	@classmethod
-	def from_generator(Class, generator):
-		"""
-		Construct a coroutine from an already running generator.
-		"""
-
-		r = Class()
-		r.state = self.container(g)
-		return r
-
-	@types.coroutine
-	def container(self, coroutine):
-		"""
-		! INTERNAL:
-			Private Method.
-
-		Container for the coroutine's execution in order
-		to map completion to processor exit.
-		"""
-		try:
-			yield None
-			self.product = (yield from coroutine)
-			self.controller.exited(self)
-		except Exception as exc:
-			self.product = None
-			self.fault(exc)
-
-	def requisite(self, coroutine):
-		self.state = self.container(coroutine)
-
-	def actuate(self):
-		"""
-		Start the generator, but do not execute the coroutine.
-		"""
-		super().actuate()
-		self.state.send(None)
-		self.context.enqueue(self.state.send(None))
-
-	def process(self, argument=None):
-		self.state.send(argument)
-
-	def terminate(self):
-		self.state.close()
-
-	def interrupt(self):
-		self.state.throw(KeyboardInterrupt)
-
 # Interface is the handle on the set of connection for clients.
 # The API being supported by the Interface defined by a subclass
 # The port bindings are reusable?
@@ -2408,7 +2239,7 @@ class Interface(Sector):
 		]
 		return (p, ())
 
-	def requisite(self, slot, spawn):
+	def __init__(self, slot, spawn):
 		"""
 		Select the &Ports slot to acquire listening sockets from.
 
@@ -2418,22 +2249,21 @@ class Interface(Sector):
 			The slot to acquire from the &Ports instance assigned to "/dev/ports".
 
 		/spawn
-			The function used to create the &Connection instance.
+			The function used to create &Connection instances from the set of accepted
+			sockets transferred through the &Interface's &funnel.
 		"""
 
+		super().__init__()
 		self.slot = slot
 		self.spawn = spawn
 
 	def actuate(self):
 		global Flow, Sector
-		super().actuate()
-
 		self.bindings = set()
 
-		self.funnel = Funnel()
-		Funnel.requisite(self.funnel) # defaults
-		Flow.requisite(self.funnel, Spawn(self.spawn))
+		super().actuate()
 
+		self.funnel = Funnel(Spawn(self.spawn))
 		self.dispatch(self.funnel)
 
 		ports = self.context.association().ports
@@ -2450,7 +2280,10 @@ class Interface(Sector):
 		return self
 
 	@staticmethod
-	def accept(spawn, packet, transports=(), chain=itertools.chain):
+	def accept(spawn, packet, transports=(),
+			chain=itertools.chain,
+			map=map, tuple=tuple, isinstance=isinstance
+		):
 		"""
 		Accept connections for the &Interface and prepare them to be sent to &route
 		for further interface-specific processing.
@@ -2464,49 +2297,39 @@ class Interface(Sector):
 		/transports
 			The transport layers to configure &Transports transformers with.
 		"""
+		global endpoint
+
 		source, event = packet
 		sector = spawn.controller.sector # from the Funnel
+		pairs = []
 
-		# event is a iterable of socket file descriptors
-		with sector.allocate() as ifxact:
-			# Build the detours to be given to meter_input/meter_output.
-			# Detours are built directly here because we want
-			# access to the Transit's information and shouldn't
-			# make assumptions about its positiioning in the flow
-			# after meter_input/meter_output.
-			pairs = list(map(ifxact.detours, chain(*event)))
+		# allocate transits.
+		# event is an iterable of socket file descriptor sequences
+		pairs.extend(sector.context.accept_sockets(chain(*event)))
 
-			for i, o in pairs:
-				# configure rate constraints?
-				remote = o.transit.endpoint()
-				local = i.transit.endpoint()
-				if isinstance(remote, tuple):
-					# XXX: local socket workaround
-					remote = local
+		for i, o in pairs:
+			# configure rate constraints?
+			remote = o.endpoint()
+			local = i.endpoint()
+			if isinstance(remote, tuple):
+				# XXX: local socket workaround
+				remote = local
 
-				remote = endpoint(remote.address_type, remote.interface, remote.port)
-				ifaddr = endpoint(local.address_type, local.interface, local.port)
+			remote = endpoint(remote.address_type, remote.interface, remote.port)
+			ifaddr = endpoint(local.address_type, local.interface, local.port)
 
-				cxn = sector.Connection()
-				cxn.requisite(remote, transports=transports)
-				sector.dispatch(cxn) # actuate and assign the connection
+			ki = KernelPort(i)
+			ko = KernelPort(o)
+			cxn = sector.Connection(remote, ki, ko, transports=transports)
+			sector.dispatch(cxn) # actuate and assign the connection
 
-				with cxn.allocate() as xact:
-					mi = meter_input(i)
-					mo = meter_output(o)
-					p, fi, fo = sector.construct_connection_parts(xact, sector.route, mi, mo)
-					cxn.input = fi
-					cxn.output = fo
-					cxn.protocol = p
-
-					cxn.process((fo, fi, p))
-					fi.process(None) # sector.route call is possible after this.
+			cxn.manage(sector.construct_connection_parts(), sector.route)
 
 class Protocol(Processor):
 	"""
 	A &Processor that manages protocol state. Usually, protocols are generalized
 	into &Flow divisions coupled with &Layer context events signalling the initiation
-	and completion of protocol transactions.
+	and completion of &ProtocolTransaction's.
 	"""
 
 class Transformer(Resource):
@@ -2547,36 +2370,6 @@ class Transformer(Resource):
 	def interrupt(self):
 		pass
 
-class Autonomous(Transformer):
-	"""
-	Transformer that doesn't maintain context or reference a controller.
-
-	Non-functional at the moment; transformers need to be able to define how
-	the adjacents connect to it.
-
-	XXX: not functional
-	"""
-
-	@property
-	def controller(self):
-		return None
-
-	@controller.setter
-	def controller(self, val):
-		pass
-
-	@property
-	def context(self):
-		return None
-
-	@context.setter
-	def context(self):
-		pass
-
-	@property
-	def process(self):
-		pass
-
 class Reflection(Transformer):
 	"""
 	Transformer that performs no modifications to the processed events.
@@ -2607,7 +2400,50 @@ class Transports(Transformer):
 
 	Transports are primarily used to manage protocol layers like TLS where
 	the flows are completely dependent on the &Transports.
+
+	[ Properties ]
+	/polarity
+		`-1` for a sending Transports, and `1` for receiving.
+
+	/operations
+		The operations used to apply the layers for the respective direction.
+
+	/operation_set
+		Class-wide dictionary containing the functions
+		needed to resolve the transport operations used by a layer.
 	"""
+
+	operation_set = dict()
+	@classmethod
+	def create(Class, transports, Stack=list):
+		"""
+		Create a pair of &Transports instances.
+		"""
+		global weakref
+
+		i = Class(1)
+		o = Class(-1)
+
+		i.opposite_transformer = weakref.ref(o)
+		o.opposite_transformer = weakref.ref(i)
+
+		stack = i.stack = o.stack = Stack(transports)
+
+		ops = [
+			Class.operation_set[x.__class__](x) for x in stack
+		]
+		i.operations = [x[0] for x in ops]
+
+		# Output must reverse the operations in order to properly
+		# layer the transports.
+		o.operations = [x[1] for x in ops]
+		o.operations.reverse()
+
+		return (i, o)
+
+	polarity = 0 # neither input nor output.
+	def __init__(self, polarity:int):
+		self.polarity = polarity
 
 	def __repr__(self, format="<{path} [{stack}]>"):
 		path = self.__class__.__module__.rsplit('.', 1)[-1]
@@ -2618,37 +2454,6 @@ class Transports(Transformer):
 	def opposite(self):
 		"The transformer of the opposite direction for the Transports pair."
 		return self.opposite_transformer()
-
-	def requisite(self, opposite):
-		"Opposite transformer is needed to propagate opposing reactions."
-		global weakref
-		self.opposite_transformer = weakref.ref(opposite)
-
-	operations = ()
-	def configure(self, polarity, stack, *operations):
-		"""
-		Assign the sequence of layer operations.
-
-		The layer operations are pairs consisting of the operations for the
-		read transports and write transports. The positioning is subjective,
-		so if the input Transformer is being configured, the first item in
-		the pair should be the input operations.
-
-		[ Parameters ]
-
-		/polarity
-			Identifies the direction that is being configured;
-			must be either `1` for input or `-1` for output.
-		"""
-
-		self.polarity = polarity
-		stack = self.stack = list(stack)
-		self.operations = [x[0] for x in operations]
-
-		opp = self.opposite
-		opp.polarity = -polarity
-		opp.stack = stack
-		opp.operations = [x[1] for x in reversed(operations)]
 
 	callbacks = None
 	def atshutdown(self, callback):
@@ -2850,9 +2655,9 @@ class Parallel(Transformer):
 
 		try:
 			self.thread(self, self.queue, *self.parameters)
-			self.context.enqueue(self.completion)
+			self.controller.context.enqueue(self.completion)
 		except BaseException as exc:
-			self.context.enqueue(functools.partial(self.fault, exc))
+			self.controller.context.enqueue(functools.partial(self.fault, exc))
 			pass # The exception is managed by .fault()
 
 	def actuate(self):
@@ -2866,7 +2671,7 @@ class Parallel(Transformer):
 		self.process = self.put
 
 		#self.context.execute(self, self.callable, *((self, self.queue) + self.parameters))
-		self.context.execute(self, self.trap)
+		self.controller.context.execute(self, self.trap)
 
 		return super().actuate()
 
@@ -2894,8 +2699,8 @@ class Dispatcher(Transformer):
 		self.serialization = serialization
 
 	def actuate(self, partial=functools.partial):
-		self.enqueue = self.context.enqueue
-		self.dispatch = self.context.dispatch
+		self.enqueue = self.controller.context.enqueue
+		self.dispatch = self.controller.context.dispatch
 
 		if self.serialization is None:
 			self.method = partial(self.imperfect, self.function)
@@ -2979,14 +2784,17 @@ class Generator(Dispatcher):
 				# XXX: signal obstruction or interruption?
 				pass
 
-class Detour(Transformer):
+class KernelPort(Transformer):
 	"""
 	Transformer moving received events through a transit and back into the
 	flow that the Loop is participating in.
 	"""
 
-	def __init__(self):
-		self.transit = None
+	def __init__(self, transit=None):
+		self.transit = transit
+		#transit.resize_exoresource(1024*128)
+		self.acquire = transit.acquire
+		transit.link = self
 
 	def __repr__(self):
 		c = self.__class__
@@ -3016,14 +2824,9 @@ class Detour(Transformer):
 
 		return s
 
-	def requisite(self, transit=None):
-		self.transit = transit
-		#transit.resize_exoresource(1024*128)
-		self.acquire = transit.acquire
-		transit.link = self
-
 	def actuate(self):
 		self.process = self.transit.acquire
+		self.controller.context.attach(self.transit)
 
 	def transition(self):
 		# Called when the resource was exhausted
@@ -3077,20 +2880,19 @@ class Detour(Transformer):
 class Functional(Transformer):
 	"A transformer that emits the result of a provided function."
 
-	def __init__(self, function=None):
-		self.function = function
+	def __init__(self, transformation:collections.abc.Callable):
+		self.transformation = transformation
 
 	def process(self, event):
-		self.emit(self.function(event))
+		self.emit(self.transformation(event))
 
 	@classmethod
-	def generator(Class, g):
-		"Create a functional transformer using a generator"
+	def generator(Class, generator):
+		"Create a functional transformer using a generator."
 
-		next(g)
-		return Class(g.send)
+		next(generator)
+		return Class(generator.send)
 
-# XXX: Compoistion Transformer needs tests
 class Composition(Functional):
 	"""
 	Mutable transformer used to manage a functional composition.
@@ -3102,6 +2904,9 @@ class Composition(Functional):
 	substitutions.
 	"""
 
+	def __init__(self):
+		self.transformation = None
+
 	def structure(self):
 		p = [
 			(i, self.sequence[i])
@@ -3110,14 +2915,14 @@ class Composition(Functional):
 		return (p, ())
 
 	def actuate(self):
-		if self.function is None:
+		if self.transformation is None:
 			self.compose()
 
-	def compose(self, *sequence, Compose=libcomp.compose):
+	def compose(self, *sequence, Compose=libc.compose):
 		"Substitute the composition of the Transformation."
 
 		self.sequence = sequence
-		self.function = Compose(*sequence)
+		self.transformation = Compose(*sequence)
 
 class Meter(Reactor):
 	"""
@@ -3163,7 +2968,7 @@ class Allocator(Meter):
 	"""
 	Transformer that continually allocates memory for the downstream Transformers.
 
-	Used indirectly by &Detour instances that reference an input transit.
+	Used indirectly by &KernelPort instances that reference an input transit.
 	"""
 
 	allocate_integer_array = (array.array("i", [-1]).__mul__, 24)
@@ -3193,7 +2998,7 @@ class Allocator(Meter):
 		self.transition()
 
 	def resume(self, flow):
-		"Continue allocating memory for &Detour transformers."
+		"Continue allocating memory for &KernelPort transformers."
 
 		self.obstructed = False
 		if self.transitioned:
@@ -3305,27 +3110,19 @@ def Sensor(transformer):
 		exited(event)
 		event = (yield (event,))
 
-def meter_input(detour, transports=None, allocate=Allocator.allocate_byte_array):
+def meter_input(ix, allocate=Allocator.allocate_byte_array):
 	"Create the necessary Transformers for metered input."
 
 	meter = Allocator(allocate)
 	g = Sensor(meter)
+	return (meter, ix, Functional.generator(g))
 
-	if transports:
-		return (meter, detour, Functional.generator(g), Transports(), Composition())
-	else:
-		return (meter, detour, Functional.generator(g), Composition())
-
-def meter_output(detour, transports=None):
+def meter_output(ox, transports=None):
 	"Create the necessary Transformers for metered output."
 
 	meter = Throttle()
 	g = Sensor(meter)
-
-	if transports:
-		return (Composition(), Transports(), meter, detour, Functional.generator(g))
-	else:
-		return (Composition(), meter, detour, Functional.generator(g))
+	return (meter, ox, Functional.generator(g))
 
 class Condition(object):
 	"""
@@ -3410,34 +3207,6 @@ class Flow(Processor):
 	terminated = False
 	draining = False
 
-	class Exits(object):
-		"""
-		Class for adapting Flow emits into exit signals for coroutines.
-
-		While somewhat expensive as the callback is repeatedly configured,
-		it can be efficient enough in cases where events are properly
-		aggregated in order to reduce the frequency of transitions.
-		"""
-
-		__slots__ = ('events', 'callback')
-
-		def __init__(self, Queue=collections.deque):
-			self.events = Queue()
-
-		def process(self, event, source=None):
-			self.events.append(event)
-			if self.callback:
-				self.transition()
-
-		def atexit(self, cb):
-			self.callback = cb
-			if self.events:
-				self.transition()
-
-		def transition(self):
-			self.callback(self.events.popleft())
-			self.callback = None
-
 	@classmethod
 	def construct(Class, controller, *calls):
 		"""
@@ -3453,16 +3222,6 @@ class Flow(Processor):
 		f.requisite(*[c() for c in calls])
 
 		return f
-
-	def connect_exit(self):
-		"""
-		Construct an &AtExit instance and connect the Flow's emit
-		to it. Used by &Coroutine instances to receive Flow events.
-		"""
-
-		ae = self.AtExit()
-		self.emit = ae.process
-		return ae
 
 	downstream = None
 	def connect(self, flow:Processor, partial=functools.partial):
@@ -3485,7 +3244,7 @@ class Flow(Processor):
 		self.emit = flow.process
 
 		# cascade termination; downstream is terminated by upstream
-		self.atexit(partial(flow.terminate, self))
+		self.atexit(flow.terminate)
 
 	def __repr__(self):
 		links = ' -> '.join(['[%s]' %(repr(x),) for x in self.sequence])
@@ -3511,9 +3270,9 @@ class Flow(Processor):
 		return (p, sr)
 
 	sequence = ()
-	def requisite(self, *transformers):
+	def __init__(self, *transformers):
 		"""
-		Construct the transformer sequence for operating the flow.
+		Construct the transformer sequence defining the flow.
 		"""
 
 		for x in transformers:
@@ -3535,7 +3294,7 @@ class Flow(Processor):
 
 		super().actuate()
 
-		for transformer in self.sequence:
+		for transformer in reversed(self.sequence):
 			transformer.actuate()
 
 		if self.downstream:
@@ -3695,7 +3454,7 @@ class Flow(Processor):
 			x.terminate()
 
 		if self.downstream:
-			self.downstream.terminate(self)
+			self.downstream.terminate(by=self)
 
 		self.obstruct(self.__class__.terminate, None, Inexorable)
 
@@ -3800,8 +3559,7 @@ ProtocolTransactionEndpoint = typing.Callable[[
 ], None]
 
 # Flow that discards all events and emits nothing.
-Null = Flow()
-Null.sequence = (Terminal(),)
+Null = Flow(Terminal(),)
 
 class Funnel(Flow):
 	"""
@@ -3813,16 +3571,15 @@ class Funnel(Flow):
 	Funnels will not terminate when connected upstreams terminate.
 	"""
 
-	def requisite(self, identify=lambda x: x):
-		self.identify = identify
-
-	def process(self, event, source = None):
-		self.sequence[0].process((self.identify(source), event))
+	def process(self, event, source=None):
+		self.sequence[0].process((source, event))
 
 	def terminate(self, by=None):
-		if not isisntance(by, Flow):
+		global Flow
+
+		if not isinstance(by, Flow):
+			# Termination induced by flows are ignored.
 			super().terminate(by=by)
-		# Termination induced by flow is ignored.
 
 class Fork(Terminal):
 	"""
@@ -3874,7 +3631,7 @@ class Iterate(Reactor):
 			return False
 
 	terminal = False
-	def requisite(self, terminal:bool=False):
+	def __init__(self, terminal:bool=False):
 		"""
 		[ Parameters ]
 
@@ -3883,7 +3640,7 @@ class Iterate(Reactor):
 		"""
 
 		if terminal:
-			self.terminal = terminal
+			self.terminal = True
 
 	def actuate(self):
 		super().actuate()
@@ -3934,6 +3691,8 @@ class Iterate(Reactor):
 class Collect(Terminal):
 	"""
 	Data structure Transformer collecting events into a storage container.
+	&Collect is a &Terminal meaning that events are not emitted forward, and
+	should be the last &Transformer in a &Flow's sequence.
 	"""
 
 	def __init__(self, storage, operation):
@@ -4197,33 +3956,15 @@ class Distributing(Extension):
 	the identified Layer Context.
 	"""
 
-	def __init__(self, Layer, state, accept):
-		self.state_function = state
+	def __init__(self, Layer, accept):
 		self.queues = dict()
 		self.flows = dict()
 
 		# callback
 		self.accept_callback = accept
 
-		# state is continuous.
-		self.state = self.state_function(Layer, self.accept, self.transport, self.close)
-		self.send = self.state.send
-		next(self.state)
-
 	def requisite(self, input):
 		self.input = input
-
-	def process(self, events, source=None, partial=functools.partial):
-		Protocol = self.controller
-		Protocol.context.enqueue(partial(self.inject, self.send, events))
-
-	def inject(self, read_state, events):
-		try:
-			read_state(events) # self.state.send
-		except BaseException as exc:
-			# Distributing is an extension of the immediate controller,
-			# so fault it.
-			self.controller.fault(exc)
 
 	def receiver_obstructed(self, flow):
 		self.input.obstruct(flow, Condition(flow, ('obstructed',)))
@@ -4295,7 +4036,7 @@ class Distributing(Extension):
 			flow = None
 
 		if getattr(layer, 'terminal', False):
-			self.input.terminate()
+			self.input.terminate(by=layer)
 
 	def accept_event_connect(self, receiver:ProtocolTransactionEndpoint):
 		"""
@@ -4336,7 +4077,7 @@ class QueueProtocol(Protocol):
 	def structure(self):
 		p = [
 			('distribute.input', self.distribute.input),
-			('serialized.output', self.serialize.output),
+			('sequence.output', self.sequence.output),
 		]
 		sr = []
 
@@ -4355,7 +4096,7 @@ class QueueProtocol(Protocol):
 		"""
 
 		self.distribute = None
-		self.serialize = None
+		self.sequence = None
 		self.exits = 0
 
 		# Protocol defining parts
@@ -4364,29 +4105,37 @@ class QueueProtocol(Protocol):
 		self.protocol_input = protocol_input_state
 		self.protocol_output = protocol_output_state
 
-	def requisite(self, accept, input, output):
+	def connect(self, accept, input, output):
 		"""
 		Configure the I/O flows and callbacks for protocol transaction processing.
 		"""
 
-		s = self.serialize = Sequencing(self.protocol_output)
+		s = self.sequence = Sequencing(self.protocol_output)
 		s.subresource(self)
 
-		d = self.distribute = Distributing(self.input_layer, self.protocol_input, accept)
+		d = self.distribute = Distributing(self.input_layer, accept)
 		d.subresource(self)
 
-		input.emit = d.process
+		# state is continuous.
+		self.input_state = self.protocol_input(self.input_layer, d.accept, d.transport, d.close)
+		self.send = self.input_state.send
+		next(self.input_state)
+
+		input.emit = self.process
 
 		s.requisite(output)
 		d.requisite(input)
-		input.atexit(self.input_closed)
+
 		output.atexit(self.output_closed)
+		input.atexit(self.input_closed)
+
+	def process(self, events, source=None):
+		self.send(events)
 
 	def input_closed(self, flow):
 		if self.exits == 1:
 			self.exit()
 		self.exits += 1
-
 
 	def output_closed(self, flow):
 		if self.exits == 1:
@@ -4395,10 +4144,10 @@ class QueueProtocol(Protocol):
 
 	def exit(self):
 		"""
-		Called when either the input or output flow exits.
+		Called when both flows exits.
 		"""
 
-		self.distribute.state.close() # bit of a hack to allow cleanup
+		self.input_state.close() # bit of a hack to allow cleanup
 		self.terminated = True
 		self.terminating = False
 		self.controller.exited(self)

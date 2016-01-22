@@ -7,17 +7,19 @@ application that is to be ran as a system command.
 
 import sys
 import inspect
+import functools
 
-from . import library
+from . import library as libio
 
 def initialize(unit):
 	"""
 	Initialize the unit with a new sector running the command's main.
 	If main is a generator, it will be invoked as a coroutine.
 	"""
+	global libio
 
 	# main/only sector; no (daemon) control interfaces
-	s = library.Sector()
+	s = libio.Sector()
 	s.subresource(unit)
 	unit.place(s, "bin", "main")
 
@@ -29,18 +31,16 @@ def initialize(unit):
 		# XXX: need some environment configuration for managing default libraries.
 		if 0:
 			unit.link(name)
-			lib = library.Library.from_fullname(path)
+			lib = libio.Library.from_fullname(path)
 			unit.place(lib, "lib", name)
 
 	if inspect.isgeneratorfunction(main):
-		main_proc = library.Coroutine.from_callable(main)
-		main_proc.requisite(main)
+		main_proc = libio.Coroutine(main)
 	else:
-		main_proc = library.Call()
-		main_proc.requisite(main)
+		main_proc = libio.Call.partial(main)
 
-	s.requisite(main_proc)
 	unit.context.enqueue(s.actuate)
+	unit.context.enqueue(functools.parital(s.dispatch, main_proc))
 
 def execute(name='__main__'):
 	"""
@@ -51,4 +51,4 @@ def execute(name='__main__'):
 			libcommand.execute()
 	"""
 
-	library.execute(command=(initialize,))
+	libio.execute(command=(initialize,))

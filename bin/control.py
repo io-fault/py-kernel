@@ -47,9 +47,8 @@ def response_endpoint(context, request, response, connect):
 	f.atexit(functools.partial(response_collected, sector, request, response))
 	connect(f)
 
-def main(call):
-	root_sector = call.sector
-	proc = root_sector.context.process
+def main(sector):
+	proc = sector.context.process
 
 	iparams = proc.invocation.parameters['system']['arguments']
 
@@ -91,7 +90,7 @@ def main(call):
 	else:
 		struct['path'] = ['sys', '']
 
-	hc = libhttp.Client.open(root_sector, endpoint)
+	hc = libhttp.Client.open(sector, endpoint)
 
 	req = libhttp.Request()
 	path = libri.http(struct)
@@ -112,7 +111,7 @@ def main(call):
 	i = libio.Iterate()
 	i.requisite(terminal=True)
 	fi.requisite(i)
-	root_sector.dispatch(fi)
+	sector.dispatch(fi)
 
 	hc.http_request(response_endpoint, req, fi)
 	fi.process([(parameters,)])

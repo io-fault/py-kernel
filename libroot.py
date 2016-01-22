@@ -176,6 +176,7 @@ class Commands(libhttp.Index):
 		Start the daemon unless it's already running; explicit starts ignore
 		&libservice.Service.enabled.
 		"""
+
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
 
@@ -325,7 +326,7 @@ class ServiceManager(libio.Processor):
 	inhibit_recovery = None
 	exit_events = ()
 
-	def requisite(self, service, root):
+	def __init__(self, service, root):
 		self.service = service
 		self.root = root # global environment
 
@@ -363,24 +364,23 @@ class ServiceManager(libio.Processor):
 			service = self.service
 			sector = self.sector
 
-			with sector.xact() as xact:
-				os.chdir(service.route.fullpath)
-				sub, stderr = xact.daemon(self.invocation)
+			os.chdir(service.route.fullpath)
 
-			sub.subresource(sector)
-			sub.actuate()
+			pid, stderr = self.context.daemon(self.invocation)
+			sub = self.subrpocess = libio.Subprocess(pid)
+			with sector.allocate() as xact:
+				stderr, = xact.acquire('input', stderr)
+
+			sector.dispatch(sub)
 			sub.atexit(self.service_exit)
 
-			self.subprocess = sub # need for control interface (http)
-
 			# stderr stopgap; probably move to a log file managed by this class.
-			f = libio.Flow()
 			def gah(s):
 				for x in s:
 					sys.stderr.write(x.decode('utf-8'))
 				sys.stderr.flush()
 			pt = libio.Functional(gah)
-			f.requisite(*(libio.core.meter_input(stderr) + (pt,)))
+			f = libio.Flow(*(libio.core.meter_input(stderr) + (pt,)))
 
 			sector.dispatch(f)
 			f.process(None)
@@ -531,14 +531,11 @@ class Control(libio.Control):
 		for slot, binds in srv.interfaces.items():
 			ports.bind(slot, *itertools.starmap(libio.endpoint, binds))
 
-		control = libhttp.Host()
-		control.requisite(self.root_paths, 'control')
-		scheduler = libhttp.Host()
-		scheduler.requisite({}, 'scheduler')
+		control = libhttp.Host(self.root_paths, 'control')
+		scheduler = libhttp.Host({}, 'scheduler')
 
-		hi = libhttp.Interface()
-		libio.Interface.requisite(hi, 'http', hi.accept)
-		libhttp.Interface.requisite(hi, libhttp.server_v1, control, scheduler)
+		hi = libhttp.Interface('http', libhttp.Interface.accept)
+		hi.install(control, scheduler)
 		self.dispatch(hi)
 
 		os.chdir(srv.route.fullpath)
@@ -556,8 +553,7 @@ class Control(libio.Control):
 		S.subresource(unit)
 		S.actuate()
 
-		d = ServiceManager()
-		d.requisite(s, self.root)
+		d = ServiceManager(s, self.root)
 		# HTTP needs to be able to find the SM to interact with it.
 		self.managed[s.name] = d
 

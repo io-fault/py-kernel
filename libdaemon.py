@@ -148,8 +148,7 @@ class Control(libio.Control):
 
 		pid = self.context.process.fork(functools.partial(self.forked, fid, initial))
 
-		subprocess = libio.Subprocess()
-		subprocess.requisite((pid,))
+		subprocess = libio.Subprocess(pid)
 
 		self.subprocess_to_fork_id[subprocess] = fid
 		self.fork_id_to_subprocess[fid] = subprocess
@@ -205,12 +204,10 @@ class Control(libio.Control):
 			The fork-id; the number associated with the fork.
 		"""
 
-		control_host = libhttp.Host()
-		control_host.requisite({'/sys/': Commands()}, 'control')
+		control_host = libhttp.Host({'/sys/': Commands()}, 'control')
 
-		hi = libhttp.Interface()
-		libio.Interface.requisite(hi, ('control', fid), hi.accept)
-		libhttp.Interface.requisite(hi, libhttp.server_v1, control_host)
+		hi = libhttp.Interface(('control', fid), libhttp.Interface.accept)
+		hi.install(control_host)
 		self.dispatch(hi)
 
 	def subactuate(self):
@@ -221,6 +218,8 @@ class Control(libio.Control):
 
 		unit = self.context.association()
 		enqueue = self.context.enqueue
+		enqueue(self.context._flush_attachments)
+
 		exe_index = unit.hierarchy['bin']
 
 		for x in exe_index:

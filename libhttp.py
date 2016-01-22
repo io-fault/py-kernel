@@ -52,6 +52,7 @@ class ProtocolTransaction(tuple):
 	interface = property(ig(0))
 	host = property(ig(1))
 
+	# For agent transactions.
 	agent = property(ig(0))
 	context = property(ig(1))
 
@@ -63,6 +64,18 @@ class ProtocolTransaction(tuple):
 
 	del ig
 
+	def reflect(self):
+		"""
+		Send the input back to the output.
+
+		Primarily used for performance testing.
+		"""
+
+		f = libio.Flow()
+		self.connection.dispatch(f)
+		self.connect_output(f)
+		self.connect_input(f)
+
 	def iterate_output(self, iterator):
 		"""
 		Construct a Flow consisting of a single &libio.Iterate instance
@@ -73,10 +86,8 @@ class ProtocolTransaction(tuple):
 		"""
 		global libio
 
-		f = libio.Flow()
-		i = libio.Iterate()
-		i.requisite(terminal=True)
-		f.requisite(i)
+		i = libio.Iterate(terminal=True)
+		f = libio.Flow(i)
 		self.connection.dispatch(f)
 
 		self.response.initiate((self.request.version, b'200', b'OK'))
@@ -85,18 +96,115 @@ class ProtocolTransaction(tuple):
 
 		return f
 
-	def send_file(self, route, str=str):
+	def write_file_to_output(self, route, range=None, str=str):
 		"""
 		Send the file referenced by &route to the remote end as
 		the (HTTP) entity body.
+
+		The response must be properly initialized.
+
+		[ Parameters ]
+		/route
+			The &..routes.library.File instance pointing
+			to the target file.
+		/range
+			The slice of the file to write.
 		"""
 
 		cxn = self.connection
 		with cxn.allocate() as xact:
-			f, start = xact.stream_file(str(route))
+			f, start = xact.stream_file(str(route), range=range)
 
 		self.connect_output(f)
 		start()
+		return f
+
+	def read_input_into_coroutine(self):
+		"""
+		Contructs an awaitable iterator that can be used inside
+		a coroutine to read the data sent from the remote endpoint.
+		"""
+		raise NotImplementedError("coroutine support")
+
+	def read_input_into_buffer(self, callback, limit=None):
+		"""
+		Connect the input Flow to a buffer that executes
+		the given callback when the entity body has been transferred.
+		"""
+
+		cxn = self.connection
+		with cxn.allocate() as xact:
+			target = xact.append(str(route))
+			f = cxn.flow((libio.Iterate(),), target)
+
+		self.connect_input(f)
+		return f
+
+	def read_input_into_file(self, route):
+		"""
+		Connect the input Flow's entity body to the given file.
+
+		The file will be truncated and data will be written in append mode.
+		"""
+
+		cxn = self.connection
+		with cxn.allocate() as xact:
+			target = xact.append(str(route))
+			f = cxn.flow((libio.Iterate(),), target)
+
+		self.connect_input(f)
+		return f
+
+	def write_kport_to_output(self, fd, limit=None):
+		"""
+		Transfer data from the &kport, file descriptor to the output
+		constrained by the limit.
+
+		The file descriptor will be closed after the transfer is complete.
+		"""
+
+		cxn = self.connection
+		with cxn.allocate() as xact:
+			target = xact.acquire('input', fd)
+			f = cxn.flow(target)
+
+		self.connect_output(f)
+		return f
+
+	def read_input_into_kport(self, fd, limit=None):
+		"""
+		Connect the input Flow's entity body to the given file descriptor.
+		The state of the open file descriptor will be used to allow inputs
+		to be connected to arbitrary parts of a file.
+
+		The file descriptor will be closed after the transfer is complete.
+		"""
+
+		cxn = self.connection
+		with cxn.allocate() as xact:
+			target = xact.acquire('output', fd)
+			f = cxn.flow((libio.Iterate(),), target)
+
+		self.connect_input(f)
+		return f
+
+	def connect_pipeline(self, kpipeline):
+		"""
+		Connect the input and output to a &..system.library.KPipeline.
+		Received data will be sent to the pipeline,
+		and data emitted from the pipeline will be sent to the remote endpoint.
+		"""
+
+		cxn = self.connection
+		with cxn.allocate() as xact:
+			sp, i, o, e = xact.pipeline(kpipeline)
+			fi, fo = self.flows()
+			fi.requisite(i)
+			fo.requisite(o)
+
+		self.connect_input(fi)
+		self.connect_output(fo)
+		return f
 
 class Path(libroutes.Route):
 	"""
@@ -151,13 +259,13 @@ class Layer(libio.Layer):
 
 		cl = self.headers.get(b'content-length')
 		if cl is not None:
-			return int(cl.decode('utf-8'))
+			return int(cl.decode('ascii'))
 
 		te = self.headers.get(b'transfer-encoding')
 		if te is not None and te.lower().strip() == b'chunked':
 			return -1
 
-		# no content
+		# no entity body
 		return None
 
 	cached_headers = set(
@@ -426,6 +534,9 @@ def v1_output(
 	of the message if the Transaction length is not &None.
 	"""
 
+	serializer = libhttp.assembly()
+	serialize = serializer.send
+
 	lheaders = []
 	events = [
 		(rline, layer.initiation),
@@ -441,20 +552,23 @@ def v1_output(
 	else:
 		btype = chunk
 
-	transport(events)
+	header = serialize(events)
+	transport(header)
 	del events
 
 	try:
 		if length is None:
-			# transport EOM in finally clause.
+			# transport EOM in finally clause
 			pass
 		else:
 			# emit until generator is explicitly stopped
 			while 1:
-				transport(zip(repeat(btype), (yield)))
+				l = list(zip(repeat(btype), (yield)))
+				transport(serialize(l))
 	finally:
 		# generator exit
-		transport((EOM,))
+		final = serialize((EOM,))
+		transport(final)
 
 def v1_input(
 		allocate, ready, transport, finish,
@@ -476,6 +590,9 @@ def v1_input(
 
 	Given a Transaction allocation function and a Transaction completion function, receive.
 	"""
+
+	tokenizer = libhttp.disassembly()
+	tokens = tokenizer.send
 
 	close_state = False # header Connection: close
 	events = iter(())
@@ -503,7 +620,10 @@ def v1_input(
 					break
 			else:
 				# need more for headers
-				events = iter(chain(*(yield)))
+				events = []
+				for x in map(tokens, (yield)):
+					events.extend(x)
+				events = iter(events)
 
 		# got request or status line and headers for this request
 		assert len(lrline) == 3
@@ -527,6 +647,7 @@ def v1_input(
 			# handle both chunking and content types
 			content: body.append,
 			chunk: body.append,
+			# extension: handle chunk extension events.
 			trailers: trailer_sequence.extend,
 			violation: http_protocol_violation,
 		}
@@ -550,6 +671,9 @@ def v1_input(
 					else:
 						if body:
 							# send the body to the connected Flow
+							# the Distributing instance watches for
+							# obstructions on the receiver and sends them
+							# upstream, so no buffering need to occur here.
 							transport(layer, (body,))
 
 							# empty body sequence and reconfigure its callback
@@ -558,7 +682,10 @@ def v1_input(
 
 				else:
 					# need more for EOM
-					events = iter(chain(*(yield)))
+					events = []
+					for x in map(tokens, (yield)):
+						events.extend(x)
+					events = iter(events)
 				# for x in events
 			# while not body_complete
 		except GeneratorExit:
@@ -582,52 +709,8 @@ def v1_input(
 		# XXX: currently no way to access the excess
 		events = iter(chain(*(yield)))
 
-def flows(xact, input, output):
-	"""
-	Construct a pair of &.library.Flow instances with the given &.library.Transformer
-	instances in &input and &output as the flows' definition.
-	"""
-
-	fi, fo = xact.flows()
-
-	fi.requisite(*input)
-	fi.sequence[-1].compose(libc.unroll(libhttp.disassembly().send, Sequence=tuple))
-
-	fo.requisite(*output)
-	fo.sequence[0].compose(libc.plural(libhttp.assembly().send))
-
-	return fi, fo
-
-def client_v1(xact, accept, input, output, transports=()):
-	"""
-	Given input and output Flows, construct and connect a Protocol instance
-	for an HTTP 1.x client connection.
-	"""
-
-	global Response, Request, v1_input, v1_output
-
-	fi, fo = flows(xact, input, output)
-	if transports:
-		# Before the Composition
-		ti = fi.sequence[-2]
-		# After the Composition
-		to = fo.sequence[1]
-		ti.requisite(to)
-		to.requisite(ti)
-		ti.configure(1, (transports[0],), transports[1])
-
-	p = libio.QueueProtocol(Response, Request, v1_input, v1_output)
-	p.requisite(accept, fi, fo)
-
-	return p, fi, fo
-
-def server_v1(xact, accept, input, output):
-	fi, fo = flows(xact, input, output)
-
-	p = libio.QueueProtocol(Request, Response, v1_input, v1_output)
-	p.requisite(accept, fi, fo)
-
-	return p, fi, fo
+client = functools.partial(libio.QueueProtocol, Response, Request, v1_input, v1_output)
+server = functools.partial(libio.QueueProtocol, Request, Response, v1_input, v1_output)
 
 class Interface(libio.Interface):
 	"""
@@ -642,19 +725,21 @@ class Interface(libio.Interface):
 		The finite map of hostnames to &Host instances.
 	"""
 
+	construct_connection_parts = staticmethod(server)
+
 	def actuate(self):
 		super().actuate()
+
 		if self.hosts:
 			self.process(self.hosts)
 
 	primary = None
 	hosts = None
-	def requisite(self, construct, *hosts):
+	def install(self, *hosts):
 		"""
 		Configure the set of HTTP hosts to route connections into.
 		"""
 
-		self.construct_connection_parts = construct
 		self.index = {}
 		if hosts:
 			self.primary = hosts[0]
@@ -705,10 +790,12 @@ class Host(libio.Controller):
 		The handler for the root path. May be &None if &root can resolve it.
 
 	/settings
-		Index of data structures used by the host.
+		Index of data structures used by the host as parameters to protocol
+		transaction processors.
 	"""
 
-	def requisite(self, prefixes, *names):
+	def __init__(self, prefixes, *names):
+		super().__init__()
 		self.names = set(names)
 		self.prefixes = prefixes
 		self.root = libmatch.SubsequenceScan(prefixes.keys())
@@ -791,9 +878,7 @@ class Host(libio.Controller):
 			(b'Content-Length', str(len(description_bytes)).encode('utf-8'),)
 		])
 
-		proc = libio.Flow()
-		i = libio.Iterate()
-		proc.requisite(i)
+		proc = libio.Flow(libio.Iterate())
 		px.connection.dispatch(proc)
 
 		px.connect_output(proc)
@@ -852,7 +937,7 @@ class Host(libio.Controller):
 
 		p = context.controller
 		response = p.output_layer() # construct response placeholder
-		out = p.serialize
+		out = p.sequence
 		out.enqueue(response) # *reserve* spot in output queue
 
 		if request.terminal:
@@ -885,32 +970,14 @@ class Client(libio.Connection):
 		a response comes in.
 	"""
 
-	# This could use a flow to manage the transaction receiver,
+	def manage(self):
+		r = functools.partial(self.http_transaction_open, self.response_endpoints)
+		super().manage(client(), r)
 
 	def actuate(self):
 		self.response_endpoints = []
-		self.receiver = functools.partial(self.http_transaction_open, self.response_endpoints)
 		self.add = self.response_endpoints.append
-
 		super().actuate()
-
-		endpoint = self.endpoint
-		transports = self.transports
-
-		with self.xact() as xact:
-			io = xact.connect(
-				endpoint.protocol, endpoint.address, endpoint.port,
-				transports = transports,
-			)
-
-			p, fi, fo = client_v1(xact, self.receiver, *io, transports=transports)
-
-			self.protocol = p
-			self.input = fi
-			self.output = fo
-
-			self.process((p, fi, fo))
-			fi.process(None) # start allocator.
 
 	@staticmethod
 	def http_transaction_open(receivers, source, layer, connect):
@@ -937,9 +1004,21 @@ class Client(libio.Connection):
 		"""
 
 		self.add((receiver, layer))
-		out = self.protocol.serialize
+		out = self.protocol.sequence
 		out.enqueue(layer)
 		out.connect(layer, flow)
+
+class Context(libio.Controller):
+	"""
+	The client context for dispatching &Client connections.
+	&Context provides a second level of configuration for &Agent controllers.
+
+	A context allows a user to dispatch connections to contain the effect
+	of state storage such that it can be inherited in the &Agent or simply
+	forgotten when the &Context is destroyed.
+
+	Contexts are a reasonable way to manage client masquerading.
+	"""
 
 class Agent(libio.Controller):
 	"""
@@ -961,15 +1040,6 @@ class Agent(libio.Controller):
 	def __init__(self):
 		super().__init__()
 		self.connections = collections.defaultdict(set)
-
-	def connect_to_file(sector, request, response, connect, transports=(), tls=None):
-		with sector.allocate() as xact:
-			target = xact.append(str(path))
-			f = xact.flow((libio.Iterate(),), target)
-
-		sector.dispatch(f)
-		f.atexit(functools.partial(response_collected, sector, request, response))
-		connect(f)
 
 	@functools.lru_cache(64)
 	def encoded(self, text):
@@ -1248,10 +1318,9 @@ class Resource(object):
 				return
 
 			# Buffer and transform the input to the callable adherring to the limit.
-			fi = libio.Flow()
 			cl = libio.Collect.list()
+			fi = libio.Flow(cl)
 			collection = cl.storage
-			fi.requisite(cl)
 			px.connection.dispatch(fi)
 			fi.atexit(partial(self.transformed, context, collection, path, query, px))
 			px.connect_input(fi)

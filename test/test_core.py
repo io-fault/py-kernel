@@ -1,7 +1,9 @@
+import typing
 import importlib.util
 from .. import core as library
 
 class ExitController(object):
+	"Provides a root controller for tests."
 	def __init__(self):
 		self.exits = []
 
@@ -15,6 +17,9 @@ class TContext(object):
 	def __init__(self):
 		self.tasks = []
 		self.faults = []
+
+	def attach(self, *ignored):
+		pass # Tests don't use real transits.
 
 	def associate(self, processor):
 		self.association = lambda: processor
@@ -61,6 +66,16 @@ class TTransit(object):
 	def process(self, event):
 		pass
 
+def sector():
+	"Construct a root Sector and Context for testing."
+	ctx = TContext()
+	sect = library.Sector()
+	sect.context = ctx
+	x = ExitController()
+	sect.controller = x
+	sect.actuate()
+	return ctx, sect
+
 def test_Join(test):
 	Type = library.Join
 
@@ -106,18 +121,6 @@ def test_Transformer(test):
 
 	x=X()
 
-def test_empty_flow(test):
-	f = library.Flow()
-
-	l = []
-	def append(obj, source=None):
-		l.append(obj)
-
-	f.emit = append
-	return
-	f.process('event')
-	#test/f.process('event') is None
-
 def test_Condition(test):
 	Type = library.Condition
 
@@ -161,18 +164,16 @@ def test_Inexorable(test):
 	test/inex / library.Condition
 
 def test_Flow_operation(test):
-	f = library.Flow()
-
 	# base class transformers emit what they're given to process
-	xf1 = library.Transformer()
-	xf2 = library.Transformer()
-	xf3 = library.Transformer()
+	xf1 = library.Reflection()
+	xf2 = library.Reflection()
+	xf3 = library.Reflection()
 
 	endpoint = []
 	def append(x, source=None):
 		endpoint.append(x)
 
-	f.requisite(xf1, xf2, xf3)
+	f = library.Flow(xf1, xf2, xf3)
 	f.emit = append
 
 	f.process("event")
@@ -193,7 +194,7 @@ def test_Flow_obstructions(test):
 	def cleared(flow):
 		status.append(False)
 
-	f = library.Flow()
+	f = library.Flow(library.Reflection())
 	f.watch(obstructed, cleared)
 
 	f.obstruct(test, None)
@@ -223,7 +224,7 @@ def test_Flow_obstructions_initial(test):
 	def cleared(flow):
 		status.append(False)
 
-	f = library.Flow()
+	f = library.Flow(library.Reflection())
 	f.obstruct(test, None)
 
 	f.watch(obstructed, cleared)
@@ -242,8 +243,7 @@ def test_Flow_obstructions(test):
 		def resume(self, flow):
 			l.append('resume')
 
-	f = library.Flow()
-	f.requisite(ObstructionWatcher())
+	f = library.Flow(ObstructionWatcher())
 
 	f.obstruct(test, None)
 	test/l == ['suspend']
@@ -269,10 +269,8 @@ def setup_connected_flows():
 	dsector.context = ctx
 	dsector.actuate()
 
-	us = library.Flow()
-	us.requisite(library.Reflection())
-	ds = library.Flow()
-	ds.requisite(library.Reflection())
+	us = library.Flow(library.Reflection())
+	ds = library.Flow(library.Reflection())
 	usector.dispatch(us)
 	dsector.dispatch(ds)
 
@@ -331,10 +329,9 @@ def test_Iterate(test):
 
 	c = library.Collect.list()
 	i = library.Iterate()
-	f = library.Flow()
 	e = ExitController()
+	f = library.Flow(i, c)
 	f.controller = e
-	f.requisite(i, c)
 	f.actuate()
 
 	f.process(range(100))
@@ -345,18 +342,20 @@ def test_Iterate(test):
 	test/c.storage == (list(range(100)) + list(range(100, -1, -1)))
 
 	# trigger terminal
-	i.requisite(terminal=True)
+	i.terminal = True
 	f.process(())
 	test/f.terminated == True
 	test/e.exits << f
 
-def test_collect(test):
+	i = library.Iterate(terminal=True)
+	test/i.terminal == True
+
+def test_Collect(test):
 	"Similar to test_iterate, but install all storage types"
 
 	c = library.Collect.dict()
 	i = library.Iterate()
-	f = library.Flow()
-	f.requisite(i, c)
+	f = library.Flow(i, c)
 	f.actuate()
 
 	f.process([
@@ -372,8 +371,7 @@ def test_collect(test):
 
 	c = library.Collect.set()
 	i = library.Iterate()
-	f = library.Flow()
-	f.requisite(i, c)
+	f = library.Flow(i, c)
 	f.actuate()
 
 	f.process([
@@ -382,13 +380,61 @@ def test_collect(test):
 
 	test/sorted(list(c.storage)) == [1,2,3,4,5]
 
-def test_Allocator(test):
-	t = TTransit()
-	d = library.Detour()
-	d.requisite(t)
+def test_Call(test):
+	Type = library.Call
+	ctx, sect = sector()
 
-	f = library.Flow()
-	f.requisite(*library.meter_input(d))
+	arg = object()
+	kw = object()
+
+	effects = []
+	def call_to_perform(sector, arg1, key=None):
+		effects.append(arg1)
+		effects.append(key)
+		effects.append(sector)
+		effects.append('called')
+
+	c = Type.partial(call_to_perform, arg, key=kw)
+	sect.dispatch(c)
+
+	ctx()
+
+	test/effects[0] == arg
+	test/effects[1] == kw
+	test/effects[-1] == 'called'
+	test/effects[-2] == sect
+
+def test_Coroutine(test):
+	"""
+	Evaluate the functions of a &library.Coroutine process;
+	notably the continuations and callback registration.
+	"""
+	Type = library.Coroutine
+	ctx, sect = sector()
+	return
+
+	effects = []
+
+	@typing.coroutine
+	def coroutine_to_execute(sector):
+		yield None
+		effects.append(sector)
+		effects.append('called')
+
+	co = Type(coroutine_to_execute)
+	sect.dispatch(co)
+	ctx()
+
+	test/effects[-1] == 'called'
+	test/effects[0] == sect
+
+def test_Allocator(test):
+	ctx = TContext()
+	t = TTransit()
+	d = library.KernelPort(t)
+
+	f = library.Flow(*library.meter_input(d))
+	f.context = ctx
 	meter = f.sequence[0]
 	f.actuate()
 
@@ -417,16 +463,16 @@ def test_Allocator(test):
 	test/id(t.resource) != id(fst_resource)
 
 def test_Throttle(test):
+	ctx = TContext()
 	t = TTransit()
-	d = library.Detour()
-	d.requisite(t)
+	d = library.KernelPort(t)
 
-	f = library.Flow()
-	f.requisite(*library.meter_output(d))
-	meter = f.sequence[1]
+	f = library.Flow(*library.meter_output(d))
+	f.context = ctx
+	meter = f.sequence[0]
 	f.actuate()
 
-	test/t.link == f.sequence[2]
+	test/t.link == f.sequence[1]
 	test/meter.transferred == 0
 	# nothing has been allocated
 	test/meter.transferring == None
@@ -474,25 +520,21 @@ def test_Sequencing(test):
 	S.context = Context
 
 	# output flow
-	f = library.Flow()
 	c = library.Collect.list()
-	f.requisite(c)
+	f = library.Flow(c)
 
 	# pair of inputs
-	fi = library.Flow()
 	i = library.Iterate()
-	fi.requisite(i)
+	fi = library.Flow(i)
 
-	fib = library.Flow()
 	i2 = library.Iterate()
-	fib.requisite(i2)
+	fib = library.Flow(i2)
 
-	fic = library.Flow()
 	i3 = library.Iterate()
-	fic.requisite(i3)
+	fic = library.Flow(i3)
 
-	S.requisite(f, fi, fib, fic)
 	S.actuate()
+	S.process((f, fi, fib, fic))
 
 	qs = Type(state_generator)
 	qs.requisite(f) # output flow
@@ -612,32 +654,34 @@ def test_Distributing(test):
 
 			finish(ctx)
 
-	d = Type(Layer, stateg, root.accept)
+	d = Type(Layer, root.accept)
 	d.subresource(root)
 	test/d.controller == root
 
+	dentry = stateg(Layer, d.accept, d.transport, d.close)
+	next(dentry)
+
 	# no content
-	d.process(1) # init
+	dentry.send(1) # init
 	Context()
 	test/accepted == [(Layer.from_id(1),None)]
-	d.process(('end', None))
+	dentry.send(('end', None))
 	Context()
 
 	Layer.content = True
-	d.process(2)
+	dentry.send(2)
 	Context()
 	l = accepted[1][0]
 
-	f = library.Flow()
-	f.subresource(root)
 	c = library.Collect.list()
-	f.requisite(c)
+	f = library.Flow(c)
+	f.subresource(root)
 
 	# queue content
-	d.process('queued')
+	dentry.send('queued')
 	Context()
 	d.connect(l, f)
-	d.process('payload')
+	dentry.send('payload')
 	Context()
 	test/c.storage == ['queued', 'payload']
 
@@ -660,48 +704,6 @@ def test_QueueProtocol(test):
 
 	# queue protocol
 	pass
-
-def test_Coroutine(test):
-	"""
-	Evaluate the functions of a &library.Coroutine process;
-	notably the continuations and callback registration.
-	"""
-
-	return
-	Type = library.Coroutine
-	output = []
-
-	root = library.Sector()
-	sect = library.Sector()
-	access = None
-
-	ctx = root.context = sect.context = TContext()
-	root.dispatch(sect)
-
-	def immediate(sector):
-		yield None
-		# started
-		# requires explicit signal
-		yield None
-
-	def primary(coroutine):
-		nonlocal access
-
-		ico = Type.from_callable(immediate)
-		sect.dispatch(ico)
-		access = ico
-
-		yield ico
-		output.append('yield exited')
-
-	co = Type.from_callable(primary)
-	sect.dispatch(co)
-	access.process(None)
-	access.process(None)
-	ctx()
-
-	# test that immediate's atexit caused primary to continue
-	test/output == ['yield exited']
 
 def test_Composition(test):
 	effect = []

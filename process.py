@@ -26,12 +26,14 @@ import weakref
 import queue
 import traceback
 import itertools
+import typing
 
 from . import core
 from . import traffic
 from .kernel import Interface as Kernel
 
 from ..system import library as libsys # cpu and memory
+from ..system import libmemory
 from ..system import libhazmat
 from ..internet import libri
 
@@ -64,6 +66,7 @@ class Context(object):
 		self.context = None # weak reference to the context that this context was based on
 		self.association = None
 		self.environment = ()
+		self.attachments = [] # traffic transits to be acquired by a junction
 
 	@property
 	def unit(self):
@@ -146,13 +149,29 @@ class Context(object):
 
 		self.association = Ref(resource)
 
+	# Primary access to processor resources: task queue, work thread, and threads.
+	def attach(self, *transits):
+		"Attach a set of transits to the Junction."
+		if not self.attachments:
+			self.enqueue(self._flush_attachments)
+		self.attachments.extend(transits)
+
+	def _flush_attachments(self):
+		unit = self.association()
+		ix = self.process.interchange
+		old = self.attachments
+
+		self.attachments = []
+		ix.acquire(unit, old)
+		ix.force(id=unit)
+
 	def enqueue(self, *tasks):
 		"Enqueue the tasks for subsequent processing; used by threads to synchronize their effect."
 
 		self.process.enqueue(*tasks)
 
 	def dispatch(self, controller, task):
-		"Execute the given task on a general purpose thread"
+		"Execute the given task on the general purpose thread."
 
 		fenqueue = self.process.fabric.enqueue
 		fenqueue(controller, task)
@@ -186,35 +205,22 @@ class Context(object):
 			self.environment = {}
 			self.environment[identifier] = value
 
-	def interfaces(self, *allocs, transmission = 'sockets'):
-		"""
-		Allocate leaked listening interfaces.
-		"""
-
-		unit = self.association()
-		if unit is None:
-			raise RuntimeError("context has no associated resource")
-
-		r = []
-		with self.process.io(unit) as alloc:
-			for endpoint in allocs:
-				typ = endpoint.protocol
-				r.append(alloc((transmission, typ), (str(endpoint.address), endpoint.port)))
-
-		return r
-
 	def bindings(self, *allocs, transmission = 'sockets'):
 		"""
 		Allocate leaked listening interfaces.
 
 		Returns a sequence of file descriptors that can later be acquired by traffic.
 		"""
+		global traffic
 
-		alloc = traffic.library.kernel.Junction.rallocate
+		alloc = traffic.allocate
 		unit = self.association()
 		if unit is None:
 			raise RuntimeError("context has no associated resource")
 
+		# traffic normally works with transits that are attached to
+		# junction, but in cases where it was never acquired, the
+		# management operations still work.
 		for endpoint in allocs:
 			typ = endpoint.protocol
 			t = alloc((transmission, typ), (str(endpoint.address), endpoint.port))
@@ -225,6 +231,139 @@ class Context(object):
 			del t
 
 			yield fd
+
+	def accept_sockets(self, kports):
+		"""
+		Acquire the transits necessary for the set of &kports, file descriptors.
+		"""
+		global traffic
+		alloc = traffic.allocate
+
+		for x in kports:
+			yield alloc('octets://acquire/socket', x)
+
+	def connect_stream(self, endpoints):
+		"""
+		Allocate Transformer resources associated with connections to the endpoint
+		by the parameters: &protocol, &address, &port. The parameters are
+		usually retrieved from an endpoint instance.
+
+		Connect does not forward bind parameters.
+
+		[ Parameters ]
+
+		/endpoint
+			&..internet.library.Endpoint
+		"""
+		global traffic
+		alloc = traffic.allocate
+
+		for x in endpoints:
+			yield alloc(('octets', x.protocol), (str(x.address), x.port))
+
+	def bind(self, interfaces):
+		"""
+		On POSIX systems, this performs &/unix/man/2/bind and
+		&/unix/man/2/listen system calls.
+		"""
+		global traffic
+		alloc = traffic.allocate
+
+		for x in interfaces:
+			yield alloc(('sockets', x.protocol), (str(x.address), x.port))
+
+	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
+		"""
+		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
+
+		Returns the process identifier and standard error's file descriptor as a tuple.
+		"""
+		stdout = stdin = stderr = ()
+
+		try:
+			try:
+				# use dev/null?
+				stderr = os.pipe()
+				stdout = os.pipe()
+				stdin = os.pipe()
+
+				pid = invocation(fdmap=[(stderr[1], 2), (stdout[1], 1), (stdin[0], 0)])
+			finally:
+				# clean up file descriptors
+
+				for x in stderr[1:]:
+					close(x)
+				for x in stdout:
+					close(x)
+				for x in stdin:
+					close(x)
+		except:
+			close(stderr[0])
+			raise
+
+		return pid, stderr[0]
+
+	def daemon_stderr(self, stderr, invocation, close=os.close):
+		"""
+		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
+		The &stderr parameter will be passed in as the standard error file descriptor,
+		and then *closed* before returning.
+
+		Returns a &Subprocess instance containing a single Process-Id.
+
+		Used to launch a daemon with a specific standard error for monitoring purposes.
+		"""
+
+		stdout = stdin = ()
+
+		try:
+			# use dev/null?
+			stdout = os.pipe()
+			stdin = os.pipe()
+
+			pid = invocation(fdmap=[(stderr, 2), (stdout[1], 1), (stdin[0], 0)])
+		finally:
+			# clean up file descriptors
+			close(stderr)
+
+			for x in stdout:
+				close(x)
+			for x in stdin:
+				close(x)
+
+		return pid
+
+	def stream_shared_segments(self, path:str, range:tuple, *downstream, Segments=libmemory.Segments):
+		"""
+		Construct a new Flow with an initial Iterate Transformer
+		flowing shared memory segments from the memory mapped file.
+
+		Returns a pair, the new Flow and a callable that causes the Flow to begin
+		transferring memory segments.
+
+		[ Parameters ]
+
+		/path
+			Local filesystem path to read from.
+
+		/range
+			A triple, (start, stop, size), or &None if the entire file should be used.
+			Where size is the size of the memory slices to emit.
+
+		/downstream
+			The set of &Transformer instances that follow the &Iterate instance.
+		"""
+		global Iterate, Flow
+
+		segs = Segments.open(path, range)
+		sector = self.sector
+
+		f = Flow()
+		i = Iterate()
+		f.requisite(i, *downstream)
+		sector.dispatch(f)
+
+		return f, functools.partial(f.process, s)
 
 class Fabric(object):
 	"""
@@ -447,7 +586,7 @@ class Representation(object):
 		Fork the process and enqueue the given tasks in the child.
 		Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
-
+		global libsys
 		return libsys.Fork.dispatch(self.boot, *tasks)
 
 	def boot(self, *tasks):
