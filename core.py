@@ -4053,6 +4053,14 @@ class Distributing(Extension):
 		if getattr(layer, 'terminal', False):
 			self.context.enqueue(functools.partial(self.input.terminate, by=layer))
 
+	def input_closed(self):
+		"""
+		&input &Flow exited; either termination or interruption.
+		"""
+		for layer, flow in self.flows.items():
+			flow.interrupt(by=self.input)
+			flow.controller.exited(flow)
+
 	def accept_event_connect(self, receiver:ProtocolTransactionEndpoint):
 		"""
 		Configure the receiver of accept events for protocol-level
@@ -4151,6 +4159,7 @@ class QueueProtocol(Protocol):
 		if self.exits == 1:
 			self.exit()
 		self.exits += 1
+		self.distribute.input_closed()
 
 	def output_closed(self, flow):
 		if self.exits == 1:
