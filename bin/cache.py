@@ -94,12 +94,17 @@ def dispatch(sector, url):
 
 	req = request(struct)
 
+	pair, = sector.context.connect_stream((endpoint,))
+
 	if struct['scheme'] == 'https':
 		tls = security_context.connect()
-		hc = libhttp.Client(endpoint, transports=(tls, security.operations(tls)))
+
+		hc = libhttp.Client(endpoint,
+			*[libio.KernelPort(x) for x in pair],
+			transports=(tls,),
+		)
 	else:
 		tls = None
-		pair, = sector.context.connect_stream((endpoint,))
 		hc = libhttp.Client(endpoint, *[libio.KernelPort(x) for x in pair])
 
 	sector.dispatch(hc)

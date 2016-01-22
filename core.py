@@ -1715,17 +1715,18 @@ class Connection(Sector):
 	transports = ()
 	def __init__(self, endpoint, input, output, transports=()):
 		global Flow
+		global Transports
 		super().__init__()
 
 		self.endpoint = endpoint
 		if transports:
-			raise NotImplementedError
-			for transport_layer in transports():
-				state, ops = transport_layer()
-			self.transports = ()
-
-		self.input = Flow(*meter_input(input))
-		self.output = Flow(*meter_output(output))
+			self.transports = transports
+			ti, to = Transports.create(transports)
+			self.input = Flow(*meter_input(input), ti)
+			self.output = Flow(to, *meter_output(output))
+		else:
+			self.input = Flow(*meter_input(input))
+			self.output = Flow(*meter_output(output))
 
 	def actuate(self):
 		super().actuate()
@@ -2353,7 +2354,9 @@ class Transformer(Resource):
 		self.emit(event)
 
 	def process(self, event):
-		raise NotImplementedError("transformer subclass did not implement process")
+		raise NotImplementedError(
+			"transformer subclass (%s) did not implement process" %(self.__class__.__name__,)
+		)
 
 	def actuate(self):
 		pass
@@ -2582,12 +2585,13 @@ class Reactor(Transformer):
 	notifications in order to relay failures to dependencies that fall outside the &Flow.
 
 	Installation into A &Flow causes the &suspend and &resume methods to be called whenever the
-	&Flow is obstructed or cleared.
+	&Flow is obstructed or cleared. Subclasses are expected to override them in order
+	to handle the signals.
 	"""
 
-	def subresource(self, obj):
-		super().subresource(obj)
-		obj.watch(self.suspend, self.resume) # relocate to Reactor.actuate
+	def actuate(self):
+		super().actuate()
+		self.controller.watch(self.suspend, self.resume)
 
 	def suspend(self, flow):
 		"Method to be overridden for handling Flow obstructions"
@@ -2893,36 +2897,10 @@ class Functional(Transformer):
 		next(generator)
 		return Class(generator.send)
 
-class Composition(Functional):
-	"""
-	Mutable transformer used to manage a functional composition.
-
-	Compositions are preferable to distinct Transformers for their
-	mutable capabilities. This allows protocol switches to be performed
-
-	Used heavily in meter_input and meter_output in order to allow protocol
-	substitutions.
-	"""
-
-	def __init__(self):
-		self.transformation = None
-
-	def structure(self):
-		p = [
-			(i, self.sequence[i])
-			for i in range(len(self.sequence))
-		]
-		return (p, ())
-
-	def actuate(self):
-		if self.transformation is None:
-			self.compose()
-
-	def compose(self, *sequence, Compose=libc.compose):
-		"Substitute the composition of the Transformation."
-
-		self.sequence = sequence
-		self.transformation = Compose(*sequence)
+	@classmethod
+	def compose(Class, *sequence, Compose=libc.compose):
+		"Create a function transformer from a composition."
+		return Class(Compose(*sequence))
 
 class Meter(Reactor):
 	"""
