@@ -2928,6 +2928,9 @@ class Functional(Transformer):
 	def __init__(self, transformation:collections.abc.Callable):
 		self.transformation = transformation
 
+	def actuate(self, compose=libc.compose):
+		self.process = compose(self.emit, self.transformation)
+
 	def process(self, event):
 		self.emit(self.transformation(event))
 
