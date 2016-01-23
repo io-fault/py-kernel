@@ -69,7 +69,7 @@ def response_endpoint(protocol, request, response, connect, transports=(), tls=N
 		track = libc.partial(count, path)
 		trace.monitor("total", track)
 
-		f = sector.flow((libio.Iterate(), trace), target)
+		f = sector.flow((libio.Functional.chains(), trace), target)
 
 	f.atexit(functools.partial(response_collected, sector, request, response))
 	connect(f)

@@ -49,7 +49,7 @@ def deliver_io_events(junction, events):
 					# data may be transferred while the termination
 					# condition is present, so its important it gets sent
 					# prior to running the KernelPort's termination.
-					detour.inject(xfer)
+					detour.inject((xfer,))
 
 				if term:
 					detour.terminated()

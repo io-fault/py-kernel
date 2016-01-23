@@ -2371,7 +2371,7 @@ class Transformer(Resource):
 		pass
 
 	def emit(self, event):
-		raise RuntimeError("emit property was not set to the following transformer")
+		raise RuntimeError("emit property was not initialized to the following transformer")
 
 	def drain(self):
 		pass
@@ -2934,6 +2934,11 @@ class Functional(Transformer):
 		return Class(generator.send)
 
 	@classmethod
+	def chains(Class, depth=1, chain=itertools.chain.from_iterable):
+		"Create a transformer wrapping a events in a composition of chains."
+		return Class.compose(list, *([chain]*depth))
+
+	@classmethod
 	def compose(Class, *sequence, Compose=libc.compose):
 		"Create a function transformer from a composition."
 		return Class(Compose(*sequence))
@@ -2970,8 +2975,8 @@ class Meter(Reactor):
 	def exited(self, event):
 		# Called by the Sensor.
 
-		measure = self.measure(event)
-		self.transferred += measure
+		for x in event:
+			self.transferred += self.measure(x)
 
 		if self.transferring is None or self.transferred == self.transferring:
 			self.transferred = 0
@@ -3114,29 +3119,26 @@ class Throttle(Meter):
 					Condition(self, ('overflow',))
 				)
 
-def Sensor(transformer):
-	"Generator that communicates transfers to the given Transformer"
-
-	event = (yield None)
-	exited = transformer.exited
-
-	while True:
-		exited(event)
-		event = (yield (event,))
-
 def meter_input(ix, allocate=Allocator.allocate_byte_array):
 	"Create the necessary Transformers for metered input."
+	global Allocator, Trace
 
 	meter = Allocator(allocate)
-	g = Sensor(meter)
-	return (meter, ix, Functional.generator(g))
+	cb = meter.exited
+	trace = Trace()
+	trace.monitor("xfer-completion", cb)
+
+	return (meter, ix, trace)
 
 def meter_output(ox, transports=None):
 	"Create the necessary Transformers for metered output."
+	global Throttle, Trace
 
 	meter = Throttle()
-	g = Sensor(meter)
-	return (meter, ox, Functional.generator(g))
+	cb = meter.exited
+	trace = Trace()
+	trace.monitor("xfer-completion", cb)
+	return (meter, ox, trace)
 
 class Condition(object):
 	"""
@@ -4057,9 +4059,21 @@ class Distributing(Extension):
 		"""
 		&input &Flow exited; either termination or interruption.
 		"""
+
+		# Any connected flows are subjected to interruption here.
+		# Closure here means that the protocol state did not manage
+		# &close the transaction and we need to assume that its incomplete.
 		for layer, flow in self.flows.items():
 			flow.interrupt(by=self.input)
 			flow.controller.exited(flow)
+
+		if not self.queues:
+			# Flows have been interrupted, and there are no queues
+			# with a closed input. No new requests or responses can
+			# be received.
+			return True
+
+		return False
 
 	def accept_event_connect(self, receiver:ProtocolTransactionEndpoint):
 		"""
@@ -4159,7 +4173,9 @@ class QueueProtocol(Protocol):
 		if self.exits == 1:
 			self.exit()
 		self.exits += 1
-		self.distribute.input_closed()
+
+		if self.distribute.input_closed():
+			self.sequence.output.terminate(by=self)
 
 	def output_closed(self, flow):
 		if self.exits == 1:

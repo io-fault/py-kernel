@@ -583,7 +583,8 @@ def v1_input(
 		EOH=libhttp.EOH,
 		EOM=libhttp.EOM,
 		iter=iter,
-		chain=itertools.chain,
+		map=map,
+		chain=itertools.chain.from_iterable,
 	):
 	"""
 	Generator function for maintaining the input state of a sequence of HTTP transactions.
@@ -621,8 +622,10 @@ def v1_input(
 			else:
 				# need more for headers
 				events = []
+				y = events.extend
 				for x in map(tokens, (yield)):
-					events.extend(x)
+					y(x)
+				del y
 				events = iter(events)
 
 		# got request or status line and headers for this request
@@ -641,7 +644,7 @@ def v1_input(
 		# local_state is used as a catch all
 		# if strictness is desired, it should be implemented here.
 
-		body = [] # XXX: context based allocation? (memory constraints)
+		body = []
 		trailer_sequence = []
 		local_state = {
 			# handle both chunking and content types
@@ -683,8 +686,9 @@ def v1_input(
 				else:
 					# need more for EOM
 					events = []
+					y = events.extend
 					for x in map(tokens, (yield)):
-						events.extend(x)
+						y(x)
 					events = iter(events)
 				# for x in events
 			# while not body_complete
@@ -699,15 +703,12 @@ def v1_input(
 	# During Protocol Substitution, the disassembler
 	# may produce bypass events that contain data for
 	# the protocol that is taking over the connection.
-	excess = bytearray()
+	excess = []
 	while True:
 		# Expecting bypass events.
-		for typ, data in events:
+		for typ, data in chain(map(tokens, (yield))):
 			if typ == bypass:
-				excess += data
-
-		# XXX: currently no way to access the excess
-		events = iter(chain(*(yield)))
+				excess.append(data)
 
 client = functools.partial(libio.QueueProtocol, Response, Request, v1_input, v1_output)
 server = functools.partial(libio.QueueProtocol, Request, Response, v1_input, v1_output)
