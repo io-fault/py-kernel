@@ -66,6 +66,9 @@ class TTransit(object):
 	def process(self, event):
 		pass
 
+	def inject(self, event):
+		self.emit((event,))
+
 def sector():
 	"Construct a root Sector and Context for testing."
 	ctx = TContext()
@@ -244,6 +247,7 @@ def test_Flow_obstructions(test):
 			l.append('resume')
 
 	f = library.Flow(ObstructionWatcher())
+	f.actuate()
 
 	f.obstruct(test, None)
 	test/l == ['suspend']
@@ -453,16 +457,16 @@ def test_Allocator(test):
 	test/rlen > 0
 
 	chunk = rlen // 2
-	t.link.inject(t.resource[:chunk])
+	t.link.inject((t.resource[:chunk],))
 
 	test/meter.transferred == chunk
 
-	t.link.inject(t.resource[chunk:rlen-1])
+	t.link.inject((t.resource[chunk:rlen-1],))
 	test/meter.transferred == rlen-1
 
 	test/meter.transferring == rlen
 
-	t.link.inject(t.resource[rlen-1:])
+	t.link.inject((t.resource[rlen-1:],))
 	test/meter.transferred == 0
 	test/id(t.resource) != id(fst_resource)
 
@@ -489,17 +493,17 @@ def test_Throttle(test):
 	test/rlen > 0
 
 	chunk = rlen // 2
-	t.link.inject(t.resource[:chunk])
+	t.link.inject((t.resource[:chunk],))
 
 	test/meter.transferred == chunk
 
-	t.link.inject(t.resource[chunk:rlen-1])
+	t.link.inject((t.resource[chunk:rlen-1],))
 	test/meter.transferred == rlen-1
 
 	test/meter.transferring == rlen
 
 	f.process((b'following',))
-	t.link.inject(t.resource[rlen-1:])
+	t.link.inject((t.resource[rlen-1:],))
 	test/meter.transferred == 0
 	test/id(t.resource) != id(fst_resource)
 
