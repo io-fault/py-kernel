@@ -96,27 +96,26 @@ class ProtocolTransaction(tuple):
 
 		return f
 
-	def write_file_to_output(self, route, range=None, str=str):
+	def read_file_into_output(self, path, range=None, str=str):
 		"""
-		Send the file referenced by &route to the remote end as
+		Send the file referenced by &path to the remote end as
 		the (HTTP) entity body.
 
-		The response must be properly initialized.
+		The response must be properly initialized before invoking this method.
 
 		[ Parameters ]
-		/route
-			The &..routes.library.File instance pointing
-			to the target file.
+		/path
+			A string containing the file's path.
 		/range
 			The slice of the file to write.
 		"""
 
 		cxn = self.connection
-		with cxn.allocate() as xact:
-			f, start = xact.stream_file(str(route), range=range)
-
+		transit, = cxn.context.open_files((path,))
+		f = libio.Flow(*libio.core.meter_input(libio.KernelPort(transit)))
+		cxn.dispatch(f)
 		self.connect_output(f)
-		start()
+		f.process(None)
 		return f
 
 	def read_input_into_coroutine(self):
@@ -509,7 +508,7 @@ class Response(Layer):
 		return self.initiation[2]
 
 	def result(self, code, description, version=b'HTTP/1.1'):
-		self.initiate((version, str(code).encode('utf-8'), description.encode('utf-8')))
+		self.initiate((version, str(code).encode('ascii'), description.encode('utf-8')))
 
 def v1_output(
 		layer, transport,
