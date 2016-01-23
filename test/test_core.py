@@ -388,6 +388,15 @@ def test_Collect(test):
 	b.process([b'data', b' ', b'more'])
 	test/b.storage == b'data more'
 
+def test_Functional(test):
+	ft = library.Functional(lambda x: x+1)
+	c = library.Collect.list()
+	f = library.Flow(ft, c)
+	f.actuate()
+	f.process(1)
+	f.process(2)
+	test/c.storage == [2,3]
+
 def test_Call(test):
 	Type = library.Call
 	ctx, sect = sector()
