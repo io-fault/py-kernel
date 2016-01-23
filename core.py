@@ -2249,7 +2249,7 @@ class Interface(Sector):
 		]
 		return (p, ())
 
-	def __init__(self, slot, spawn):
+	def __init__(self, slot, spawn=None):
 		"""
 		Select the &Ports slot to acquire listening sockets from.
 
@@ -2261,11 +2261,16 @@ class Interface(Sector):
 		/spawn
 			The function used to create &Connection instances from the set of accepted
 			sockets transferred through the &Interface's &funnel.
+			Defaults to &accept.
 		"""
-
 		super().__init__()
+
 		self.slot = slot
-		self.spawn = spawn
+
+		if spawn:
+			self.spawn = spawn
+		else:
+			self.spawn = self.accept
 
 	def actuate(self):
 		global Flow, Sector
