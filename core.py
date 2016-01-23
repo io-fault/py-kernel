@@ -3719,6 +3719,7 @@ class Collect(Terminal):
 	def __init__(self, storage, operation):
 		self.storage = storage
 		self.operation = operation
+		self.process = operation
 
 	@classmethod
 	def list(Class):
@@ -3736,6 +3737,15 @@ class Collect(Terminal):
 	def set(Class):
 		s = set()
 		return Class(s, s.add)
+
+	@staticmethod
+	def buffer_operation(event, barray=None, op=bytearray.__iadd__, reduce=functools.reduce):
+		reduce(op, event, barray)
+
+	@classmethod
+	def buffer(Class, partial=functools.partial, bytearray=bytearray):
+		b = bytearray()
+		return Class(b, partial(Class.buffer_operation, barray=b))
 
 	def process(self, obj):
 		self.operation(obj)

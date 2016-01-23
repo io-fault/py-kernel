@@ -380,6 +380,10 @@ def test_Collect(test):
 
 	test/sorted(list(c.storage)) == [1,2,3,4,5]
 
+	b = library.Collect.buffer()
+	b.process([b'data', b' ', b'more'])
+	test/b.storage == b'data more'
+
 def test_Call(test):
 	Type = library.Call
 	ctx, sect = sector()
@@ -704,34 +708,6 @@ def test_QueueProtocol(test):
 
 	# queue protocol
 	pass
-
-def test_Composition(test):
-	effect = []
-
-	C = library.Composition()
-	C.actuate()
-	def add(x):
-		return x+1
-
-	C.emit = effect.append
-	C.process(None)
-	test/effect[-1] == None
-
-	C.compose(add, add, add)
-	C.process(1)
-	test/effect[-1] == 4
-
-	C.compose(add, add)
-	C.process(1)
-	test/effect[-1] == 3
-
-	C.compose(add)
-	C.process(1)
-	test/effect[-1] == 2
-
-	C.compose()
-	C.process(1)
-	test/effect[-1] == 1
 
 if __name__ == '__main__':
 	import sys; from ...development import libtest
