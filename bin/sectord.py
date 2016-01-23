@@ -32,7 +32,7 @@ def initialize(unit):
 	modules = proc.invocation.parameters
 
 	r = routeslib.File.from_cwd()
-	s = libservice.Service(r.container, r.identity)
+	s = libservice.Service(r.container, r.identifier)
 	s.load() # parameters
 
 	root_sector = libdaemon.Control(modules)
