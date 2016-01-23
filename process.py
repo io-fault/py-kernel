@@ -261,6 +261,16 @@ class Context(object):
 		for x in endpoints:
 			yield alloc(('octets', x.protocol), (str(x.address), x.port))
 
+	def open_files(self, paths):
+		"""
+		Open a set of files for reading through a &.library.KernelPort.
+		"""
+		global traffic
+		alloc = traffic.allocate
+
+		for x in paths:
+			yield alloc('octets://file/read', x)
+
 	def bind(self, interfaces):
 		"""
 		On POSIX systems, this performs &/unix/man/2/bind and
