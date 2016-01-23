@@ -514,7 +514,7 @@ class Control(libio.Control):
 
 		srv_list = self.route.subnodes()[0]
 		self.services.update(
-			(x.identity, srv.coservice(x.identity))
+			(x.identifier, srv.coservice(x.identifier))
 			for x in srv_list
 		)
 
