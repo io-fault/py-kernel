@@ -40,8 +40,7 @@ def response_collected(sector, request, response, flow):
 def response_endpoint(context, request, response, connect):
 	sector = context.sector
 
-	f = libio.Flow()
-	f.requisite(libio.Collect.list())
+	f = libio.Flow(libio.Collect.list())
 	sector.dispatch(f)
 
 	f.atexit(functools.partial(response_collected, sector, request, response))
@@ -90,7 +89,10 @@ def main(sector):
 	else:
 		struct['path'] = ['sys', '']
 
-	hc = libhttp.Client.open(sector, endpoint)
+	pair, = sector.context.connect_stream((endpoint,))
+	hc = libhttp.Client(endpoint, *[libio.KernelPort(x) for x in pair])
+	sector.dispatch(hc)
+	hc.manage()
 
 	req = libhttp.Request()
 	path = libri.http(struct)
@@ -107,10 +109,8 @@ def main(sector):
 		(b'Content-Length', str(len(parameters)).encode('ascii')),
 	])
 
-	fi = libio.Flow()
-	i = libio.Iterate()
-	i.requisite(terminal=True)
-	fi.requisite(i)
+	i = libio.Iterate(terminal=True)
+	fi = libio.Flow(i)
 	sector.dispatch(fi)
 
 	hc.http_request(response_endpoint, req, fi)
