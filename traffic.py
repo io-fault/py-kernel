@@ -27,7 +27,7 @@ def deliver_io_events(junction, events):
 	popevent = events.popleft
 
 	while events:
-		detour = link = delta = flow = None
+		kp = link = delta = flow = None
 		# the double loop here is keep the primary loop inside
 		# the try/except
 		try:
@@ -35,8 +35,8 @@ def deliver_io_events(junction, events):
 				event = popevent()
 
 				link, delta = event
-				detour = link
-				if detour is None:
+				kp = link
+				if kp is None:
 					link = None
 					continue
 
@@ -49,26 +49,26 @@ def deliver_io_events(junction, events):
 					# data may be transferred while the termination
 					# condition is present, so its important it gets sent
 					# prior to running the KernelPort's termination.
-					detour.inject((xfer,))
+					kp.inject((xfer,))
 
 				if term:
-					detour.terminated()
+					kp.terminated()
 					# Ignore termination for None links
 				elif demand is not None:
-					detour.transition()
+					kp.transition()
 
 				link = None
 		except Exception as exception:
 
 			try:
 				if link is None:
-					# failed to unpack the detour and delta from event
+					# failed to unpack the kp and delta from event
 					# generally this shouldn't happen and usually refers
 					# to a programming error in io.
 					junction.link.error((junction, event), exception)
 				else:
-					flow = detour.controller
-					flow.fault(exception, detour)
+					flow = kp.controller
+					flow.fault(exception, kp)
 					flow.context.process.error(flow, exception, title="I/O")
 			except Exception as exc:
 				junction.link.context.process.error((junction, event), exc)
