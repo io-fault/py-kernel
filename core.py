@@ -4216,7 +4216,10 @@ class Ports(Device):
 		# remove any existing file system sockets
 		for x in endpoints:
 			if x.protocol == 'local':
-				if x.route.exists() and x.route.type() == "socket":
+				if not x.route.exists():
+					continue
+
+				if x.route.type() == "socket":
 					x.route.void()
 				else:
 					# XXX: more appropriate error
