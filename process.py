@@ -46,13 +46,14 @@ class Context(object):
 	"""
 	Execution context class providing access to per-context resource acquisition.
 
-	Manages dedicated threads, general processing threads, memory allocation,
-	flow constructors, environment variable access and local overrides, contextual tasks,
-	pipeline construction, child management.
+	Manages allocation of kernel provided resources, system command execution, threading,
+	I/O connections.
 
 	Contexts are the view to the &Process and the Kernel of the system running
 	the process. Subcontexts can be created to override the default functionality
-	and provide a different environment. Contexts are associated with every &.library.Resource.
+	and provide a different environment.
+
+	Contexts are associated with every &.library.Resource.
 	"""
 
 	inheritance = ('environment',)
@@ -169,12 +170,6 @@ class Context(object):
 		"Enqueue the tasks for subsequent processing; used by threads to synchronize their effect."
 
 		self.process.enqueue(*tasks)
-
-	def dispatch(self, controller, task):
-		"Execute the given task on the general purpose thread."
-
-		fenqueue = self.process.fabric.enqueue
-		fenqueue(controller, task)
 
 	def execute(self, controller, function, *parameters):
 		"Execute the given function in a thread associated with the specified controller"
@@ -391,27 +386,19 @@ class Fabric(object):
 	Thread manager for processes; thread pool with capacity to manage dedicated threads.
 	"""
 
-	Queue = queue.Queue
-
 	def __init__(self, process, minimum=1, maximum=16, proxy=weakref.proxy):
 		self.process = proxy(process) # report unhandled thread exceptions
 		self.minimum = minimum
 		self.maximum = maximum
 
-		self.gpt = dict() # general purpose threads
-		self.dpt = dict() # dedicated purpose threads
-
-		self.general_purpose_queue = self.Queue()
+		self.threading = dict() # dedicated purpose threads
 
 	def void(self):
 		"""
-		Destroy the thread indexes and general purpose queue.
-		Normally used after a process fork on the residual Process.
+		Normally used after a process fork in the child.
 		"""
 
-		self.gpt.clear()
-		self.dpt.clear()
-		self.general_purpose_queue.clear()
+		self.threading.clear()
 
 	def execute(self, controller, callable, *args):
 		"""
@@ -442,7 +429,7 @@ class Fabric(object):
 
 	def thread(self, *parameters, gettid = libsys.identify_thread):
 		"""
-		Manage the execution of a general purpose thread or a dedicated thread.
+		Manage the execution of a thread.
 		"""
 
 		controller, thread_root = parameters
@@ -450,85 +437,21 @@ class Fabric(object):
 
 		try:
 			try:
-				if controller is None:
-					self.gpt[tid] = None
-				else:
-					self.dpt[tid] = parameters
+				self.threading[tid] = parameters
 
 				thread_call, thread_args = thread_root
 				del thread_root
 
 				return thread_call(*thread_args)
 			finally:
-				if controller is None:
-					del self.gpt[tid]
-				else:
-					del self.dpt[tid]
+				del self.threading[tid]
 		except BaseException as exception:
 			self.process.error(controller, exception, "Thread")
-
-	def loop(self, *parameters, gettid = libsys.identify_thread):
-		"""
-		Internal use only.
-
-		Function used to manage threads in a logical process's fabric.
-		This function is called within a new thread.
-		"""
-
-		controller, queue = parameters
-		assert controller is None # controller is implicitly Process
-
-		get = queue.get
-		tid = gettid()
-		self.gpt[tid] = locals()
-
-		while True:
-			try:
-				task = None
-				controller, task = get()
-				if task is None:
-					break
-
-				r = task()
-				if r is not None:
-					# sync result if any
-					self.process.enqueue(r)
-			except BaseException as err:
-				self.error(task, err, title = "General Purpose Thread")
-			finally:
-				pass
 
 	def executing(self, tid):
 		"Whether or not the given thread [identifier] is executing in this Fabric instance."
 
-		return tid in self.dpt or tid in self.gpt
-
-	def increase(self, count = 1):
-		"""
-		Increase the general purpose thread count.
-		"""
-
-		for x in range(count):
-			self.spawn(None, self.loop, (None, self.general_purpose_queue,))
-
-	def decrease(self, count = 1):
-		"""
-		Reduce the general purpose thread count.
-		"""
-
-		for x in range(count):
-			# None signal .thread() to exit
-			self.general_purpose_queue.put(None)
-
-	def enqueue(self, controller, task):
-		"""
-		Execute the given task in a general purpose thread.
-		A new thread will *not* be created.
-		"""
-
-		qsize = self.general_purpose_queue.qsize()
-		self.general_purpose_queue.put((controller, task))
-		return qsize
+		return tid in self.threading
 
 # Process exists here as it is rather distinct from core.*
 # It doesn't fall into the classification of a Resource.
@@ -623,8 +546,6 @@ class Representation(object):
 		# kernel interface: watch pid exits, process signals, and enqueue events
 		self.kernel = Kernel()
 		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
-
-		self.fabric.increase(1) # general purpose threads
 		self.fabric.spawn(None, self.main, ())
 
 		# replace boot() with protect() for main thread protection
@@ -757,15 +678,12 @@ class Representation(object):
 
 		# processing_queue is normally empty whenever report is called.
 		ntasks = sum(map(len, (self.loading_queue, self.processing_queue)))
-		ngthreads = len(self.fabric.gpt)
-		nftasks = self.fabric.general_purpose_queue.qsize()
 		nunits = len(__process_index__[self]) - 1
 
 		p = [
 			('pid', libsys.current_process_id),
 			('tasks', ntasks),
-			('threads', ngthreads),
-			('general tasks', nftasks),
+			('threads', len(self.fabric.threading)),
 			('units', nunits),
 			('executable', sys.executable),
 		]

@@ -28,7 +28,6 @@ Transformer = core.Transformer
 Functional = core.Functional
 Reactor = core.Reactor # Transformer
 Parallel = core.Parallel
-Generator = core.Generator
 
 Collect = core.Collect
 Iterate = core.Iterate

@@ -37,6 +37,9 @@ class Expiry(Exception):
 	"""
 	An operation exceeded a time limit.
 	"""
+	def __init__(self, constraint, timestamp):
+		self.timestamp = timestamp
+		self.constraint = constraint
 
 class RateViolation(Expiry):
 	"""
@@ -2051,7 +2054,9 @@ class Scheduler(Processor):
 		return self.defer(measure, *tasks)
 
 	def defer(self, measure, *tasks):
-		"Defer the execution of the given &tasks by the given &measure."
+		"""
+		Defer the execution of the given &tasks by the given &measure.
+		"""
 
 		p = self.state.period()
 
@@ -2067,7 +2072,9 @@ class Scheduler(Processor):
 				self.update()
 
 	def cancel(self, task):
+		"""
 		"Cancel the execution of the task."
+		"""
 
 		self.state.cancel(task)
 
@@ -2729,107 +2736,6 @@ class Parallel(Transformer):
 		"""
 
 		self.put(event)
-
-# XXX: Dispatcher needs to signal obstructions when the queue size reaches a configured value.
-# XXX: Dispatcher does not guarantee serialization.
-class Dispatcher(Transformer):
-	"""
-	A Processor that applies the function in a general purpose thread and enqueues the
-	emission (results) to the process' task queue.
-	"""
-
-	enqueue = None
-	dispatch = None
-
-	def requisite(self, function, serialization = None):
-		self.function = function
-		self.serialization = serialization
-
-	def actuate(self, partial=functools.partial):
-		self.enqueue = self.controller.context.enqueue
-		self.dispatch = self.controller.context.dispatch
-
-		if self.serialization is None:
-			self.method = partial(self.imperfect, self.function)
-		else:
-			self.method = partial(self.serializing, self.function)
-
-		return self
-
-	@classmethod
-	def serialized(Class, function):
-		"""
-		Create a Parallel processor instance that guarantees serialization of processing
-		operations.
-		"""
-
-		rob = Class()
-		rob.requisite(function, libsys.create_lock())
-		return rob
-
-	# races with general purpose threads > 1; serialization order is not guaranteed
-	def serializing(self, function, event, partial = functools.partial):
-		with self.serialization:
-			emission = function(event)
-			# enqueue emission for next transformer
-			self.enqueue(partial(self.emit, emission))
-
-	def imperfect(self, function, event):
-		emission = function(event)
-		self.enqueue(functools.partial(self.emit, emission))
-
-	def process(self, event):
-		self.dispatch(self, functools.partial(self.method, event))
-
-	retains = True
-	def drained(self, callback):
-		# XXX: Needs to be able to select the GPT.
-		with self.serialization:
-			self.enqueue(callback)
-
-	def ddrain(self, callback):
-		self.dispatch(self, functools.partial(self.drained, callback))
-
-	def drain(self):
-		return self.ddrain
-
-class Generator(Dispatcher):
-	"""
-	A &Dispatcher that sends events to a generator that is iterated within a general purpose thread.
-	"""
-
-	def requisite(self, function):
-		"Install a generator function to support transformations."
-
-		self.generator = function(self)
-		super().requisite(self.generator.send, serialization = libsys.create_lock())
-		self.generator_function = function
-
-	def subresource(self, ascent):
-		super().subresource(ascent)
-		next(self.generator)
-
-	def emission(self, event, partial = functools.partial):
-		"""
-		A means to vent emission before yielding out of a generator.
-		"""
-
-		return self.enqueue(partial(self.emit, event))
-
-	def serializing(self, function, event):
-		"""
-		Generators have to be serialized.
-		"""
-
-		# inside a general purpose thread
-		with self.serialization:
-			# trap exceptions while serializing.
-			try:
-				# generators call emission directly
-				result = function(event)
-			except StopIteration:
-				# XXX: signal obstruction or interruption?
-				pass
 
 class KernelPort(Transformer):
 	"""
