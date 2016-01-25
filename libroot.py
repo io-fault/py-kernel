@@ -410,7 +410,11 @@ class ServiceManager(libio.Processor):
 		avg = et[-1][0].measure(et[0][0]) / len(et)
 
 	def service_exit(self, exit_count):
-		pid_exit = self.subprocess.only
+		if self.subprocess is not None:
+			pid_exit = self.subprocess.only
+		else:
+			pid_exit = (None,)
+
 		self.subprocess = None
 
 		if self.status != 'exception':
