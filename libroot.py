@@ -368,8 +368,8 @@ class ServiceManager(libio.Processor):
 
 			pid, stderr = self.context.daemon(self.invocation)
 			sub = self.subrpocess = libio.Subprocess(pid)
-			with sector.allocate() as xact:
-				stderr, = xact.acquire('input', stderr)
+			stderr, = self.context.connect_input((stderr,))
+			stderr = libio.KernelPort(stderr)
 
 			sector.dispatch(sub)
 			sub.atexit(self.service_exit)

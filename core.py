@@ -949,7 +949,9 @@ class Processor(Resource):
 		pass
 
 	def actuate(self):
-		"Note as actuated; abstract Processors have no actuation."
+		"""
+		Note the processor as actuated by setting &actuated to &True.
+		"""
 
 		self.actuated = True
 		return self
@@ -3090,7 +3092,7 @@ class Throttle(Meter):
 			self.controller.clear(self)
 
 	def drain(self):
-		if self.queue or self.transferring is not None:
+		if self.queue or self.transferring is not None and self.controller.permanent == False:
 			return functools.partial(self.__setattr__, 'draining')
 		else:
 			# queue is empty
@@ -3304,9 +3306,6 @@ class Flow(Processor):
 
 		transformers[-1].emit = self.emission # tie the last to Flow's emit
 
-		for x, y in zip(transformers, transformers[1:]):
-			x.emit = y.process
-
 		self.sequence = transformers
 
 	def actuate(self):
@@ -3316,10 +3315,13 @@ class Flow(Processor):
 		as well.
 		"""
 
-		super().actuate()
-
+		emit = self.emission
 		for transformer in reversed(self.sequence):
+			transformer.emit = emit
 			transformer.actuate()
+			emit = transformer.process
+
+		super().actuate()
 
 		if self.downstream:
 			self.downstream.actuate()

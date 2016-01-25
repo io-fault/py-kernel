@@ -282,6 +282,17 @@ class Context(object):
 		for x in interfaces:
 			yield alloc(('sockets', x.protocol), (str(x.address), x.port))
 
+	def connect_input(self, fds):
+		"""
+		Allocate &..traffic Transit instances for the given sequence
+		of file descriptors.
+		"""
+		global traffic
+		alloc = traffic.allocate
+
+		for x in fds:
+			yield alloc('octets://acquire/input', x)
+
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
 		"""
 		Execute the &..system.library.KInvocation instance with stdin and stdout closed.

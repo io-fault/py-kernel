@@ -177,6 +177,7 @@ def test_Flow_operation(test):
 		endpoint.append(x)
 
 	f = library.Flow(xf1, xf2, xf3)
+	f.actuate()
 	f.emit = append
 
 	f.process("event")

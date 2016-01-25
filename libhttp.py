@@ -114,8 +114,10 @@ class ProtocolTransaction(tuple):
 		transit, = cxn.context.open_files((path,))
 		f = libio.Flow(*libio.core.meter_input(libio.KernelPort(transit)))
 		cxn.dispatch(f)
+
 		self.connect_output(f)
 		f.process(None)
+
 		return f
 
 	def read_input_into_coroutine(self):
