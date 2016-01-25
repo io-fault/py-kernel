@@ -689,7 +689,8 @@ class Representation(object):
 		]
 
 		python = os.environ.get('PYTHON')
-		p.append(('python', python))
+		if python is not None:
+			p.append(('python', python))
 
 		return (p, sr)
 
