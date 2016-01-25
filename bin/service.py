@@ -279,7 +279,7 @@ def menu(route, syn=command_synopsis):
 
 	sl = route.subnodes()[0]
 	service_head = "\n\nServices [%s][%d]:\n\n\t" %(route.fullpath, len(sl),)
-	service_list = '\n\t'.join([x.identity for x in sl]) or '[None]'
+	service_list = '\n\t'.join([x.identifier for x in sl]) or '[None]'
 
 	return ''.join([
 		head, descr, command_head,
