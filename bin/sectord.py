@@ -23,7 +23,7 @@ def initialize(unit):
 	from .. import libservice
 	from .. import library
 
-	from ...routes import library as routeslib
+	from ...routes import library as libroutes
 
 	# /dev/ports
 	library.core.Ports.load(unit)
@@ -31,7 +31,7 @@ def initialize(unit):
 	proc = unit.context.process
 	modules = proc.invocation.parameters
 
-	r = routeslib.File.from_cwd()
+	r = libroutes.File.from_cwd()
 	s = libservice.Service(r.container, r.identifier)
 	s.load() # parameters
 
