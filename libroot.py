@@ -367,7 +367,7 @@ class ServiceManager(libio.Processor):
 			os.chdir(service.route.fullpath)
 
 			pid, stderr = self.context.daemon(self.invocation)
-			sub = self.subrpocess = libio.Subprocess(pid)
+			sub = self.subprocess = libio.Subprocess(pid)
 			stderr, = self.context.connect_input((stderr,))
 			stderr = libio.KernelPort(stderr)
 

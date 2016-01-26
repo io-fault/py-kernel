@@ -13,7 +13,7 @@ def initialize(unit):
 	Initialize the sectord process.
 
 	Load ports from the invocation configuration,
-	setup libdaemon.Control for control interfaces and forking.
+	setup &.libdaemon.Control for control interfaces and forking.
 
 	The module paths provided as arguments will be used as sector
 	modules loaded into "/bin".
