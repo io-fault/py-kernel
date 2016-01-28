@@ -134,13 +134,16 @@ def sequence(identity, resource, perspective, traversed, depth=0):
 
 			yield from sequence(identity, subresource, Class, subtraversed, depth=depth)
 
-def format(identity, resource, tabs="\t".__mul__):
+def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 	"""
 	Format the &Resource tree in eclectic text.
 	"""
 	import pprint
 
-	for event in sequence(identity, resource, None, set()):
+	if sequenced is None:
+		sequenced = sequence(identity, resource, None, set())
+
+	for event in sequenced:
 		type, depth, perspective, value = event
 
 		if type == 'properties':
