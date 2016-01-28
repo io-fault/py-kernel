@@ -266,6 +266,16 @@ class Context(object):
 		for x in paths:
 			yield alloc('octets://file/read', x)
 
+	def append_files(self, paths):
+		"""
+		Open a set of files for appending through a &.library.KernelPort.
+		"""
+		global traffic
+		alloc = traffic.allocate
+
+		for x in paths:
+			yield alloc('octets://file/append', x)
+
 	def bind(self, interfaces):
 		"""
 		On POSIX systems, this performs &/unix/man/2/bind and
