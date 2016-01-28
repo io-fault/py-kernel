@@ -35,6 +35,7 @@ from ..internet.data import http as httpdata
 
 from . import library as libio
 
+length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
 HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
 class ProtocolTransaction(tuple):
@@ -95,6 +96,21 @@ class ProtocolTransaction(tuple):
 		f.process(iterator)
 
 		return f
+
+	def write_output(self, mime:str, data:bytes):
+		"""
+		Send the given &data to the remote end with the given &mime type.
+		If other headers are desired, they *must* be configured before running
+		this method.
+		"""
+		global length_string
+
+		self.response.add_headers([
+			(b'Content-Type', mime.encode('utf-8')),
+			(b'Content-Length', length_string(data)),
+		])
+
+		self.iterate_output([(data,)])
 
 	def read_file_into_output(self, path, range=None, str=str):
 		"""
@@ -318,7 +334,7 @@ class Layer(libio.Layer):
 
 	@property
 	def connection(self):
-		"Return the connection header stripped and lowered or `b''` if no header present"
+		"Return the connection header stripped and lowered or `b''` if no header present."
 		return self.headers.get(b'connection', b'').strip().lower()
 
 	@staticmethod
@@ -337,7 +353,7 @@ class Layer(libio.Layer):
 		return self.media_range_cache(self.headers.get(b'accept'))
 
 	@property
-	def media_type(self):
+	def media_type(self) -> libmedia.Type:
 		""
 		global libmedia
 		return libmedia.type_from_string(self.headers[b'content-type'].decode('utf-8'))
@@ -365,10 +381,12 @@ class Layer(libio.Layer):
 	def terminal(self) -> bool:
 		"Whether this is the last request or response in the connection."
 
-		if self.version == b'1.0':
+		cxn = self.connection
+
+		if self.version == b'1.0' and cxn != b'keep-alive':
 			return True
 
-		return self.connection == b'close'
+		return cxn == b'close'
 
 	@property
 	def substitution(self) -> bool:
@@ -381,6 +399,16 @@ class Layer(libio.Layer):
 		"Cookie sequence for retrieved Cookie headers or Set-Cookie headers."
 
 		self.parameters.get('cookies', ())
+
+	def clear(self):
+		"""
+		Clear all structures used to make up the Layer Context;
+		&initiate will need to be called again.
+		"""
+		self.parameters.clear()
+		self.headers.clear()
+		self.initiation = None
+		self.header_sequence.clear()
 
 	def __init__(self):
 		self.parameters = dict()
@@ -877,7 +905,7 @@ class Host(libio.Controller):
 		px.response.initiate((version, code_bytes, description_bytes))
 		px.response.add_headers([
 			(b'Content-Type', b'text/plain'),
-			(b'Content-Length', str(len(description_bytes)).encode('utf-8'),)
+			(b'Content-Length', length_string(description_bytes),)
 		])
 
 		proc = libio.Flow(libio.Iterate())
@@ -1403,6 +1431,14 @@ class Methods(object):
 class Dictionary(dict):
 	"""
 	A set of resources managed as a mapping.
+
+	Used a means to export factor modules; dictionaries query
+	the factor module for MIME type information and any other
+	available metadata.
+
+	(http:method)`GET` and (http:method)`HEAD` are the primary methods,
+	but (http:method)`POST` is also supported for factors that are mounted
+	as executable.
 	"""
 	__slots__ = ()
 
@@ -1412,17 +1448,13 @@ class Dictionary(dict):
 			return
 
 		mime, data, mode = self[path.points]
+		px.write_output(mime, data)
 
-		px.response.add_headers([
-			(b'Content-Type', mime.encode('utf-8')),
-			(b'Content-Length', str(len(data)).encode('utf-8')),
-		])
-		px.iterate_output([(data,)])
-
-class FileSystem(object):
+class Files(object):
 	"""
 	Transaction processor providing access to a set of search paths in order
-	to resolve a Resource.
+	to resolve a Resource. &Files only supports GET and HEAD methods; PUT
+	and other manipulation operations are not supported.
 
 	The MIME media type is identified by the file extension.
 	"""
@@ -1430,12 +1462,31 @@ class FileSystem(object):
 	def __init__(self, *routes):
 		self.routes = routes
 
+	def list(self, path, query, px):
+		px.host.error(500, path, query, px, None)
+
 	def __call__(self, path, query, px):
-		suffix = path.points
+		rpath = path.points
+
 		for route in self.routes:
-			file = route.extend(suffix)
+			file = route.extend(rpath)
 			if file.exists():
-				px.sendfile(file)
+				if file.type() == 'directory':
+					return self.list(path, query, px)
+
+				if px.request.method == 'OPTIONS':
+					px.response.add_headers([(b'Allow', b'HEAD GET')])
+					break
+
+				t = libmedia.types.get(file.extension, 'application/octet-stream')
+				px.response.add_headers([
+					(b'Content-Type', t),
+					(b'Last-Modified', file.last_modified().select('rfc')),
+				])
+
+				if px.request.method == 'GET':
+					# Only read if the method is GET. HEAD just wants the headers.
+					px.read_file_into_output(file)
 				break
 		else:
 			# No such resource.
