@@ -1872,17 +1872,20 @@ class Subprocess(Processor):
 			if not self.interrupted:
 				self.controller.exited(self)
 
-	def signal(self, signo):
+	def signal(self, signo, send_signal=os.kill):
 		"""
 		Send the given signal number (os.kill) to the active processes
 		being managed by the instance.
 		"""
-		global os
-
-		send_signal = os.kill
-
 		for pid in self.active_processes:
 			send_signal(pid, signo)
+
+	def signal_process_group(self, signo, send_signal=os.kill):
+		"""
+		Like &signal, but send the signal to the process group instead of the exact process.
+		"""
+		for pid in self.active_processes:
+			send_signal(-pid, signo)
 
 	def actuate(self):
 		"""
@@ -3993,6 +3996,8 @@ class Distributing(Extension):
 		# Closure here means that the protocol state did not manage
 		# &close the transaction and we need to assume that its incomplete.
 		for layer, flow in self.flows.items():
+			if flow == 'closed':
+				continue
 			flow.interrupt(by=self.input)
 			flow.controller.exited(flow)
 
