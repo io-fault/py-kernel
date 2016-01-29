@@ -71,9 +71,12 @@ class Commands(libhttp.Index):
 		Send a stop signal associated with a timer to pause the process group.
 		"""
 
-		if service.status == 'executed':
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
+
+		if managed.status == 'executed':
 			service.subprocess.signal(signal.SIGSTOP)
-			return (service.name, "service signalled to stop")
+			return (service.name, "service signalled to pause")
 		else:
 			return (service.name, "cannot signal service when not running")
 
@@ -117,7 +120,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def stop(self, resource, parameters):
-		"Signal the service to stop and inhibit from being restarted."
+		"""
+		Signal the service to stop and inhibit it from being restarted if enabled.
+		"""
 
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
@@ -128,7 +133,10 @@ class Commands(libhttp.Index):
 			# No need.
 			managed.inhibit_recovery = None
 
-		managed.subprocess.signal(signal.SIGTERM)
+		if managed.status != 'executed':
+			return (service.name, "stop ineffective when not running")
+
+		managed.subprocess.signal_process_group(signal.SIGTERM)
 		return (service.name, "daemon signalled to terminate")
 
 	@libhttp.Resource.method()
@@ -138,11 +146,11 @@ class Commands(libhttp.Index):
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
 
-		if service.status != 'executed':
+		if managed.status != 'executed':
 			return (service.name, "restart ineffective when not running")
 
 		managed.inhibit_recovery = False
-		managed.subprocess.signal(signal.SIGTERM)
+		managed.subprocess.signal_process_group(signal.SIGTERM)
 
 		return (service.name, "daemon signalled to restart")
 
@@ -188,7 +196,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def environment(self, resource, parameters):
-		pass
+		managed = self.managed[parameters['service']]
+		service = self.services[parameters['service']]
+		return service.environment
 
 	@libhttp.Resource.method()
 	def normalize(self, resource, parameters):
@@ -270,6 +280,8 @@ class Commands(libhttp.Index):
 		"Add a set of interfaces"
 
 		name = parameters['service']
+		service = self.services[name]
+		return service.interfaces
 
 class ServiceManager(libio.Processor):
 	"""
@@ -318,6 +330,8 @@ class ServiceManager(libio.Processor):
 
 		return (p, sr)
 
+	critical = "critical.log"
+
 	status = 'actuating'
 	service = None
 	root = None
@@ -365,29 +379,17 @@ class ServiceManager(libio.Processor):
 			sector = self.sector
 
 			os.chdir(service.route.fullpath)
+			fd = os.open(self.critical, os.O_APPEND|os.O_WRONLY|os.O_CREAT)
 
-			pid, stderr = self.context.daemon(self.invocation)
+			pid = self.context.daemon_stderr(fd, self.invocation)
 			sub = self.subprocess = libio.Subprocess(pid)
-			stderr, = self.context.connect_input((stderr,))
-			stderr = libio.KernelPort(stderr)
 
 			sector.dispatch(sub)
 			sub.atexit(self.service_exit)
-
-			# stderr stopgap; probably move to a log file managed by this class.
-			def gah(s):
-				for x in s:
-					sys.stderr.write(x.decode('utf-8'))
-				sys.stderr.flush()
-			pt = libio.Functional(gah)
-			f = libio.Flow(*(libio.core.meter_input(stderr) + (pt,)))
-
-			sector.dispatch(f)
-			f.process(None)
 		except BaseException as exc:
 			# special status used to explain the internal failure
 			self.status = 'exception'
-			raise
+			raise # XXX: needs to report rather than fault
 
 		return 'invoked'
 
@@ -448,7 +450,7 @@ class ServiceManager(libio.Processor):
 
 		env['SERVICE_NAME'] = service.name
 
-		ki = libsys.KInvocation(*service.execution(), environ=env)
+		ki = libsys.KInvocation(*service.execution(), environ=env, set_process_group=True)
 		self.invocation = ki
 
 # faultd manages services via a set of directories that identify the service
