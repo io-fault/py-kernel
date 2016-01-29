@@ -2,15 +2,14 @@
 Service management daemon for fault.io based applications.
 
 By default, this script resolves the root service from the
-&/env/FAULTD_DIRECTORY environment variable. This can be avoided by
-importing the module, and using &initialize as a root for a Unit.
+(system:environment)`FAULTD_DIRECTORY` environment variable.
+This can be avoided by importing the module, and using &initialize as a root for a Unit.
 """
 
-import sys
 import os
 
 def initialize(unit):
-	# Avoid import as it exec() if it's not the faultd hardlink.
+	# Avoid imports in module body as it execl() if it's not the faultd hardlink.
 	from .. import libroot
 	from .. import libservice
 	from .. import library as libio
@@ -35,6 +34,7 @@ if __name__ == '__main__':
 	# reveal more appropriate names in the process list.
 
 	if os.environ.get('FAULTD') is None:
+		import sys
 		# Initial Python Invocation
 		# Resolve the hardlink and exec().
 		params = sys.argv[1:]
@@ -61,6 +61,8 @@ if __name__ == '__main__':
 		# execl in order to rename the process to faultd in the process list
 		os.execl(path, *command)
 		assert False # should not reach after execl
+	else:
 
-	from .. import library as libio
-	libio.execute(faultd = (initialize,))
+		# After the execl(), the actual execution is reached.
+		from .. import library as libio
+		libio.execute(faultd = (initialize,))
