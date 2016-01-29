@@ -1368,7 +1368,6 @@ class Unit(Processor):
 		# Allows the roots to perform scheduling.
 		scheduler = Scheduler()
 		scheduler.subresource(self)
-		scheduler.requisite(scheduler=self.context)
 		self.place(scheduler, 'dev', 'scheduler')
 		scheduler.actuate()
 
@@ -1956,6 +1955,10 @@ class Recurrence(object):
 class Scheduler(Processor):
 	"""
 	Delayed execution of arbitrary callables.
+
+	Manages the set alarms and &Recurrence's used by a &Sector.
+	Normally, only one Scheduler exists per and each &Scheduler
+	instance chains from an ancestor creating a tree of heap queues.
 	"""
 
 	scheduled_reference = None
@@ -1980,21 +1983,16 @@ class Scheduler(Processor):
 
 		return (p, sr)
 
-	def requisite(self, scheduler=None, persistent=True):
-		self.persistent = persistent # Processor remains when no tasks deferred.
-
-		if scheduler is not None:
-			self.x_ops = (
-				(scheduler.defer),
-				(scheduler.cancel),
-			)
-
 	def actuate(self):
 		self.state = libtime.Scheduler()
+		self.persistent = True
 
-		# XXX: resolve the scheduler to use; Context or controlling-Sector
-		# XXX: scheduler resolution needs tests
-		if self.x_ops is None:
+		if isinstance(self.controller, Unit):
+			self.x_ops = (
+				self.context.defer,
+				self.context.cancel
+			)
+		else:
 			controller = self.controller
 			while controller is not None:
 				if hasattr(controller, 'scheduler'):
@@ -2006,7 +2004,10 @@ class Scheduler(Processor):
 				# Use [unit]/dev/scheduler
 				sched = self.context.association().scheduler
 
-			self.requisite(scheduler = sched)
+			self.x_ops = (
+				(sched.defer),
+				(sched.cancel),
+			)
 
 		return super().actuate()
 
@@ -2027,7 +2028,7 @@ class Scheduler(Processor):
 		sr = self.scheduled_reference = functools.partial(self.execute_weak_method, nr)
 		self.x_ops[0](self.state.period(), sr)
 
-	def schedule(self, pit, *tasks, now=libtime.now):
+	def schedule(self, pit:libtime.Timestamp, *tasks, now=libtime.now):
 		"""
 		Schedule the &tasks to be executed at the specified Point In Time, &pit.
 		"""
@@ -2055,7 +2056,7 @@ class Scheduler(Processor):
 
 	def cancel(self, task):
 		"""
-		"Cancel the execution of the task."
+		Cancel the execution of the given task scheduled by this instance.
 		"""
 
 		self.state.cancel(task)
@@ -2073,6 +2074,10 @@ class Scheduler(Processor):
 		If the period has not elapsed, reschedule &transition in order to achieve
 		finer granularity.
 		"""
+
+		if not self.functioning:
+			# Do nothing if not inside the functioning window.
+			return
 
 		period = self.state.period
 		get = self.state.get
