@@ -7,19 +7,6 @@ initialization and termination sequences.
 Additionally, libdaemon provides a message bus for communicating with other daemons of the
 same configuration.
 
-
-
-#!text
-	/sectors [/bin/ contains the unactuated module set; /control is sectord]
-	|- worker1 [/bin/ contains the actuated module set; /control is sectord with non-zero fork_id]
-	|- worker2
-	|- ...
-	|- workerN
-	/daemon
-	|- [Arbitrary process tree.]
-	...
-	/root [psuedo service representing the root service]
-
 [ Features ]
 
 	- Set of forked processes or one if distribution is one.
@@ -57,6 +44,7 @@ import itertools
 from . import library as libio
 from . import libhttp
 
+from ..chronometry import library as libtime
 from ..routes import library as libroutes
 from ..system import library as libsys
 
@@ -82,7 +70,14 @@ class Commands(libhttp.Index):
 		Build a report describing the process.
 		"""
 
-		return None
+		return '\n'.join([
+			'\n'.join(libio.core.format(unit.identity, unit))
+
+			for unit in [
+				x[None] for x in
+				libio.process.__process_index__.values()
+			]
+		])
 
 	@libhttp.Resource.method()
 	def timestamp(self, resource, parameters):
@@ -109,6 +104,9 @@ class Commands(libhttp.Index):
 class Control(libio.Control):
 	"""
 	Control Sector that manages the concurrency of an IO process.
+
+	&Control handles both the controlling process and the workers
+	created with &/unix/man/2/fork calls.
 	"""
 
 	def __init__(self, modules):
@@ -233,7 +231,7 @@ class Control(libio.Control):
 			inv = self.context.process.invocation
 			args = inv.parameters['system']['arguments']
 		else:
-			override = args
+			args = override
 
 		# Path to SectorModules
 		for sectors_module in args:
@@ -242,10 +240,22 @@ class Control(libio.Control):
 			Sector.requisite(sm, libroutes.Import.from_fullname(sectors_module))
 			unit.place(sm, 'bin', sectors_module)
 
+	def terminate_worker(self):
+		pass
+
+	def system_terminate(self, *args):
+		"""
+		Received termination request from system.
+		"""
+		pass
+
 	def actuate(self):
 		assert self.fork_id is None # forks should not call actuate. ever.
 		self.fork_id = 0 # root is zero
 		super().actuate()
+
+		# Manage termination of fork processes.
+		#self.context.process.system_event_connect(('signal', 'terminate'), self, self.system_terminate)
 
 		# stdout is closed; redirect print to stderr with a prefix
 		import builtins
@@ -261,10 +271,11 @@ class Control(libio.Control):
 			sid = self.context.association().identity
 			fid = self.fork_id
 			pid = libsys.current_process_id
+			iso = libtime.now().select('iso')
 
-			dprint("[builtins.print(%s:%d/%d)]:"%(sid,fid,pid), *args, **kw)
+			dprint("%s [builtins.print(%s:%d/%d)]"%(iso, sid,fid,pid), *args, **kw)
 
-		builtins.print=errprint
+		builtins.print = errprint
 
 		self.route = libroutes.File.from_cwd()
 
@@ -281,7 +292,7 @@ class Control(libio.Control):
 		self.place_sectors()
 
 		# The control interface must be shut down in the forks.
-		# The interchang is voided the moment we get into the fork,
+		# The interchange is voided the moment we get into the fork,
 		# despite the presence of Flows accepting sockets, the
 		# traffic instance in the subprocess will know nothing about it.
 		ports.bind(('control', 0), libio.endpoint('local', cid, "0"))
