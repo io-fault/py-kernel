@@ -127,7 +127,7 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		transit, = cxn.context.open_files((path,))
+		transit, = cxn.context.open_files((str(path),))
 		f = libio.Flow(*libio.core.meter_input(libio.KernelPort(transit)))
 		cxn.dispatch(f)
 
@@ -982,6 +982,9 @@ class Host(libio.Controller):
 			request, response,
 			connect_input, connect_output
 		))
+		px.response.add_headers([
+			(b'Date', libtime.now().select('rfc').encode('utf-8')),
+		])
 
 		host.route(px)
 
@@ -1226,7 +1229,7 @@ def adapt(encoding_range, media_range, obj, iterating = None):
 	else:
 		adaption = conversions[str(match)](obj)
 
-	return match, (adaption,)
+	return match, adaption
 
 
 class Resource(object):
@@ -1291,13 +1294,13 @@ class Resource(object):
 
 		return UpdateResourceGET
 
-	def transformed(self, context, collection, path, query, px, flow):
+	def transformed(self, context, collection, path, query, px, flow, chain=itertools.chain):
 		"""
 		Once the request entity has been buffered into the &libio.Collect,
 		it can be parsed into parameters for the resource method.
 		"""
 
-		data_input = b''.join(itertools.chain(itertools.chain(*itertools.chain(*collection))))
+		data_input = b''.join(chain(chain(*chain(*collection))))
 		mtyp = px.request.media_type
 		entity_body = json.loads(data_input.decode('utf-8')) # need to adapt based on type
 
@@ -1320,12 +1323,7 @@ class Resource(object):
 		# Identify the necessary adaption for output.
 		ct, data = adapt(None, media_range, result)
 
-		px.response.add_headers([
-			(b'Content-Type', str(ct).encode('utf-8')),
-			(b'Content-Length', str(sum(map(len, data))).encode('utf-8')),
-		])
-
-		return px.iterate_output((data,))
+		return px.write_output(str(ct), data)
 
 	def options(self, context, content):
 		"""
@@ -1367,12 +1365,13 @@ class Index(Resource):
 	"""
 
 	@Resource.method()
-	def __index__(self, resource, path, query, px):
+	def __index__(self, resource, parameters):
 		"List of interfaces for service management."
+		global Resource
 
 		return [
 			name for name, method in self.__class__.__dict__.items()
-			if isinstance(method, libhttp.Resource) and not name.startswith('__')
+			if isinstance(method, Resource) and not name.startswith('__')
 		]
 
 	@__index__.getmethod('text/xml')
@@ -1384,7 +1383,7 @@ class Index(Resource):
 
 		resources = [
 			name for name, method in self.__class__.__dict__.items()
-			if isinstance(method, libhttp.Resource) and not name.startswith('__')
+			if isinstance(method, Resource) and not name.startswith('__')
 		]
 
 		xmlgen = xmlctx.root(
@@ -1397,11 +1396,13 @@ class Index(Resource):
 
 		return b''.join(xmlgen)
 
-	def __resource__(self, resource, path, query, px):
+	@Resource.method()
+	def __resource__(self, resource, parameters):
 		pass
 
 	def __call__(self, path, query, px,
-			partial=functools.partial, tuple=tuple, getattr=getattr
+			partial=functools.partial,
+			tuple=tuple, getattr=getattr,
 		):
 		"""
 		Select the command method from the given path.
@@ -1409,7 +1410,7 @@ class Index(Resource):
 		points = path.points
 
 		if path.index:
-			protocol_xact_method = functools.partial(self.__index__)
+			protocol_xact_method = partial(self.__index__)
 		elif points:
 			protocol_xact_method = getattr(self, points[0], None)
 			if protocol_xact_method is None:
@@ -1467,26 +1468,34 @@ class Files(object):
 
 	def __call__(self, path, query, px):
 		rpath = path.points
+		px.response.add_headers([
+			(b'Accept-Ranges', b'bytes'),
+		])
 
 		for route in self.routes:
 			file = route.extend(rpath)
 			if file.exists():
+				print(px.request.method)
 				if file.type() == 'directory':
 					return self.list(path, query, px)
 
-				if px.request.method == 'OPTIONS':
-					px.response.add_headers([(b'Allow', b'HEAD GET')])
+				if px.request.method == b'OPTIONS':
+					px.response.add_headers([(b'Allow', b'HEAD, GET')])
+					px.connect_output(None)
 					break
 
 				t = libmedia.types.get(file.extension, 'application/octet-stream')
 				px.response.add_headers([
-					(b'Content-Type', t),
-					(b'Last-Modified', file.last_modified().select('rfc')),
+					(b'Content-Type', t.encode('utf-8')),
+					(b'Content-Length', str(file.size()).encode('utf-8')),
+					(b'Last-Modified', file.last_modified().select('rfc').encode('utf-8')),
 				])
 
-				if px.request.method == 'GET':
+				if px.request.method == b'GET':
 					# Only read if the method is GET. HEAD just wants the headers.
+					px.response.initiate((b'HTTP/1.1', b'200', b'OK'))
 					px.read_file_into_output(file)
+
 				break
 		else:
 			# No such resource.
