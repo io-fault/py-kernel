@@ -1532,6 +1532,14 @@ class Sector(Processor):
 
 		return super().actuate()
 
+	def scheduling(self):
+		"""
+		Initialize the &scheduler for the &Sector.
+		"""
+		global Scheduler
+		self.scheduler = Scheduler()
+		self.dispatch(self.scheduler)
+
 	def eject(self, processor):
 		"""
 		Remove the processor from the Sector without performing termination.
@@ -1932,25 +1940,28 @@ class Commands(Processor):
 	def actuate(self):
 		super().actuate()
 
-class Recurrence(object):
+class Recurrence(Processor):
 	"""
 	Timer maintenance for recurring tasks.
 
 	Usually used for short term recurrences such as animations and human status updates.
 	"""
 
-	__slots__ = ('target', 'scheduler')
-
-	def __init__(self, scheduler, target):
-		self.scheduler = weakref.proxy(scheduler)
+	def __init__(self, target):
 		self.target = target
+
+	def actuate(self):
+		"Enqueue the initial execution of the recurrence."
+
+		super().actuate()
+		self.context.enqueue(self.occur)
 
 	def occur(self):
 		"Invoke a recurrence and use its return to schedule its next iteration."
 
 		next_delay = self.target()
 		if next_delay is not None:
-			self.scheduler.defer(next_delay, self.occur)
+			self.controller.scheduler.defer(next_delay, self.occur)
 
 class Scheduler(Processor):
 	"""
@@ -1987,26 +1998,27 @@ class Scheduler(Processor):
 		self.state = libtime.Scheduler()
 		self.persistent = True
 
-		if isinstance(self.controller, Unit):
+		controller = self.controller
+
+		if isinstance(controller, Unit):
+			# Controller is the Unit, so the execution context is used
+			# to provide the scheduling primitives.
 			self.x_ops = (
 				self.context.defer,
 				self.context.cancel
 			)
 		else:
-			controller = self.controller
+			controller = controller.controller
+
 			while controller is not None:
-				if hasattr(controller, 'scheduler'):
+				if controller.scheduler is not None:
 					sched = controller.scheduler
-					if sched is not None:
-						break
+					break
 				controller = controller.controller
-			else:
-				# Use [unit]/dev/scheduler
-				sched = self.context.association().scheduler
 
 			self.x_ops = (
-				(sched.defer),
-				(sched.cancel),
+				sched.defer,
+				sched.cancel,
 			)
 
 		return super().actuate()
@@ -2018,8 +2030,7 @@ class Scheduler(Processor):
 	def update(self):
 		"Update the scheduled transition callback."
 
-		# Use a weakref here as we do not want
-		# to keep an instance from being garbage collected.
+		# Method is being passed to ancestor, so use weakmethod.
 
 		nr = weakref.WeakMethod(self.transition)
 		if self.scheduled_reference is not None:
@@ -2062,10 +2073,14 @@ class Scheduler(Processor):
 		self.state.cancel(task)
 
 	def recurrence(self, callback):
-		"Begin a recurring task."
+		"""
+		Allocate a &Recurrence and dispatch it in the same &Sector as the &Scheduler
+		instance. The target will be executed immediately allowing it to identify
+		the appropriate initial delay.
+		"""
 
-		r = Recurrence(self, callback)
-		r.occur()
+		r = Recurrence(callback)
+		self.controller.dispatch(r)
 		return r
 
 	def transition(self):
@@ -2101,7 +2116,7 @@ class Scheduler(Processor):
 					# re-schedule the transition
 					self.update()
 				else:
-					# falls back to class attribute
+					# falls back to class attribute; None
 					del self.scheduled_reference
 			except BaseException as scheduling_exception:
 				self.fault(scheduling_exception)
