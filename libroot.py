@@ -415,14 +415,14 @@ class ServiceManager(libio.Processor):
 		if self.subprocess is not None:
 			pid_exit = self.subprocess.only
 		else:
-			pid_exit = (None,)
+			pid_exit = None
 
 		self.subprocess = None
 
 		if self.status != 'exception':
 			self.status = 'terminated'
 
-		self.exit_events.append((libtime.now(),) + pid_exit)
+		self.exit_events.append((libtime.now(), pid_exit))
 
 		# automatically recover if its a daemon or sectors
 		if self.service.type in ('daemon', 'sectors'):
@@ -437,6 +437,10 @@ class ServiceManager(libio.Processor):
 					self.again()
 
 	def update(self):
+		"""
+		Create or Update the KInvocation instance.
+		Used to initiate the Invocation and after command and environment changes.
+		"""
 		# KInvocation used to run the command.
 		service = self.service
 
