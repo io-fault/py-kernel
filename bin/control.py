@@ -51,11 +51,7 @@ def main(sector):
 
 	iparams = proc.invocation.parameters['system']['arguments']
 
-	target, command, *params = iparams
-	if params:
-		service, *params = params
-	else:
-		service = None
+	target, service, command, *params = iparams
 
 	if target == 'env':
 		# Uses FAULTD_DIRECTORY environment.
@@ -98,7 +94,7 @@ def main(sector):
 	path = libri.http(struct)
 
 	# The operations performed by .bin.control have side-effects.
-	parameters = json.dumps({'service': service}).encode('utf-8')
+	parameters = json.dumps({'service': service, 'parameters': params}).encode('utf-8')
 
 	req.initiate((b'POST', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
 	req.add_headers([
