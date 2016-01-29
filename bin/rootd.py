@@ -49,7 +49,7 @@ if __name__ == '__main__':
 			rs.create('root')
 			rs.executable = sys.executable # reveal original executable
 			rs.enabled = True
-			rs.parameters = ['-m', __package__+'.faultd'] + params
+			rs.parameters = ['-m', __package__+'.rootd'] + params
 			rs.store()
 		else:
 			rs.prepare()
