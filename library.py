@@ -15,7 +15,6 @@ Projection = core.Projection
 Layer = core.Layer # Base class for all layer contexts
 Interface = core.Interface
 Connection = core.Connection
-Controller = core.Controller
 
 Resource = core.Resource
 Extension = core.Extension
@@ -37,6 +36,7 @@ Terminal = core.Terminal
 Trace = core.Trace
 
 Processor = core.Processor
+Nothing = core.Nothing
 Unit = core.Unit
 Sector = core.Sector
 Module = core.Module

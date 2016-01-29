@@ -10,7 +10,7 @@ from . import library as libio
 from ..internet import libri
 from ..internet import library as libi
 
-class DNS(libio.Controller):
+class DNS(libio.Sector):
 	"""
 	Library managing the dispatch of DNS queries.
 	"""

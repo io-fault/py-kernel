@@ -235,10 +235,10 @@ class Control(libio.Control):
 
 		# Path to SectorModules
 		for sectors_module in args:
-			sm = Sector()
+			sm = Sector.from_fullname(sectors_module)
 			sm.subresource(unit)
-			Sector.requisite(sm, libroutes.Import.from_fullname(sectors_module))
 			unit.place(sm, 'bin', sectors_module)
+			sm.actuate()
 
 	def terminate_worker(self):
 		pass

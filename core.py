@@ -1451,6 +1451,14 @@ class Unit(Processor):
 		# no directory
 		return None
 
+class Nothing(Processor):
+	"""
+	A &Processor that does nothing and terminates only when requested.
+
+	&Nothing is used to inhibit &Sector instances from exiting until explicitly
+	requested.
+	"""
+
 class Sector(Processor):
 	"""
 	A processing sector; manages a set of &Processor resources according to their class.
@@ -1498,11 +1506,14 @@ class Sector(Processor):
 
 		return (p, sr)
 
-	def __init__(self, Processors=functools.partial(collections.defaultdict,set)):
+	def __init__(self, *processors, Processors=functools.partial(collections.defaultdict,set)):
 		super().__init__()
 
-		# initialized here in order to allow requisite to function
-		self.processors = Processors()
+		# Ready the processors for actuation.
+		sprocs = self.processors = Processors()
+		for proc in processors:
+			sprocs[proc.__class__].add(proc)
+			proc.subresource(self)
 
 	def actuate(self):
 		"""
@@ -1537,16 +1548,6 @@ class Sector(Processor):
 
 		processor.subresource(self)
 		self.processors[processor.__class__].add(processor)
-
-	def requisite(self, *procs):
-		"""
-		Add a set Processors to the Sector to be dispatched on Sector actuation.
-		"""
-
-		sprocs = self.processors
-		for proc in procs:
-			sprocs[proc.__class__].add(proc)
-			proc.subresource(self)
 
 	def process(self, events):
 		"""
@@ -1692,23 +1693,6 @@ class Sector(Processor):
 		global Transaction
 		return Transaction(self)
 
-class Controller(Sector):
-	"""
-	Sector designed to manage and control a specific set of Processors.
-
-	&Controller sectors are first different from regular Sectors in that
-	they do not exit when empty as they provide a service.
-
-	Controller sectors should be subclassed in order to be used.
-	"""
-
-	def reaped(self):
-		"""
-		Prohibit termination unless the instance was identified as terminating.
-		"""
-		if self.terminating:
-			super().reaped()
-
 class Connection(Sector):
 	"""
 	Sector connected to a precise endpoint using a pair of flows and protocol.
@@ -1807,16 +1791,15 @@ class Module(Sector):
 	"""
 
 	Type = None
-	def requisite(self, route, Type=types.ModuleType):
+	def __init__(self, route, Type=types.ModuleType):
+		super().__init__()
 		if Type and Type is not types.ModuleType:
 			self.Type = Type
 		self.route = route
 
 	@classmethod
 	def from_fullname(Class, path, ir_from_fullname=libroutes.Import.from_fullname):
-		rob = Class()
-		rob.requisite(ir_from_fullname(path))
-		return rob
+		return Class(ir_from_fullname(path))
 
 	def actuate(self):
 		super().actuate()
@@ -1925,13 +1908,6 @@ class Commands(Processor):
 
 	Successes are strongly grouped. (&failed applies to series of successes)
 	"""
-
-	def requisite(self, index=None):
-		"""
-		Define the command index that makes up the sequence.
-		"""
-
-		self.index = index
 
 	def success(self):
 		"""
@@ -2235,11 +2211,6 @@ class Interface(Sector):
 	"""
 	An Interface Sector used to manage a set of Connection instances spawned from
 	a set of listening sockets configured by the &Unit's &Ports.
-
-	! NOTE:
-		&Interface instances are *not* &Controller's because
-		their existence is dependent on the flows that accept
-		connections in need of processing.
 
 	[ Properties ]
 

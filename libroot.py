@@ -1,12 +1,12 @@
 """
 Root process for service management and scheduled processes.
 
-libroot provides the primary support for &.bin.faultd which manages a scheduling daemon,
+libroot provides the primary support for &.bin.rootd which manages a scheduling daemon,
 a set of service processes and a set of service Sectors assigned to a particular
 group with its own configurable concurrency level.
 
-Multiple instances of a faultd daemon may exist, but usually only one per-user is necessary.
-The (fs)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
+Multiple instances of faultd may exist, but usually only one per-user is necessary.
+The (system:directory)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
 line parameter. The daemon directory supplies all the necessary configuration,
 so few options are available from system invocation.
 
@@ -321,6 +321,7 @@ class ServiceManager(libio.Processor):
 			('enabled', self.service.enabled),
 			('service', self.service),
 			('invocation', self.invocation),
+			('exit_events', self.exit_events),
 		]
 
 		if self.subprocess:

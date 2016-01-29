@@ -18,6 +18,7 @@ import typing
 import functools
 import collections
 import itertools
+import weakref
 
 import json
 import hashlib
@@ -793,7 +794,7 @@ class Interface(libio.Interface):
 
 		host_sector.initial(cxn, context, request, connect)
 
-class Host(libio.Controller):
+class Host(libio.Sector):
 	"""
 	An HTTP Host class for managing routing of service connections.
 
@@ -835,6 +836,17 @@ class Host(libio.Controller):
 			self.canonical = names[0]
 		else:
 			self.canonical = None
+
+	def close(self):
+		"""
+		Close the host by terminating the &libio.Nothing instance.
+		"""
+		self.nothing.terminate()
+
+	def actuate(self):
+		super().actuate()
+		self.nothing = libio.Nothing()
+		self.dispatch(self.nothing)
 
 	def structure(self):
 		props = [
@@ -1041,7 +1053,7 @@ class Client(libio.Connection):
 		out.enqueue(layer)
 		out.connect(layer, flow)
 
-class Context(libio.Controller):
+class Context(libio.Sector):
 	"""
 	The client context for dispatching &Client connections.
 	&Context provides a second level of configuration for &Agent controllers.
@@ -1053,7 +1065,7 @@ class Context(libio.Controller):
 	Contexts are a reasonable way to manage client masquerading.
 	"""
 
-class Agent(libio.Controller):
+class Agent(libio.Sector):
 	"""
 	&Client connection controller managing common resources and configuration.
 
@@ -1068,12 +1080,23 @@ class Agent(libio.Controller):
 
 	/(&ConnectionPool)`connections`
 		The &Client connections associated with their host.
+
+	/(dict)`cookies`
+		A dictionary of cookies whose keys are either an exact
+		string of the domain or a tuple of domain names for pattern
+		hosts.
 	"""
 
-	def __init__(self):
+	def __init__(self, title='fault/0'):
 		super().__init__()
-		self.connections = collections.defaultdict(set)
+		# Per-Host connection dictionary.
+		self.connections = weakref.WeakValueDictionary()
+		self.contexts = weakref.WeakValueDictionary()
+		self.title = title
+		self.cookies = {}
+		self.headers = []
 
+	@staticmethod
 	@functools.lru_cache(64)
 	def encoded(self, text):
 		"""
@@ -1082,10 +1105,13 @@ class Agent(libio.Controller):
 		return text.encode('utf-8')
 
 	def request(self,
-			version:str, method:str,
-			host:str, path:str="/",
-			headers:typing.Sequence=(),
-			accept:str="*/*",
+			host:str,
+			method:str,
+			path:str="/",
+			version:str='HTTP/1.1',
+			context:typing.Hashable=None,
+			headers:typing.Sequence[typing.Tuple[bytes,bytes]]=(),
+			accept:str=None,
 			agent:str=None,
 			final:bool=True,
 		):
@@ -1098,24 +1124,27 @@ class Agent(libio.Controller):
 		/final
 			Whether or not the request is the final in the pipeline.
 			Causes the (http)`Connection: close` header to be emitted.
+		/accept
+			The media range to use.
 		"""
 
 		if agent is None:
 			agent = self.title
 
 		encoded = self.encoded
+
 		req = libhttp.Request()
-		req.add_headers(self.headers)
-		req.add_headers(headers)
+		if self.headers:
+			req.add_headers(self.headers)
 
-		path = path.encode('utf-8')
+		req.initiate((encoded(method), encoded(path), encoded(version)))
+		headers = []
 
-		req.initiate((encoded(method), path, encoded(version)))
+		if agent is not None:
+			headers.append((b'User-Agent', encoded(agent)))
 
-		headers = [
-			(b'User-Agent', encoded(agent)),
-			(b'Accept', encoded(accept)),
-		]
+		if accept is not None:
+			headers.append((b'Accept', encoded(str(accept))))
 
 		if host is not None:
 			headers.append((b'Host', host.encode('idna')))
@@ -1124,6 +1153,7 @@ class Agent(libio.Controller):
 			headers.append((b'Connection', b'close'))
 
 		req.add_headers(headers)
+
 		return req
 
 	def cache(self, target:str,
@@ -1144,14 +1174,14 @@ class Agent(libio.Controller):
 
 		raise NotImplementedError("unavailable")
 
-	def open(self, endpoint, transports=()) -> Client:
+	def open(self, context, endpoint, transports=()) -> Client:
 		"""
 		Open a client connection and return the actuated &Client instance.
 		"""
 		global Client
 
 		hc = Client.open(self, endpoint, transports=transports)
-		self.connections[endpoint].add(hc)
+		self.connections[endpoint] = hc
 		self.process(hc)
 		return hc
 
@@ -1454,7 +1484,7 @@ class Dictionary(dict):
 class Files(object):
 	"""
 	Transaction processor providing access to a set of search paths in order
-	to resolve a Resource. &Files only supports GET and HEAD methods; PUT
+	to resolve a resource. &Files only supports GET and HEAD methods; PUT
 	and other manipulation operations are not supported.
 
 	The MIME media type is identified by the file extension.
@@ -1468,6 +1498,8 @@ class Files(object):
 
 	def __call__(self, path, query, px):
 		rpath = path.points
+		method = px.request.method
+
 		px.response.add_headers([
 			(b'Accept-Ranges', b'bytes'),
 		])
@@ -1475,11 +1507,10 @@ class Files(object):
 		for route in self.routes:
 			file = route.extend(rpath)
 			if file.exists():
-				print(px.request.method)
 				if file.type() == 'directory':
 					return self.list(path, query, px)
 
-				if px.request.method == b'OPTIONS':
+				if method == b'OPTIONS':
 					px.response.add_headers([(b'Allow', b'HEAD, GET')])
 					px.connect_output(None)
 					break
@@ -1491,7 +1522,7 @@ class Files(object):
 					(b'Last-Modified', file.last_modified().select('rfc').encode('utf-8')),
 				])
 
-				if px.request.method == b'GET':
+				if method == b'GET':
 					# Only read if the method is GET. HEAD just wants the headers.
 					px.response.initiate((b'HTTP/1.1', b'200', b'OK'))
 					px.read_file_into_output(file)
