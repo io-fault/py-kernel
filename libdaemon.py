@@ -302,17 +302,13 @@ class Control(libio.Control):
 		for slot, binds in self.service.interfaces.items():
 			ports.bind(slot, *itertools.starmap(libio.endpoint, binds))
 
+		# forking
 		forks = self.service.concurrency
-		if not forks or forks == 1:
-			# Directly actuate; only one process in this sectord.
-			self.context.enqueue(self.subactuate)
-		else:
-			# forking
 
-			# acquire file system sockets before forking.
-			# allows us to avoid some synchronizing logic after forking.
-			for i in range(1, forks+1):
-				ports.bind(('control', i), libio.endpoint('local', cid, str(i)))
+		# acquire file system sockets before forking.
+		# allows us to avoid some synchronizing logic after forking.
+		for i in range(1, forks+1):
+			ports.bind(('control', i), libio.endpoint('local', cid, str(i)))
 
-			for i in range(1, forks+1):
-				self.fork(i, initial=True)
+		for i in range(1, forks+1):
+			self.fork(i, initial=True)
