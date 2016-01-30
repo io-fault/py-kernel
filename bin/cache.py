@@ -130,7 +130,7 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 
 def initialize(unit):
 	libio.core.Ports.load(unit)
-	a = libhttp.Agent()
+	A = libhttp.Agent()
 
 	proc = unit.context.process
 	urls = proc.invocation.parameters['system']['arguments']
@@ -166,7 +166,8 @@ def initialize(unit):
 
 	global start_time
 	start_time = libtime.now()
-	unit.scheduler.recurrence(status)
+	root_sector.scheduling()
+	root_sector.scheduler.recurrence(status)
 
 if __name__ == '__main__':
 	os.umask(0o137)
