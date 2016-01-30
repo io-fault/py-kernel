@@ -2875,11 +2875,17 @@ class Meter(Reactor):
 
 	measure = len
 
-	def transition(self, len=len):
+	def transition(self, len=len, StopIteration=StopIteration):
 		# filter empty transfers
 		measure = 0
 
-		alloc = self.next()
+		try:
+			alloc = self.next()
+		except StopIteration as exc:
+			self.controller.terminate(by=exc)
+			self.transferring = 0
+			return
+
 		measure = self.transferring = self.measure(alloc)
 		self.transferred = 0
 
