@@ -113,7 +113,7 @@ class ProtocolTransaction(tuple):
 
 		self.iterate_output([(data,)])
 
-	def read_file_into_output(self, path, range=None, str=str):
+	def read_file_into_output(self, path:str, str=str):
 		"""
 		Send the file referenced by &path to the remote end as
 		the (HTTP) entity body.
@@ -123,8 +123,6 @@ class ProtocolTransaction(tuple):
 		[ Parameters ]
 		/path
 			A string containing the file's path.
-		/range
-			The slice of the file to write.
 		"""
 
 		cxn = self.connection
