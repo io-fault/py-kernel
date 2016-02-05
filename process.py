@@ -71,7 +71,9 @@ class Context(object):
 
 	@property
 	def unit(self):
-		"The &Unit of the association."
+		"""
+		The &Unit of the association.
+		"""
 		global Unit
 
 		point = self.association()
@@ -152,7 +154,9 @@ class Context(object):
 
 	# Primary access to processor resources: task queue, work thread, and threads.
 	def attach(self, *transits):
-		"Attach a set of transits to the Junction."
+		"""
+		Attach a set of transits to the Junction.
+		"""
 		if not self.attachments:
 			self.enqueue(self._flush_attachments)
 		self.attachments.extend(transits)
@@ -167,12 +171,16 @@ class Context(object):
 		ix.force(id=unit)
 
 	def enqueue(self, *tasks):
-		"Enqueue the tasks for subsequent processing; used by threads to synchronize their effect."
+		"""
+		Enqueue the tasks for subsequent processing; used by threads to synchronize their effect.
+		"""
 
 		self.process.enqueue(*tasks)
 
 	def execute(self, controller, function, *parameters):
-		"Execute the given function in a thread associated with the specified controller"
+		"""
+		Execute the given function in a thread associated with the specified controller.
+		"""
 
 		return self.process.fabric.execute(controller, function, *parameters)
 
@@ -459,7 +467,9 @@ class Fabric(object):
 			self.process.error(controller, exception, "Thread")
 
 	def executing(self, tid):
-		"Whether or not the given thread [identifier] is executing in this Fabric instance."
+		"""
+		Whether or not the given thread [identifier] is executing in this Fabric instance.
+		"""
 
 		return tid in self.threading
 
