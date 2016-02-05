@@ -333,7 +333,9 @@ class Layer(libio.Layer):
 
 	@property
 	def connection(self):
-		"Return the connection header stripped and lowered or `b''` if no header present."
+		"""
+		Return the connection header stripped and lowered or `b''` if no header present.
+		"""
 		return self.headers.get(b'connection', b'').strip().lower()
 
 	@staticmethod
@@ -348,18 +350,23 @@ class Layer(libio.Layer):
 
 	@property
 	def media_range(self):
-		"Structured form of the Accept header."
+		"""
+		Structured form of the Accept header.
+		"""
 		return self.media_range_cache(self.headers.get(b'accept'))
 
 	@property
 	def media_type(self) -> libmedia.Type:
-		""
+		"""
+		"""
 		global libmedia
 		return libmedia.type_from_string(self.headers[b'content-type'].decode('utf-8'))
 
 	@property
 	def date(self, parse=libtime.parse_rfc1123) -> libtime.Timestamp:
-		"Date header timestamp."
+		"""
+		Date header timestamp.
+		"""
 
 		if not b'date' in self.headers:
 			return None
@@ -373,12 +380,16 @@ class Layer(libio.Layer):
 
 	@property
 	def encoding(self) -> str:
-		"Character encoding of entity content. &None if not applicable."
+		"""
+		Character encoding of entity content. &None if not applicable.
+		"""
 		pass
 
 	@property
 	def terminal(self) -> bool:
-		"Whether this is the last request or response in the connection."
+		"""
+		Whether this is the last request or response in the connection.
+		"""
 
 		cxn = self.connection
 
@@ -389,13 +400,17 @@ class Layer(libio.Layer):
 
 	@property
 	def substitution(self) -> bool:
-		"Whether or not the request looking to perform protocol substitution."
+		"""
+		Whether or not the request looking to perform protocol substitution.
+		"""
 
 		return self.connection == b'upgrade'
 
 	@property
 	def cookies(self) -> typing.Sequence:
-		"Cookie sequence for retrieved Cookie headers or Set-Cookie headers."
+		"""
+		Cookie sequence for retrieved Cookie headers or Set-Cookie headers.
+		"""
 
 		self.parameters.get('cookies', ())
 
@@ -453,7 +468,9 @@ class Layer(libio.Layer):
 		pass
 
 class Request(Layer):
-	"Request portion of an HTTP transaction"
+	"""
+	Request portion of an HTTP transaction
+	"""
 
 	@property
 	def method(self):
@@ -488,41 +505,57 @@ class Request(Layer):
 
 	@property
 	def GET(self, partial=functools.partial):
-		"Initialize as a GET request."
+		"""
+		Initialize as a GET request.
+		"""
 		return partial(self.declare_without_content, b'GET')
 
 	@property
 	def HEAD(self, partial=functools.partial):
-		"Initialize as a HEAD request."
+		"""
+		Initialize as a HEAD request.
+		"""
 		return partial(self.declare_without_content, b'HEAD')
 
 	@property
 	def DELETE(self, partial=functools.partial):
-		"Initialize as a DELETE request."
+		"""
+		Initialize as a DELETE request.
+		"""
 		return partial(self.declare_without_content, b'DELETE')
 
 	@property
 	def TRACE(self, partial=functools.partial):
-		"Initialize as a TRACE request."
+		"""
+		Initialize as a TRACE request.
+		"""
 		return partial(self.declare_without_content, b'TRACE')
 
 	@property
 	def CONNECT(self, partial=functools.partial):
-		"Initialize as a CONNECT request."
+		"""
+		Initialize as a CONNECT request.
+		"""
 		return partial(self.declare_without_content, b'CONNECT')
 
 	@property
 	def POST(self, partial=functools.partial):
-		"Initialize as a POST request."
+		"""
+		Initialize as a POST request.
+		"""
 		return partial(self.declare_with_content, b'POST')
 
 	@property
 	def PUT(self, partial=functools.partial):
-		"Initialize as a PUT request."
+		"""
+		Initialize as a PUT request.
+		"""
 		return partial(self.declare_with_content, b'PUT')
 
 class Response(Layer):
-	"Response portion of an HTTP transaction"
+	"""
+	Response portion of an HTTP transaction.
+	"""
 
 	@property
 	def version(self):
@@ -1298,7 +1331,9 @@ class Resource(object):
 		return r.__methodwrapper__
 
 	def __methodwrapper__(self, subobj):
-		"Default to POST responding to any Accept."
+		"""
+		Default to POST responding to any Accept.
+		"""
 		functools.wraps(subobj)(self)
 		self.methods[b'POST'][libmedia.any_type] = subobj
 		return self

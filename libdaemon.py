@@ -81,7 +81,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def timestamp(self, resource, parameters):
-		"Return the faultd's perception of time."
+		"""
+		Return the faultd's perception of time.
+		"""
 		return libtime.now().select("iso")
 
 	@libhttp.Resource.method()
@@ -262,7 +264,9 @@ class Control(libio.Control):
 		dprint = builtins.print
 
 		def errprint(*args, **kw):
-			'Override for print to default to standard error and qualify origin in output.'
+			"""
+			Override for print to default to standard error and qualify origin in output.
+			"""
 			global libsys, sys
 			nonlocal dprint, self
 

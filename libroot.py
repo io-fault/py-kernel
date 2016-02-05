@@ -106,7 +106,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def signal(self, resource, parameters):
-		"Send the given signal to the process."
+		"""
+		Send the given signal to the process.
+		"""
 
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
@@ -141,7 +143,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def restart(self, resource, parameters):
-		"Signal the service to stop (SIGTERM) and allow it to restart."
+		"""
+		Signal the service to stop (SIGTERM) and allow it to restart.
+		"""
 
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
@@ -156,7 +160,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def reload(self, resource, parameters):
-		"Send a SIGHUP to the service."
+		"""
+		Send a SIGHUP to the service.
+		"""
 
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
@@ -240,7 +246,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def timestamp(self, resource, parameters):
-		"Return the faultd's perception of time."
+		"""
+		Return the faultd's perception of time.
+		"""
 		return libtime.now().select("iso")
 
 	# /if/signal?number=9
@@ -251,7 +259,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def list(self, resource, parameters):
-		"List the set of configured services."
+		"""
+		List the set of configured services.
+		"""
 
 		# list all if no filter
 		service_set = [x for x in self.services.keys()]
@@ -259,13 +269,17 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def create(self, resource, parameters):
-		"Create a service."
+		"""
+		Create a service.
+		"""
 
 		name = parameters['service']
 
 	@libhttp.Resource.method()
 	def void(self, resource, parameters):
-		"Terminate the service and destroy it's stored configuration."
+		"""
+		Terminate the service and destroy it's stored configuration.
+		"""
 
 		name = parameters['service']
 		m = self.managed[name]
@@ -277,7 +291,9 @@ class Commands(libhttp.Index):
 
 	@libhttp.Resource.method()
 	def interface(self, resource, parameters):
-		"Add a set of interfaces"
+		"""
+		Add a set of interfaces.
+		"""
 
 		name = parameters['service']
 		service = self.services[name]
@@ -397,7 +413,9 @@ class ServiceManager(libio.Processor):
 		# service_exit is called when the process exit signal is received.
 
 	def again(self):
-		"Called when a non-command service exits."
+		"""
+		Called when a non-command service exits.
+		"""
 
 		r = self.rate()
 		self.status = 'waiting'
@@ -406,7 +424,9 @@ class ServiceManager(libio.Processor):
 		self.invoke()
 
 	def rate(self):
-		"Average exits per second."
+		"""
+		Average exits per second.
+		"""
 
 		et = self.exit_events
 		#times = [et[i].measure(et[i-1]) for i in range(1, len(et))]
