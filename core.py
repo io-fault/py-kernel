@@ -253,13 +253,17 @@ class Coprocess(tuple):
 
 	@property
 	def interface(self):
-		"Relative Process Identifier"
+		"""
+		Relative Process Identifier
+		"""
 
 		return self[0]
 
 	@property
 	def port(self):
-		"The Host header to use to connect to."
+		"""
+		The Host header to use to connect to.
+		"""
 
 	@classmethod
 	def create(Class, coprocess_id, port):
@@ -278,7 +282,9 @@ class Endpoint(tuple):
 
 	@property
 	def unit(self):
-		"The absolute unit name; &None if subjective reference."
+		"""
+		The absolute unit name; &None if subjective reference.
+		"""
 
 		return self[0]
 
@@ -794,12 +800,16 @@ class Resource(object):
 
 	@property
 	def unit(self):
-		"Return the &Unit that contains this &Resource instance."
+		"""
+		Return the &Unit that contains this &Resource instance.
+		"""
 		return self.context.association()
 
 	@property
 	def sector(self, isinstance=isinstance):
-		"Identify the &Sector holding the &Resource by scanning the &controller stack."
+		"""
+		Identify the &Sector holding the &Resource by scanning the &controller stack.
+		"""
 
 		global Sector
 
@@ -1061,7 +1071,9 @@ class Processor(Resource):
 		eec[processor] = cbl + (callback,)
 
 	def exit_event_emit(self, processor, partial=functools.partial):
-		"Called when an exit occurs to emit exit events to any connected callbacks."
+		"""
+		Called when an exit occurs to emit exit events to any connected callbacks.
+		"""
 
 		eec = self.exit_event_connections
 		if eec is not None:
@@ -1217,25 +1229,33 @@ class Unit(Processor):
 
 	@property
 	def ports(self):
-		"(io.location)`/dev/ports` accessor"
+		"""
+		(io.location)`/dev/ports` accessor
+		"""
 
 		return self.index[('dev','ports')]
 
 	@property
 	def scheduler(self):
-		"(io.location)`/dev/scheduler` accessor"
+		"""
+		(io.location)`/dev/scheduler` accessor
+		"""
 
 		return self.index[('dev','scheduler')]
 
 	def load_ports_device(self):
-		"Load the &Ports 'device'. Usually used by daemon processes."
+		"""
+		Load the &Ports 'device'. Usually used by daemon processes.
+		"""
 
 		ports = Ports()
 		self.place(ports, 'dev', 'ports')
 		ports.subresource(self)
 
 	def device(self, entry:str):
-		"Return the device resource placed at the given &entry."
+		"""
+		Return the device resource placed at the given &entry.
+		"""
 
 		return self.index.get(('dev', entry))
 
@@ -1345,7 +1365,9 @@ class Unit(Processor):
 		self.roots.extend(roots)
 
 	def exited(self, processor:Processor):
-		"Processor exit handler."
+		"""
+		Processor exit handler.
+		"""
 
 		addr = self.reverse_index.pop(processor)
 		del self.index[addr]
@@ -1660,7 +1682,9 @@ class Sector(Processor):
 		return f
 
 	def reap(self, set=set):
-		"Empty the exit set and check for sector completion."
+		"""
+		Empty the exit set and check for sector completion.
+		"""
 
 		exits = self.exits
 		if exits is None:
@@ -1848,7 +1872,9 @@ class Subprocess(Processor):
 
 	@property
 	def only(self):
-		"The exit event of the only Process-Id. &None or the pair (pid, exitcode)."
+		"""
+		The exit event of the only Process-Id. &None or the pair (pid, exitcode).
+		"""
 
 		for i in self.process_exit_events:
 			return i, self.process_exit_events.get(i)
@@ -1959,13 +1985,17 @@ class Recurrence(Processor):
 		self.target = target
 
 	def actuate(self):
-		"Enqueue the initial execution of the recurrence."
+		"""
+		Enqueue the initial execution of the recurrence.
+		"""
 
 		super().actuate()
 		self.context.enqueue(self.occur)
 
 	def occur(self):
-		"Invoke a recurrence and use its return to schedule its next iteration."
+		"""
+		Invoke a recurrence and use its return to schedule its next iteration.
+		"""
 
 		next_delay = self.target()
 		if next_delay is not None:
@@ -2036,7 +2066,9 @@ class Scheduler(Processor):
 		return weakmethod()()
 
 	def update(self):
-		"Update the scheduled transition callback."
+		"""
+		Update the scheduled transition callback.
+		"""
 
 		# Method is being passed to ancestor, so use weakmethod.
 
@@ -2649,11 +2681,15 @@ class Reactor(Transformer):
 		self.controller.watch(self.suspend, self.resume)
 
 	def suspend(self, flow):
-		"Method to be overridden for handling Flow obstructions"
+		"""
+		Method to be overridden for handling Flow obstructions.
+		"""
 		pass
 
 	def resume(self, flow):
-		"Method to be overridden for handling Flow clears"
+		"""
+		Method to be overridden for handling Flow clears.
+		"""
 		pass
 
 class Parallel(Transformer):
@@ -2836,7 +2872,9 @@ class KernelPort(Transformer):
 		self.transit.acquire(event)
 
 class Functional(Transformer):
-	"A transformer that emits the result of a provided function."
+	"""
+	A transformer that emits the result of a provided function.
+	"""
 
 	def __init__(self, transformation:collections.abc.Callable):
 		self.transformation = transformation
@@ -2849,19 +2887,25 @@ class Functional(Transformer):
 
 	@classmethod
 	def generator(Class, generator):
-		"Create a functional transformer using a generator."
+		"""
+		Create a functional transformer using a generator.
+		"""
 
 		next(generator)
 		return Class(generator.send)
 
 	@classmethod
 	def chains(Class, depth=1, chain=itertools.chain.from_iterable):
-		"Create a transformer wrapping a events in a composition of chains."
+		"""
+		Create a transformer wrapping a events in a composition of chains.
+		"""
 		return Class.compose(list, *([chain]*depth))
 
 	@classmethod
 	def compose(Class, *sequence, Compose=libc.compose):
-		"Create a function transformer from a composition."
+		"""
+		Create a function transformer from a composition.
+		"""
 		return Class(Compose(*sequence))
 
 class Meter(Reactor):
@@ -2929,7 +2973,9 @@ class Allocator(Meter):
 		self.transitioned = False
 
 	def transition(self):
-		"Transition in the next buffer provided that the Flow was not obstructed."
+		"""
+		Transition in the next buffer provided that the Flow was not obstructed.
+		"""
 
 		if not self.obstructed:
 			super().transition()
@@ -2944,7 +2990,9 @@ class Allocator(Meter):
 		self.transition()
 
 	def resume(self, flow):
-		"Continue allocating memory for &KernelPort transformers."
+		"""
+		Continue allocating memory for &KernelPort transformers.
+		"""
 
 		self.obstructed = False
 		if self.transitioned:
@@ -2985,7 +3033,9 @@ class Throttle(Meter):
 
 	@property
 	def overflow(self):
-		"Queue entries exceeds limit."
+		"""
+		Queue entries exceeds limit.
+		"""
 		return len(self.queue) > self.limit
 
 	def __init__(self, Queue=collections.deque):
@@ -3047,7 +3097,9 @@ class Throttle(Meter):
 				)
 
 def meter_input(ix, allocate=Allocator.allocate_byte_array):
-	"Create the necessary Transformers for metered input."
+	"""
+	Create the necessary Transformers for metered input.
+	"""
 	global Allocator, Trace
 
 	meter = Allocator(allocate)
@@ -3058,7 +3110,9 @@ def meter_input(ix, allocate=Allocator.allocate_byte_array):
 	return (meter, ix, trace)
 
 def meter_output(ox, transports=None):
-	"Create the necessary Transformers for metered output."
+	"""
+	Create the necessary Transformers for metered output.
+	"""
 	global Throttle, Trace
 
 	meter = Throttle()
@@ -3551,12 +3605,16 @@ class Iterate(Reactor):
 	"""
 
 	def suspend(self, by):
-		"Signal an obstruction allowing &transition to break."
+		"""
+		Signal an obstruction allowing &transition to break.
+		"""
 
 		self.obstructed = True
 
 	def resume(self, flow):
-		"Resume iterating."
+		"""
+		Resume iterating.
+		"""
 
 		self.obstructed = False
 		self.transition()
@@ -3704,7 +3762,9 @@ class Trace(Reflection):
 
 	@staticmethod
 	def log(event, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
-		"Trace monitor for printing events."
+		"""
+		Trace monitor for printing events.
+		"""
 		if self.title:
 			trace = ('EVENT TRACE[' + title + ']:' + repr(event)+'\n')
 		else:
@@ -3788,7 +3848,9 @@ class Sequencing(Extension):
 			self.output.clear(flow)
 
 	def overflowing(self, flow):
-		"Whether the given flow's queue has too many items."
+		"""
+		Whether the given flow's queue has too many items.
+		"""
 
 		q = self.queues.get(flow)
 
@@ -3801,7 +3863,9 @@ class Sequencing(Extension):
 			return False
 
 	def process(self, events, source, len=len):
-		"Emit point for Sequenced Flows"
+		"""
+		Emit point for Sequenced Flows
+		"""
 
 		if source is self.front:
 			self.state.send(events)
@@ -3815,7 +3879,9 @@ class Sequencing(Extension):
 				raise Exception("flow has not been connected")
 
 	def enqueue(self, layer, Queue=collections.deque, partial=functools.partial):
-		"Connect the given flow to enqueue events until it becomes the front of the line."
+		"""
+		Connect the given flow to enqueue events until it becomes the front of the line.
+		"""
 
 		if self.layer is not None:
 			self.order.append(layer)
@@ -3826,7 +3892,9 @@ class Sequencing(Extension):
 			self.front = None
 
 	def connect(self, layer, flow, StopIteration=StopIteration, Queue=collections.deque):
-		"Connect the flow to the given layer signalling that its ready to flow."
+		"""
+		Connect the flow to the given layer signalling that its ready to flow.
+		"""
 
 		if layer == self.layer:
 			self.front = flow
