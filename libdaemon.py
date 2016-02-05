@@ -181,7 +181,7 @@ class Control(libio.Control):
 			# connect using a specific pattern
 			# 1: 2, 3, 4, ..., n
 			# 2: 3, 4, ..., n
-			# 3: 4, ...., n
+			# 3: 4, ..., n
 			# 4: ..., n
 			# n: none (all others have connected to it)
 

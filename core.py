@@ -185,7 +185,9 @@ def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 			)
 
 def controllers(resource):
-	"Return the stack of controllers of the given &Resource. Excludes initial resource."
+	"""
+	Return the stack of controllers of the given &Resource. Excludes initial resource.
+	"""
 
 	stack = []
 	obj = resource.controller
@@ -197,7 +199,9 @@ def controllers(resource):
 	return stack
 
 class Local(tuple):
-	"A reference to a unix domain file system socket."
+	"""
+	A reference to a unix domain file system socket.
+	"""
 
 	__slots__ = ()
 
@@ -207,14 +211,18 @@ class Local(tuple):
 
 	@property
 	def interface(self):
-		"Directory containing the file system socket."
+		"""
+		Directory containing the file system socket.
+		"""
 
 		return self[0]
 	address = interface
 
 	@property
 	def port(self):
-		"File system socket filename."
+		"""
+		File system socket filename.
+		"""
 
 		return self[1]
 
