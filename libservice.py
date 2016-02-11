@@ -249,7 +249,7 @@ class Service(object):
 		return self.__class__(self.faultd, service)
 
 	def __init__(self, route, service):
-		self.faultd = route.rebase()
+		self.faultd = +route
 		self.name = self.service = service
 		self.route = route / service
 
