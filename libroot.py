@@ -505,7 +505,7 @@ class Control(libio.Control):
 		pass
 
 	def requisite(self, route:libroutes.File):
-		self.route = route.rebase()
+		self.route = +route
 
 	def actuate(self):
 		"""
