@@ -79,6 +79,24 @@ def sector():
 	sect.actuate()
 	return ctx, sect
 
+def test_Lock(test):
+	"""
+	Check event driven mutual exclusion. Uses main thread access to synchronize.
+	"""
+
+	s = library.Lock()
+	cell = []
+	def inc(release):
+		cell.append(1)
+	def dec(release):
+		cell.append(-1)
+
+	s.acquire(inc)
+	test/sum(cell) == 1
+	s.acquire(dec)
+	s.release()
+	test/sum(cell) == 0
+
 def test_Join(test):
 	Type = library.Join
 
