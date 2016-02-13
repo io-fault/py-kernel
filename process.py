@@ -1,8 +1,8 @@
 """
 Process management classes.
 
-Implements the thread management and logical process management logic necessary
-to manage a set of &.library.Unit instances. &Context instances are indirectly
+Implements the thread management and process representation management necessary
+to work with a set of &.library.Unit instances. &Context instances are indirectly
 associated with the &.library.Unit instances in order to allow &.library.Processor
 instances to cache access to &Context.enqueue.
 
@@ -34,7 +34,6 @@ from .kernel import Interface as Kernel
 
 from ..system import library as libsys # cpu and memory
 from ..system import libmemory
-from ..system import libhazmat
 from ..internet import libri
 
 from ..chronometry import library as libtime
@@ -255,8 +254,8 @@ class Context(object):
 
 		[ Parameters ]
 
-		/endpoint
-			&..internet.library.Endpoint
+		/endpoints
+			The sequence of endpoints to establish connections to.
 		"""
 		global traffic
 		alloc = traffic.allocate
@@ -404,11 +403,8 @@ class Fabric(object):
 	Thread manager for processes; thread pool with capacity to manage dedicated threads.
 	"""
 
-	def __init__(self, process, minimum=1, maximum=16, proxy=weakref.proxy):
+	def __init__(self, process, proxy=weakref.proxy):
 		self.process = proxy(process) # report unhandled thread exceptions
-		self.minimum = minimum
-		self.maximum = maximum
-
 		self.threading = dict() # dedicated purpose threads
 
 	def void(self):
@@ -837,7 +833,7 @@ class Representation(object):
 
 				if event[0] == 'process':
 					event = ('process', event[1])
-					args = (event[1], libhazmat.process_delta(event[1]),)
+					args = (event[1], libsys.process_delta(event[1]),)
 					remove_entry = True
 				elif event[0] == 'alarm':
 					append(event[1])
