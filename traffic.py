@@ -1,15 +1,20 @@
 """
 Adapter for using &..traffic with &.library.Flow instances in &..io applications.
 
-Specifically geared for &.library.KernelPort instances.
+Specifically geared for &.library.KernelPort instances. The current design requires
+that read transfers be tracked in order to know when more memory needs to be assigned
+to the Transit. While this essentially ignores Traffic's exhaust events, it is nearly
+a non-loss due to cases where rate tracking is desired.
 
-! WARNING:
-	Needs a semaphore to block before overflowing the queue.
+! NOTE:
+	Semaphores are *not* needed to throttle I/O as continuation is an effect of performing
+	the transfer in the main task queue.
 """
 
 import sys
 import functools
 import collections
+import time
 from ..traffic import library
 
 allocate = library.kernel.Junction.rallocate
@@ -18,22 +23,18 @@ allocate = library.kernel.Junction.rallocate
 # It ends up being a sub-queue for I/O events and has similar logic for managing
 # exceptions.
 
-def deliver_io_events(junction, events):
+def deliver_io_events(junction, events, iter=iter):
 	"""
-	Send the individual &events originally prepared by &separate_io_events to
-	their associated &.library.KernelPort Transformers.
+	Send the individual &events originally prepared by
+	&separate_io_events to their associated &.library.KernelPort Transformers.
 	"""
 
-	popevent = events.popleft
-
-	while events:
+	complete = False
+	ievents = iter(events)
+	while not complete:
 		kp = link = delta = flow = None
-		# the double loop here is keep the primary loop inside
-		# the try/except
 		try:
-			while events:
-				event = popevent()
-
+			for event in ievents:
 				link, delta = event
 				kp = link
 				if kp is None:
@@ -52,14 +53,15 @@ def deliver_io_events(junction, events):
 					kp.inject((xfer,))
 
 				if term:
-					kp.terminated()
+					kp.terminated() # 
 					# Ignore termination for None links
 				elif demand is not None:
-					kp.transition()
+					kp.transition() # Accept the next memory transfer.
 
 				link = None
-		except Exception as exception:
-
+			else:
+				complete = True # Done processing events.
+		except BaseException as exception:
 			try:
 				if link is None:
 					# failed to unpack the kp and delta from event
@@ -70,7 +72,9 @@ def deliver_io_events(junction, events):
 					flow = kp.controller
 					flow.fault(exception, kp)
 					flow.context.process.error(flow, exception, title="I/O")
-			except Exception as exc:
+			except BaseException as exc:
+				# Record exception of cleanup failure.
+				# TODO: Note as cleanup failure.
 				junction.link.context.process.error((junction, event), exc)
 
 def synchronize_io_events(arg, partial=functools.partial):
@@ -79,30 +83,32 @@ def synchronize_io_events(arg, partial=functools.partial):
 	Enqueue's &deliever_io_events with the queue constructed by &separate_io_events.
 	"""
 
-	junction, q = arg
-	if not q:
-		return
+	junction, queue = arg
+	if not queue:
+		return # Nothing to do.
 
-	# junction.link is a io.library.LogicalProcess
-	junction.link.context.enqueue(partial(deliver_io_events, junction, q))
+	# junction.link is a io.process.Representation()
+	junction.link.context.enqueue(partial(deliver_io_events, junction, queue))
 
 def separate_io_events(
 		junction,
-		Queue=collections.deque,
+		Queue=list,
 		snapshot=library.Delta.snapshot,
 		iter=iter,
 		MemoryError=MemoryError,
+		sleep=time.sleep,
 	):
 	"""
-	Process the junction's transfer and construct a queue of I/O events.
-	This is executed inside a thread managed by the interchange and *cannot* deliever
+	Process the junction's transfer and construct a sequence of I/O events.
+
+	This is executed inside a thread managed by the interchange and *cannot* deliver
 	the events to Transformers. &syncrhonize_io_events is used to deliver the queue
 	for processing in the SystemProcess's task queue.
 	"""
 
-	# In a thread *outside* of the task queue, so we can't
-	# run process() methods on transformers.
-	# Build the transfer set for processing in the task q.
+	# In a thread *outside* of the task queue, so is inappropriate
+	# to run process() methods on transformers.
+	# Build the transfer set for processing in the task queue.
 
 	q = Queue()
 	add = q.append
@@ -119,8 +125,14 @@ def separate_io_events(
 				complete = True
 		except MemoryError:
 			# sleep and try again
-			# THIS BLOCKS I/O FOR THE ENTIRE UNIT
-			raise
+			# THIS BLOCKS I/O FOR THE Junction instance.
+			while True:
+				try:
+					sleep(1)
+					add((x.link, snapshot(x)))
+					break
+				except MemoryError:
+					pass
 
 	return (junction, q)
 
