@@ -9,17 +9,21 @@ a non-loss due to cases where rate tracking is desired.
 ! NOTE:
 	Semaphores are *not* needed to throttle I/O as continuation is an effect of performing
 	the transfer in the main task queue.
+
+[ Properties ]
+
+/allocate
+	Access to &..traffic.kernel.Junction.rallocate for Transit
+	allocations.
 """
 
-import sys
 import functools
-import collections
 import time
 from ..traffic import library
 
 allocate = library.kernel.Junction.rallocate
 
-# This is executed by the main io.library task queue of a SystemProcess instance.
+# This is executed by the main io.library task queue of a .process.Representation  instance.
 # It ends up being a sub-queue for I/O events and has similar logic for managing
 # exceptions.
 
@@ -103,7 +107,7 @@ def separate_io_events(
 
 	This is executed inside a thread managed by the interchange and *cannot* deliver
 	the events to Transformers. &syncrhonize_io_events is used to deliver the queue
-	for processing in the SystemProcess's task queue.
+	for processing in the &.process.Representation's task queue.
 	"""
 
 	# In a thread *outside* of the task queue, so is inappropriate
@@ -117,6 +121,7 @@ def separate_io_events(
 	# currently this while loop is pointless
 	# however, it is the frame that should house retry attempts in the face of memory errors.
 	complete = False
+
 	while not complete:
 		try:
 			for x in i:
