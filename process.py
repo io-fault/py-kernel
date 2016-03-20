@@ -767,6 +767,7 @@ class Representation(object):
 		managed by &fabric.
 		"""
 
+		ix = self.interchange
 		cwq = self.processing_queue # current working queue; should be empty at start
 		nwq = self.loading_queue # next working queue
 		sec = self.system_event_connections
@@ -799,7 +800,7 @@ class Representation(object):
 			# is to run force for each process local I/O event.
 			# Presuming that some I/O has occurred while processing
 			# the queue is not actually much of a stretch.
-			self.interchange.activity()
+			ix.activity()
 
 			events = ()
 			waiting = (len(nwq) == 0 and len(cwq) == 0)
