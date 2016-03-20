@@ -1,20 +1,22 @@
 """
 Sector Daemon management library.
 
-In order to manage a daemon's execution, control interfaces must be support to manage
-initialization and termination sequences.
+In order to manage a daemon's execution, control interfaces must be supported to manage
+initialization and termination sequences. &.libdaemon provides access to these control
+interfaces so that the implementation can focus on regular operations.
 
-Additionally, libdaemon provides a message bus for communicating with other daemons of the
-same configuration.
+&.libdaemon also provides a message bus for message passing and synchronization primitives
+among process forks. Given appropriate configuration, groups outside the daemon's set
+can be specified to allow message passing and synchronization across sites.
 
 [ Features ]
 
 	- Set of forked processes or one if distribution is one.
-	- Arbitration for locks.
+	- Arbitration for fork-local synchronization.
 
 /control - Control Signalling Interface
 	/terminate
-		Power Down the [system] Process
+		Power Down the [system] Process by terminating the root sectors.
 	/inject
 		Introspection Interface; debugging; profiling
 
