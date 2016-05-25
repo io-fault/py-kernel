@@ -1432,8 +1432,9 @@ class Unit(Processor):
 			if ctl is not None:
 				ctl.exit(self)
 			else:
-				# Unit has no more executables.
-				self.terminate()
+				# Unit has no more executables, but atexits
+				# may be enqueued, so enqueue termination.
+				self.context.process.enqueue(self.terminate)
 
 	def actuate(self):
 		"""
