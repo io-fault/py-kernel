@@ -31,7 +31,7 @@ def initialize(unit):
 if __name__ == '__main__':
 	# Some redundancy here for supporting faultd hardlinks.
 	# Hardlinks to python3 are used to make it possible
-	# reveal more appropriate names in the process list.
+	# to reveal more appropriate names in the process list.
 
 	if os.environ.get('FAULTD') is None:
 		import sys
