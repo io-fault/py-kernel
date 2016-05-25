@@ -39,8 +39,9 @@ def initialize(unit):
 	else:
 		main_proc = libio.Call.partial(main)
 
-	unit.context.enqueue(s.actuate)
-	unit.context.enqueue(functools.partial(s.dispatch, main_proc))
+	enqueue = unit.context.enqueue
+	enqueue(s.actuate)
+	enqueue(functools.partial(s.dispatch, main_proc))
 
 def execute(name='__main__'):
 	"""
