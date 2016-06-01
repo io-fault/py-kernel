@@ -1072,6 +1072,21 @@ class Processor(Resource):
 		self.exceptions.add((association, exception))
 		self.context.faulted(self)
 
+	def _fio_fault_trap(self, trapped_task):
+		try:
+			trapped_task() # Executed relative to &Sector instance.
+		except BaseException as exc:
+			self.fault(exc)
+
+	def fio_enqueue(self, task, partial=functools.partial, trap=_fio_fault_trap):
+		"""
+		Enqueue a task associated with the sector so that exceptions cause the sector to
+		fault. This is the appropriate way for &Processor instances controlled by a sector
+		to sequence processing.
+		"""
+		self.context.enqueue(partial(trap, self, task))
+	del _fio_fault_trap
+
 	def atexit(self, exit_callback):
 		"""
 		Register a callback to be executed when the Processor has been unlinked from
@@ -1240,7 +1255,7 @@ class Coroutine(Processor):
 		"""
 		try:
 			yield None
-			self.product = (yield from self.coroutine(self.sector))
+			self.product = (yield from self.source(self.sector))
 			self.controller.exited(self)
 		except BaseException as exc:
 			self.product = None
@@ -1258,6 +1273,10 @@ class Coroutine(Processor):
 		self.context.enqueue(state.send)
 
 	def terminate(self):
+		"""
+		Force the coroutine to close.
+		"""
+		super().terminate()
 		self.state.close()
 
 	def interrupt(self):
