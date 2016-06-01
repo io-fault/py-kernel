@@ -1,6 +1,7 @@
 """
 Public acccess to common Processing classes and process management classes.
 """
+import sys
 
 from ..system import library as libsys
 from . import core
@@ -53,6 +54,25 @@ Protocol = core.Protocol
 QueueProtocol = core.QueueProtocol
 
 Null = core.Null
+
+def context(max_depth=None):
+	"""
+	Finds the &Processor instance that caused the function to be invoked.
+
+	Used to discover the execution context when it wasn't explicitly
+	passed forward.
+	"""
+	global sys
+
+	f = sys._getframe().f_back
+	while f:
+		if f.f_code.co_name == '_fio_fault_trap':
+			# found the _fio_fault_trap method.
+			# return the processor that caused this to be executed.
+			return f.f_locals['self']
+		f = f.f_back
+
+	return None # (context) Processor is not available in this stack.
 
 def pipeline(sector, kpipeline, input=None, output=None):
 	"""
