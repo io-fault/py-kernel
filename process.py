@@ -9,7 +9,7 @@ instances to cache access to &Context.enqueue.
 [ Properties ]
 
 /__process_index__
-	Indirect association of SystemProcess objects and LogicalProcess's
+	Indirect association of &Representation and &Context
 
 /__traffic_index__
 	Indirect association of Logical Process objects and traffic Interchanges.
@@ -553,6 +553,7 @@ class Representation(object):
 		"""
 		Boot the Context with the given tasks enqueued in the Task queue.
 		"""
+		global libsys
 
 		if self.kernel is not None:
 			raise RuntimeError("already booted")
