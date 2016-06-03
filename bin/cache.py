@@ -33,7 +33,8 @@ def count(name, event):
 	xfer = libc.sum_lengths(event)
 	transfer_counter[name] += xfer
 
-with open('/x/realm/ssl/certs/ca-bundle.crt', 'rb') as f:
+certificates = os.environ.get('SSL_CERT_FILE', '/usr/ssl/certs/ca-bundle.crt')
+with open(certificates, 'rb') as f:
 	security_context = security.public(certificates=(f.read(),))
 
 def response_collected(sector, request, response, flow):
