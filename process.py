@@ -27,6 +27,7 @@ import queue
 import traceback
 import itertools
 import typing
+import signal # masking SIGINT/SIGTERM in threads.
 
 from . import core
 from . import traffic
@@ -445,6 +446,12 @@ class Fabric(object):
 		"""
 		Manage the execution of a thread.
 		"""
+		global signal
+
+		# Block INT and TERM from fabric threads.
+		# Necessary to allow libsys.protect()'s sleep function to
+		# be interrupted when a signal is received.
+		signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
 
 		controller, thread_root = parameters
 		tid = gettid()
