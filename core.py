@@ -1207,18 +1207,14 @@ class Call(Processor):
 		self.source = call
 
 	def actuate(self):
-		self.context.enqueue(self.execution)
+		self.fio_enqueue(self.execution)
 		super().actuate()
 
 	def execution(self, event=None, source=None):
 		assert self.functioning
 
-		call = self.source.func
-		args = self.source.args
-		kw = self.source.keywords
-
 		try:
-			self.product = call(self.controller, *args, **kw) # Execute Callable.
+			self.product = self.source() # Execute Callable.
 			self.terminated = True
 			self.controller.exited(self)
 		except BaseException as exc:

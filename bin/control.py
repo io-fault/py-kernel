@@ -46,7 +46,9 @@ def response_endpoint(context, request, response, connect):
 	f.atexit(functools.partial(response_collected, sector, request, response))
 	connect(f)
 
-def main(sector):
+def main():
+	call = libio.context()
+	sector = call.sector
 	proc = sector.context.process
 
 	iparams = proc.invocation.parameters['system']['arguments']
