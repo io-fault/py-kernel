@@ -7,6 +7,7 @@ This can be avoided by importing the module, and using &initialize as a root for
 """
 
 import os
+import sys
 
 def initialize(unit):
 	# Avoid imports in module body as it execl() if it's not the faultd hardlink.
@@ -34,9 +35,11 @@ if __name__ == '__main__':
 	# to reveal more appropriate names in the process list.
 
 	if os.environ.get('FAULTD') is None:
-		import sys
-		# Initial Python Invocation
-		# Resolve the hardlink and exec().
+		# Initial Python Invocation; resolve the hardlink and exec().
+
+		# Doesn't matter if the user invoked the hard link directly,
+		# this is a long running server process, so any pointless overhead
+		# should be irrelevant.
 		params = sys.argv[1:]
 		os.environ['FAULTD'] = str(os.getpid())
 		os.environ['PYTHON'] = sys.executable
@@ -62,7 +65,6 @@ if __name__ == '__main__':
 		os.execl(path, *command)
 		assert False # should not reach after execl
 	else:
-
 		# After the execl(), the actual execution is reached.
 		from .. import library as libio
-		libio.execute(faultd = (initialize,))
+		libio.execute(faultd = (initialize,)) # Inside execl() providing process name.
