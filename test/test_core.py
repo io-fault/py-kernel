@@ -1,6 +1,7 @@
 import typing
 import importlib.util
 from .. import core as library
+from .. import library as libio
 
 class ExitController(object):
 	"Provides a root controller for tests."
@@ -424,10 +425,10 @@ def test_Call(test):
 	kw = object()
 
 	effects = []
-	def call_to_perform(sector, arg1, key=None):
+	def call_to_perform(arg1, key=None):
 		effects.append(arg1)
 		effects.append(key)
-		effects.append(sector)
+		effects.append(libio.context().sector)
 		effects.append('called')
 
 	c = Type.partial(call_to_perform, arg, key=kw)
