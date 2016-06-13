@@ -122,7 +122,8 @@ def execute(*identity, **units):
 	else:
 		ident = 'root'
 
-	sysinv = libsys.Invocation.system()
-	sp = process.Representation.spawn(sysinv, Unit, units, identity=ident)
+	sys_inv = libsys.Invocation.system() # Information about the system's invocation.
+
+	spr = process.Representation.spawn(sys_inv, Unit, units, identity=ident)
 	# import root function
-	libsys.control(sp.boot)
+	libsys.control(spr.boot)

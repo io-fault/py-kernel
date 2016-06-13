@@ -111,6 +111,7 @@ def dispatch(sector, url):
 	sector.dispatch(hc)
 	hc.manage()
 	hc.http_request(functools.partial(response_endpoint, tls=tls), req, None)
+	return hc
 
 def process_exit(sector):
 	"""
@@ -157,18 +158,18 @@ def initialize(unit):
 	root_sector.subresource(unit)
 	root_sector.actuate()
 
-	if lendpoints:
-		for x in lendpoints:
-			dispatch(root_sector, x)
-	else:
+	if not lendpoints:
 		root_sector.terminate()
+		return
 
-	root_sector.atexit(process_exit)
+	hc = dispatch(root_sector, lendpoints[0])
 
 	global start_time
 	start_time = libtime.now()
+	root_sector.atexit(process_exit)
 	root_sector.scheduling()
-	root_sector.scheduler.recurrence(status)
+	r = root_sector.scheduler.recurrence(status)
+	hc.atexit(r.terminate)
 
 if __name__ == '__main__':
 	os.umask(0o137)

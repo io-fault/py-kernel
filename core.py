@@ -919,8 +919,7 @@ class Extension(Resource):
 	"""
 	A resource that is intended solely for delegation from other resources.
 
-	Extension resources must subresources from non-Unit resources and should only
-	appear within Sectors.
+	Extension resources must be subresources from non-Unit processors.
 	"""
 
 class Device(Resource):
@@ -971,7 +970,6 @@ class Processor(Resource):
 	process interrupts (unix.signal)`SIGINT`.
 	"""
 
-	# XXX: Use bitmap and properties for general states.
 	actuated = False
 	terminated = False
 	terminating = None # None means there is no terminating state.
@@ -1638,7 +1636,8 @@ class Sector(Processor):
 		"""
 		global Scheduler
 		self.scheduler = Scheduler()
-		self.dispatch(self.scheduler)
+		self.scheduler.subresource(self)
+		self.scheduler.actuate()
 
 	def eject(self, processor):
 		"""
@@ -1692,6 +1691,9 @@ class Sector(Processor):
 			return
 
 		super().interrupt(by)
+
+		if self.scheduler is not None:
+			self.scheduler.interrupt()
 
 		for Class, sset in self.processors.items():
 			for x in sset:
@@ -1789,6 +1791,14 @@ class Sector(Processor):
 			# no processors remain; exit Sector
 			self.terminated = True
 			self.terminating = False
+
+			if self.scheduler is not None:
+				# After termination has been completed, the scheduler can be stopped.
+				#
+				# The termination process is an arbitrary period of time
+				# that may rely on the scheduler, so it is important
+				# that this is performed here.
+				self.scheduler.interrupt()
 
 			controller = self.controller
 			if controller is not None:
@@ -2067,9 +2077,13 @@ class Recurrence(Processor):
 		Invoke a recurrence and use its return to schedule its next iteration.
 		"""
 
-		next_delay = self.target()
-		if next_delay is not None:
-			self.controller.scheduler.defer(next_delay, self.occur)
+		if self.terminating:
+			self.terminated = True
+			self.sector.exited(self)
+		else:
+			next_delay = self.target()
+			if next_delay is not None:
+				self.controller.scheduler.defer(next_delay, self.occur)
 
 class Scheduler(Processor):
 	"""
