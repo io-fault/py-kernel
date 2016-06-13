@@ -1226,10 +1226,10 @@ class Call(Processor):
 
 class Coroutine(Processor):
 	"""
-	Processor for generator based coroutine.
+	Processor for coroutines.
 
 	Manages the generator state in order to signal the containing &Sector of its
-	exit. Generator coroutines are the common mechanism for serializing the dispatch of
+	exit. Generator coroutines are the common method for serializing the dispatch of
 	work to relevant &Sector instances.
 	"""
 
@@ -1239,6 +1239,10 @@ class Coroutine(Processor):
 	@property
 	def state(self):
 		return self.unit.stacks[self]
+
+	def _co_complete(self):
+		super().terminate()
+		self.controller.exited(self)
 
 	@types.coroutine
 	def container(self):
@@ -1251,8 +1255,8 @@ class Coroutine(Processor):
 		"""
 		try:
 			yield None
-			self.product = (yield from self.source(self.sector))
-			self.controller.exited(self)
+			self.product = (yield from self.source)
+			self.fio_enqueue(self._co_complete)
 		except BaseException as exc:
 			self.product = None
 			self.fault(exc)
@@ -1266,7 +1270,7 @@ class Coroutine(Processor):
 		self.unit.stacks[self] = state
 
 		super().actuate()
-		self.context.enqueue(state.send)
+		self.fio_enqueue(state.send)
 
 	def terminate(self):
 		"""
