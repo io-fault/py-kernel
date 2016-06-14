@@ -12,7 +12,6 @@
 
 #include <fault/roles.h>
 #include <fault/python/environ.h>
-#include <fault/python/module.h>
 
 typedef struct kevent kevent_t; /* kernel event description */
 #define KQ_FILTERS() \
@@ -1002,13 +1001,10 @@ InterfaceType = {
 	interface_new,               /* tp_new */
 };
 
-METHODS() = {
-	{NULL,}
-};
-
 #define PYTHON_TYPES() \
 	ID(Interface)
 
+#include <fault/python/module.h>
 INIT(PyDoc_STR("Kernel interfaces for supporting nucleus based process management.\n"))
 {
 	PyObj mod = NULL;
