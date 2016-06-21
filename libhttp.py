@@ -34,6 +34,7 @@ from ..internet import libmedia
 from ..internet import libri
 from ..internet.data import http as httpdata
 
+from ..system import libmemory
 from . import library as libio
 
 length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
@@ -124,14 +125,14 @@ class ProtocolTransaction(tuple):
 		/path
 			A string containing the file's path.
 		"""
+		global libio, libmemory
 
 		cxn = self.connection
-		transit, = cxn.context.open_files((str(path),))
-		f = libio.Flow(*libio.core.meter_input(libio.KernelPort(transit)))
+		f = libio.Flow(libio.Iterate(terminal=True))
 		cxn.dispatch(f)
 
 		self.connect_output(f)
-		f.process(None)
+		f.process(((x,) for x in libmemory.Segments.open(str(path))))
 
 		return f
 
@@ -1381,7 +1382,7 @@ class Resource(object):
 			if mime_type:
 				result = methods[mime_type[0]](context, self, content)
 			else:
-				raise Exception('cant handle accept') # host.error()
+				raise Exception('cant handle accept header', mime_type) # host.error()
 
 		# Identify the necessary adaption for output.
 		ct, data = adapt(None, media_range, result)
