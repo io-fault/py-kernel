@@ -4142,7 +4142,7 @@ class Distributing(Extension):
 			flow = None
 
 		if getattr(layer, 'terminal', False):
-			self.context.enqueue(functools.partial(self.input.terminate, by=layer))
+			self.controller.fio_enqueue(functools.partial(self.input.terminate, by=layer))
 
 	def input_closed(self):
 		"""
