@@ -43,22 +43,3 @@ class Interface(iolib.Interface):
 		with self.xact() as xact:
 			i, o = xact.connect(address, port)
 			p, fi, fo = http.client_v1(xact, i, o)
-
-class Finance(iolib.Library):
-	def connect(self, context, source):
-		"Produces a financial connection to the node."
-		pass
-
-	def transact(self, context, connection, charges):
-		"Produces a transaction with the node that can be refunded."
-		pass
-
-	def refund(self, context, connection, xact):
-		"Abort a prior transaction with the financial connection."
-		pass
-
-	def close(self, context, connection):
-		"Destroy the connection to the financial node."
-
-
-

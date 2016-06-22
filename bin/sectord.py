@@ -10,7 +10,7 @@ import os
 
 def initialize(unit):
 	"""
-	Initialize the sectord process.
+	Initialize the sectord process inside the given &unit.
 
 	Load ports from the invocation configuration,
 	setup &.libdaemon.Control for control interfaces and forking.
@@ -41,8 +41,11 @@ def initialize(unit):
 	root_sector.subresource(unit)
 	root_sector.actuate()
 
-if __name__ == '__main__':
+def main():
 	from .. import library
 	library.execute('sectord', **{
 		os.environ.get('SERVICE_NAME', 'sectord'): (initialize,)
 	})
+
+if __name__ == '__main__':
+	main()

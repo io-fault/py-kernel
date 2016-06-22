@@ -19,7 +19,6 @@ from ...routes import library as libroutes
 from ...computation import library as libc
 from .. import library as libio
 
-from .. import security
 from .. import libhttp
 from .. import libinternet
 
@@ -34,8 +33,13 @@ def count(name, event):
 	transfer_counter[name] += xfer
 
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
-with open(certificates, 'rb') as f:
-	security_context = security.public(certificates=(f.read(),))
+try:
+	from .. import security
+	with open(certificates, 'rb') as f:
+		security_context = security.public(certificates=(f.read(),))
+except:
+	security = None
+	securtiy_context = None
 
 def response_collected(sector, request, response, flow):
 	print('response collected')
