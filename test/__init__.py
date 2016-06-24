@@ -1,1 +1,1 @@
-__type__ = 'tests'
+__factor_type__ = 'tests'
