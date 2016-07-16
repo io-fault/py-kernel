@@ -2328,7 +2328,7 @@ class Thread(Processor):
 			# Must be enqueued to exit.
 			final = functools.partial(self.controller.exited, self)
 		except Exception as exc:
-			final = functools.partial(self.fault, ext)
+			final = functools.partial(self.fault, exc)
 
 		self.context.enqueue(final)
 
