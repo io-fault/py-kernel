@@ -1350,7 +1350,9 @@ class Resource(object):
 		"""
 
 		def UpdateResourceGET(call, self=self):
-			"Update Resource to handle GET requests for the given resource."
+			"""
+			Update Resource to handle GET requests for the given resource.
+			"""
 			GET = self.methods[b'GET']
 			for x in types:
 				GET[MimeType(x)] = call
