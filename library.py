@@ -2,6 +2,7 @@
 Public acccess to common Processing classes and process management classes.
 """
 import sys
+import contextlib
 
 from ..system import library as libsys
 from . import core
@@ -127,3 +128,29 @@ def execute(*identity, **units):
 	spr = process.Representation.spawn(sys_inv, Unit, units, identity=ident)
 	# import root function
 	libsys.control(spr.boot)
+
+@contextlib.contextmanager
+def parallel(*tasks, identity='parallel'):
+	"""
+	Allocate a logical process assigned to the stack.
+
+	A context manager that waits for completion in order to exit.
+
+	! WARNING:
+		Tentative interface: This will be replaced with a safer implementation.
+	"""
+	try:
+		join = libsys.create_lock()
+		join.acquire()
+
+		# TODO: Needs to inhibit critical() wrapper.
+		inv = libsys.Invocation(lambda x: join.release())
+		spr = process.Representation.spawn(inv, Unit, {identity:tasks}, identity=identity)
+		spr.actuate()
+		unit = spr.primary()
+		yield unit
+	except:
+		unit.terminate()
+		raise
+	finally:
+		join.acquire()

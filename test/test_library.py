@@ -1,23 +1,18 @@
+import functools
 from .. import library
+from .. import libcommand
 
-def foo(sector, lib, timeout=3):
-	receiver = lib.fs.append("path")
+def test_parallel(test):
+	t = False
+	def nothing(*args):
+		nonlocal t
+		t = True
 
-	http = lib.http.allocate() # http context
-	xact = http.query("GET", "http://www.google.com/", receiver, headers=..., endpoint=...)
+	i = functools.partial(libcommand.initialize, main=nothing)
 
-	if xact.failed:
-		# try next
+	with library.parallel(i) as unit:
 		pass
-	else:
-		yield receiver
-
-	proc = lib.dns.query("A", "host.com")
-	yield sector.timeout(dns_timeout, proc)
-
-	qr = proc.product
-	for ip in qr:
-		yield from doop(ip)
+	test/t == True
 
 if __name__ == '__main__':
 	import sys; from ...development import libtest
