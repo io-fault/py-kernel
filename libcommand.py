@@ -11,7 +11,7 @@ import functools
 
 from . import library as libio
 
-def initialize(unit):
+def initialize(unit, main=None):
 	"""
 	Initialize the unit with a new sector running the command's main.
 	If main is a generator, it will be invoked as a coroutine.
@@ -23,9 +23,12 @@ def initialize(unit):
 	s.subresource(unit)
 	unit.place(s, "bin", "main")
 
-	mod = sys.modules['__main__']
-	main = mod.main
-	libs = getattr(mod, 'libraries', ())
+	if main is None:
+		mod = sys.modules['__main__']
+		main = mod.main
+		libs = getattr(mod, 'libraries', ())
+	else:
+		libs = ()
 
 	for name in libs:
 		# XXX: need some environment configuration for managing default libraries.
