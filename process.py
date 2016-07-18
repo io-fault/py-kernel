@@ -556,6 +556,12 @@ class Representation(object):
 		global libsys
 		return libsys.Fork.dispatch(self.boot, *tasks)
 
+	def actuate(self, *tasks):
+		# kernel interface: watch pid exits, process signals, and enqueue events
+		self.kernel = Kernel()
+		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
+		self.fabric.spawn(None, self.main, ())
+
 	def boot(self, *tasks):
 		"""
 		Boot the Context with the given tasks enqueued in the Task queue.
@@ -566,12 +572,7 @@ class Representation(object):
 			raise RuntimeError("already booted")
 
 		libsys.fork_child_cleanup.add(self.void)
-
-		# kernel interface: watch pid exits, process signals, and enqueue events
-		self.kernel = Kernel()
-		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
-		self.fabric.spawn(None, self.main, ())
-
+		self.actuate(*tasks)
 		# replace boot() with protect() for main thread protection
 		libsys.Fork.substitute(libsys.protect)
 
