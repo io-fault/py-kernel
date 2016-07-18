@@ -129,6 +129,7 @@ def execute(*identity, **units):
 	# import root function
 	libsys.control(spr.boot)
 
+_parallel_lock = libsys.create_lock()
 @contextlib.contextmanager
 def parallel(*tasks, identity='parallel'):
 	"""
@@ -139,6 +140,9 @@ def parallel(*tasks, identity='parallel'):
 	! WARNING:
 		Tentative interface: This will be replaced with a safer implementation.
 	"""
+	global _parallel_lock
+
+	_parallel_lock.acquire()
 	try:
 		join = libsys.create_lock()
 		join.acquire()
@@ -154,3 +158,4 @@ def parallel(*tasks, identity='parallel'):
 		raise
 	finally:
 		join.acquire()
+		_parallel_lock.release()
