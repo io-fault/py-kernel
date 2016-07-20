@@ -1,12 +1,12 @@
+identity = 'https://fault.io/project/python/fault.io'
 name = 'io'
-fork = 'overflow'
-identity = 'https://fault.io/project/python/io'
-abstract = 'I/O control for hierarchical asynchronous processes'
+abstract = 'Explicitly structured processing for managing complex applications'
 icon = '⚗'
-release = None
+
+fork = 'overflow'
 
 controller = 'fault.io'
 contact = 'mailto:critical@fault.io'
 
-version_info = (0, 1, 0)
+version_info = (0, 0, 0)
 version = '.'.join(map(str, version_info))
