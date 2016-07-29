@@ -38,6 +38,7 @@ from ..system import libmemory
 from . import library as libio
 
 length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
+length_strings = libc.compose(operator.methodcaller('encode', 'utf-8'), str, sum, functools.partial(map,len))
 HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
 class ProtocolTransaction(tuple):
@@ -945,18 +946,25 @@ class Host(libio.Sector):
 			description = Class.descriptioncache(code_bytes)
 
 		description_bytes = Class.strcache(description)
+		errmsg = (
+			b'<?xml version="1.0" encoding="ascii"?>',
+			b'<?xml-stylesheet type="text/xsl" href="/if/error.xsl"?>',
+			b'<error xmlns="https://fault.io/xml/failure" domain="/internet/http">',
+			b'<frame code="' + code_bytes + b'" message="' + description_bytes + b'"/>',
+			b'</error>',
+		)
 
 		px.response.initiate((version, code_bytes, description_bytes))
 		px.response.add_headers([
-			(b'Content-Type', b'text/plain'),
-			(b'Content-Length', length_string(description_bytes),)
+			(b'Content-Type', b'text/xml'),
+			(b'Content-Length', length_strings(errmsg),)
 		])
 
 		proc = libio.Flow(libio.Iterate())
 		px.connection.dispatch(proc)
 
 		px.connect_output(proc)
-		proc.process([(description_bytes,)])
+		proc.process([errmsg])
 
 		# If an exception occurred, drain the output and fault the connection.
 		if exc is not None:
