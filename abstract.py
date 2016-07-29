@@ -363,3 +363,12 @@ class Flow(Processor, metaclass=abc.ABCMeta):
 
 		If there are no remaining obstructions, signal any callbacks registered with &watch.
 		"""
+
+class ProtocolTransaction(metaclass=abc.ABCMeta):
+	"""
+	An object managing the parameters and interfaces necessary for performing
+	a transaction for a protocol.
+
+	Protocol transactions are nearly conceptual representatives as the interface
+	and structure will vary from protocol to protocol.
+	"""
