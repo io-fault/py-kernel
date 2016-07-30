@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- XML description of a language agnostic Traceback; a stack of frames !-->
+<grammar
+	xmlns="http://relaxng.org/ns/structure/1.0"
+	ns="https://fault.io/xml/spawns"
+	datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"
+	xmlns:a="http://relaxng.org/ns/compatibility/annotations/1.0">
+
+	<a:documentation>
+		Grammar for representing faultd invocations.
+	</a:documentation>
+
+	<define name="spawns.xmlid">
+		<a:documentation>xml:id attribute</a:documentation>
+		<attribute name="xml:id">
+			<a:documentation>
+			</a:documentation>
+			<data type="ID"/>
+		</attribute>
+	</define>
+
+	<define name="spawns.xml.space">
+		<attribute name="xml:space">
+			<choice>
+				<value>default</value>
+				<value>preserve</value>
+			</choice>
+		</attribute>
+	</define>
+
+	<define name="spawns.interface">
+		<element name="interface">
+			<attribute name="name">
+				<data type="string"/>
+			</attribute>
+
+			<zeroOrMore>
+				<element name="bind">
+					<attribute name="type">
+						<data type="string"/>
+					</attribute>
+					<attribute name="address">
+						<data type="string"/>
+					</attribute>
+					<attribute name="port">
+						<data type="string"/>
+					</attribute>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<define name="spawns.field">
+		<element name="field">
+			<choice>
+				<attribute name="literal">
+					<data type="string"/>
+				</attribute>
+				<attribute name="environment">
+					<data type="string"/>
+				</attribute>
+			</choice>
+		</element>
+	</define>
+
+	<define name="spawns.requirements">
+		<element name="requirements">
+			<empty/>
+		</element>
+	</define>
+
+	<define name="spawns.environment">
+		<a:documentation>Environment Variables to Set</a:documentation>
+		<element name="environment">
+			<zeroOrMore>
+				<element name="variable">
+					<attribute name="name">
+						<data type="string"/>
+					</attribute>
+					<attribute name="value">
+						<data type="string"/>
+					</attribute>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<define name="spawns.spawn">
+		<a:documentation>Root element.</a:documentation>
+		<element name="spawn">
+			<attribute name="type">
+				<data type="string"/>
+			</attribute>
+			<attribute name="executable">
+				<data type="string"/>
+			</attribute>
+			<optional>
+				<attribute name="concurrency">
+					<data type="integer"/>
+				</attribute>
+			</optional>
+
+			<ref name="spawns.requirements"/>
+			<ref name="spawns.environment"/>
+
+			<zeroOrMore>
+				<ref name="spawns.field"/>
+			</zeroOrMore>
+			<zeroOrMore>
+				<element name="interfaces">
+					<ref name="spawns.interface"/>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<start>
+		<ref name="spawns.spawn"/>
+	</start>
+</grammar>
