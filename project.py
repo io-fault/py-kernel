@@ -4,6 +4,7 @@ abstract = 'Explicitly structured processing for managing complex applications'
 icon = '⚗'
 
 fork = 'overflow'
+status = 'flux'
 
 controller = 'fault.io'
 contact = 'mailto:critical@fault.io'
