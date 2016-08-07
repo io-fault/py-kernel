@@ -1,5 +1,5 @@
 """
-Adapter for using &..traffic with &.library.Flow instances in &..io applications.
+Adapter instance for using &..traffic with &.library.Flow instances in &..io applications.
 
 Specifically geared for &.library.KernelPort instances. The current design requires
 that read transfers be tracked in order to know when more memory needs to be assigned
@@ -10,11 +10,15 @@ a non-loss due to cases where rate tracking is desired.
 	Semaphores are *not* needed to throttle I/O as continuation is an effect of performing
 	the transfer in the main task queue.
 
+This module is intended for internal use only; the interfaces are subject to change.
+
 [ Properties ]
 
 /allocate
-	Access to &..traffic.kernel.Junction.rallocate for Transit
-	allocations.
+	Access to &..traffic.kernel.Junction.rallocate for Transit allocations.
+
+/adapter
+	The &library.Adapter instance used by &.process.Representation to manage I/O events.
 """
 
 import functools
@@ -84,7 +88,7 @@ def deliver_io_events(junction, events, iter=iter):
 def synchronize_io_events(arg, partial=functools.partial):
 	"""
 	Send the event queue to the main task queue.
-	Enqueue's &deliever_io_events with the queue constructed by &separate_io_events.
+	Enqueue's &deliver_io_events with the queue constructed by &separate_io_events.
 	"""
 
 	junction, queue = arg
@@ -106,7 +110,7 @@ def separate_io_events(
 	Process the junction's transfer and construct a sequence of I/O events.
 
 	This is executed inside a thread managed by the interchange and *cannot* deliver
-	the events to Transformers. &syncrhonize_io_events is used to deliver the queue
+	the events to Transformers. &synchronize_io_events is used to deliver the queue
 	for processing in the &.process.Representation's task queue.
 	"""
 
