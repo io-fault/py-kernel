@@ -186,7 +186,7 @@ def sequence(identity, resource, perspective, traversed, depth=0):
 
 def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 	"""
-	Format the &Resource tree in eclectic text.
+	Format the &Resource tree in fault.text.
 	"""
 	import pprint
 
