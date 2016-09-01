@@ -4384,7 +4384,7 @@ def Encoding(
 
 class Ports(Device):
 	"""
-	&Ports manages the set of Kernel Ports (listening sockets) used by a &Unit.
+	Ports manages the set of listening sockets used by a &Unit.
 	Ports consist of a mapping of a set identifiers and the set of actual listening
 	sockets.
 
@@ -4451,6 +4451,7 @@ class Ports(Device):
 		"""
 		Close the file descriptors associated with the given slot and endpoint.
 		"""
+
 		sd = self.sets[slot]
 
 		for x in endpoints:
@@ -4518,16 +4519,6 @@ class Ports(Device):
 
 		with route.open('wb') as f:
 			pickle.dump(str(route), f)
-
-class Locks(Device):
-	"""
-	Locks Device.
-
-	Manages the set of synchronization primitives used by a process. Usually
-	used by sector daemons to manage advisory locks.
-	"""
-
-	device_entry = 'locks'
 
 def context(max_depth=None):
 	"""
