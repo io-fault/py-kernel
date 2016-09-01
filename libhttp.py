@@ -8,6 +8,12 @@ provide the foundations for high-level HTTP clients.
 In addition, &.libhttp has adapters for converting Python data structures and
 interfaces into something that can be used with HTTP Interfaces and Agents.
 
+! IMPLEMENTATION:
+	A single module is used as there is a significant intersection between clients
+	and servers. The &ProtocolTransaction is used from either perspective and
+	the &Layer subclasses might be used for serialization as well as holding
+	the received headers.
+
 [ Properties ]
 
 /HeaderSequence
@@ -53,24 +59,19 @@ class ProtocolTransaction(tuple):
 
 	ig = operator.itemgetter
 
-	interface = property(ig(0))
-	host = property(ig(1))
-
 	# For agent transactions.
-	agent = property(ig(0))
-	context = property(ig(1))
-
-	connection = property(ig(2))
-	request = property(ig(3))
-	response = property(ig(4))
-	connect_input = property(ig(5))
-	connect_output = property(ig(6))
+	connection = property(ig(0))
+	request = property(ig(1))
+	response = property(ig(2))
+	connect_input = property(ig(3))
+	connect_output = property(ig(4))
+	host = property(ig(5))
 
 	del ig
 
 	def reflect(self):
 		"""
-		Send the input back to the output.
+		Send the input back to the output. Usually, after configuring the response layer.
 
 		Primarily used for performance testing.
 		"""
@@ -80,7 +81,21 @@ class ProtocolTransaction(tuple):
 		self.connect_output(f)
 		self.connect_input(f)
 
-	def iterate_output(self, iterator):
+	def write_null(self):
+		"""
+		Used to send a request or a response without a body.
+		Necessary to emit the headers of the transaction.
+		"""
+		self.connect_output(None)
+
+	def read_null(self):
+		"""
+		Used to note that no read will occur.
+		*Must* be used when no body is expected. Usually called by the &Client or &Server.
+		"""
+		self.connect_input(None)
+
+	def iterate_output(self, iterator:typing.Iterable):
 		"""
 		Construct a Flow consisting of a single &libio.Iterate instance
 		used to stream output to the connection protocol state.
@@ -90,13 +105,10 @@ class ProtocolTransaction(tuple):
 		"""
 		global libio
 
-		i = libio.Iterate(terminal=True)
-		f = libio.Flow(i)
-		self.connection.dispatch(f)
-
+		i = libio.Iteration(iterator)
+		self.connection.dispatch(i)
 		self.response.initiate((self.request.version, b'200', b'OK'))
-		self.connect_output(f)
-		f.process(iterator)
+		self.connect_output(i)
 
 		return f
 
@@ -128,12 +140,10 @@ class ProtocolTransaction(tuple):
 		"""
 		global libio, libmemory
 
-		cxn = self.connection
-		f = libio.Flow(libio.Iterate(terminal=True))
-		cxn.dispatch(f)
+		f = libio.Iteration(((x,) for x in libmemory.Segments.open(str(path))))
+		self.connection.dispatch(f)
 
 		self.connect_output(f)
-		f.process(((x,) for x in libmemory.Segments.open(str(path))))
 
 		return f
 
@@ -148,14 +158,16 @@ class ProtocolTransaction(tuple):
 		"""
 		Connect the input Flow to a buffer that executes
 		the given callback when the entity body has been transferred.
+
+		This should only be used when connecting to trusted hosts.
 		"""
 
 		cxn = self.connection
-		with cxn.allocate() as xact:
-			target = xact.append(str(route))
-			f = cxn.flow((libio.Iterate(),), target)
-
+		f = libio.Collection.buffer()
+		cxn.dispatch(f)
+		f.atexit(callback)
 		self.connect_input(f)
+
 		return f
 
 	def read_input_into_file(self, route):
@@ -166,11 +178,11 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		with cxn.allocate() as xact:
-			target = xact.append(str(route))
-			f = cxn.flow((libio.Iterate(),), target)
-
+		t, = cxn.context.append_files(str(route))
+		f = libio.Transformation(*libio.meter_output(t))
+		cxn.dispatch(f)
 		self.connect_input(f)
+
 		return f
 
 	def write_kport_to_output(self, fd, limit=None):
@@ -182,11 +194,11 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		with cxn.allocate() as xact:
-			target = xact.acquire('input', fd)
-			f = cxn.flow(target)
-
+		t, = cxn.context.connect_input(fd)
+		f = libio.Transformation(*libio.meter_input(t))
+		cxn.dispatch(f)
 		self.connect_output(f)
+
 		return f
 
 	def read_input_into_kport(self, fd, limit=None):
@@ -199,9 +211,9 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		with cxn.allocate() as xact:
-			target = xact.acquire('output', fd)
-			f = cxn.flow((libio.Iterate(),), target)
+		t, = cxn.context.connect_output(fd)
+		f = libio.Transformation(*libio.meter_output(t))
+		cxn.dispatch(f)
 
 		self.connect_input(f)
 		return f
@@ -223,6 +235,12 @@ class ProtocolTransaction(tuple):
 		self.connect_input(fi)
 		self.connect_output(fo)
 		return f
+
+	def proxy(self, endpoint):
+		"""
+		Fulfill the transaction by transparently proxying the request.
+		"""
+		pass
 
 class Path(libroutes.Route):
 	"""
@@ -258,10 +276,15 @@ class Layer(libio.Layer):
 
 	/(dict)`headers`
 		The mapping of headers available in the &header_sequence.
+
+	/channel
+		The stream identifier. For HTTP/2.0, this identifies channel
+		being used for facilitating the request or response.
 	"""
 
 	protocol = 'http'
 	version = 1
+	channel = None
 
 	@property
 	def content(self):
@@ -773,132 +796,283 @@ def v1_input(
 			if typ == bypass:
 				excess.append(data)
 
-client = functools.partial(libio.QueueProtocol, Response, Request, v1_input, v1_output)
-server = functools.partial(libio.QueueProtocol, Request, Response, v1_input, v1_output)
+def join(
+		checksum=None,
 
-class Interface(libio.Interface):
+		rline=libhttp.Event.rline,
+		headers=libhttp.Event.headers,
+		trailers=libhttp.Event.trailers,
+		content=libhttp.Event.content,
+		chunk=libhttp.Event.chunk,
+		EOH=libhttp.EOH,
+		EOM=libhttp.EOM,
+
+		repeat=itertools.repeat,
+		zip=zip,
+
+		fc_initiate=libio.FlowControl.initiate,
+		fc_terminate=libio.FlowControl.terminate,
+		fc_transfer=libio.FlowControl.transfer,
+	):
 	"""
-	An HTTP interface Sector. Provides the foundations for constructing
-	an HTTP 2.0, 1.1, and 1.0 interface.
+	Join &libio.Catenate flow events into a proper HTTP stream.
+	"""
+
+	serializer = libhttp.assembly()
+	serialize = serializer.send
+	transfer = ()
+	def layer_tokens(event, layer):
+		assert event == fc_initiate
+		return [
+			(rline, layer.initiation),
+			(headers, layer.header_sequence),
+			EOH,
+		], layer
+
+	def eom(event, layer):
+		assert event == fc_terminate
+		return (EOM,), layer
+
+	def data(event, layer, payload, xchunk=libhttp.chunk):
+		nonlocal content, chunk
+		assert event == fc_transfer
+
+		l = layer.length
+		if l is None:
+			raise Exception("content without chunked encoding specified or content length")
+
+		if l >= 0:
+			btype = content
+		else:
+			btype = chunk
+
+		return [(btype, x) for x in payload], layer
+
+	commands = {
+		fc_initiate: layer_tokens,
+		fc_terminate: eom,
+		fc_transfer: data,
+	}
+	transformer = commands.__getitem__
+
+	while 1:
+		events = (yield transfer)
+		transfer = []
+		for event in events:
+			out_events, layer = transformer(event[0])(*event)
+			transfer.extend(serialize(out_events))
+
+def fork(
+		Layer,
+		rline=libhttp.Event.rline,
+		headers=libhttp.Event.headers,
+		trailers=libhttp.Event.trailers,
+		content=libhttp.Event.content,
+		chunk=libhttp.Event.chunk,
+		violation=libhttp.Event.violation,
+		bypass=libhttp.Event.bypass,
+		EOH=libhttp.EOH,
+		EOM=libhttp.EOM,
+		iter=iter, map=map, len=len,
+		chain=itertools.chain.from_iterable,
+		fc_initiate=libio.FlowControl.initiate,
+		fc_terminate=libio.FlowControl.terminate,
+		fc_transfer=libio.FlowControl.transfer,
+	):
+	"""
+	Split an HTTP stream into flow events for use by &libio.Division.
+	"""
+	global libhttp
+
+	tokenizer = libhttp.disassembly()
+	tokens = tokenizer.send
+
+	close_state = False # header Connection: close
+	events = iter(())
+	flow_events = []
+
+	# Pass exception as terminal Layer context.
+	def http_protocol_violation(data):
+		raise Exception(data)
+
+	while not close_state:
+
+		lrline = []
+		lheaders = []
+		local_state = {
+			rline: lrline.extend,
+			headers: lheaders.extend,
+			violation: http_protocol_violation,
+		}
+
+		headers_received = False
+		while not headers_received:
+			for x in events:
+				local_state[x[0]](x[1])
+				if x == EOH:
+					headers_received = True
+					break
+			else:
+				# need more for headers
+				events = []
+				y = events.extend
+				for x in map(tokens, ((yield flow_events))):
+					y(x)
+				del y
+				flow_events = []
+				events = iter(events)
+
+		# got request or status line and headers for this request
+		assert len(lrline) == 3
+
+		layer = Layer()
+		layer.initiate(lrline[:3])
+		layer.add_headers(lheaders)
+
+		if layer.terminal:
+			# Connection: close present.
+			# generator will exit when the loop completes
+			close_state = True
+
+		flow_events.append((fc_initiate, layer))
+		##
+		# local_state is used as a catch all
+		# if strictness is desired, it should be implemented here.
+
+		body = []
+		trailer_sequence = []
+		local_state = {
+			# handle both chunking and content types
+			content: body.append,
+			chunk: body.append,
+			# extension: handle chunk extension events.
+			trailers: trailer_sequence.extend,
+			violation: http_protocol_violation,
+		}
+
+		try:
+			body_complete = False
+			while not body_complete:
+				for x in events:
+					if x == EOM:
+						body_complete = True
+						break
+
+					# not an eof event, so extend state and process as needed
+					local_state[x[0]](x[1])
+
+					if trailer_sequence:
+						layer.trailer(trailer_sequence)
+					else:
+						if body:
+							# send the body to the connected Flow
+							# the Distributing instance watches for
+							# obstructions on the receiver and sends them
+							# upstream, so no buffering need to occur here.
+							flow_events.append((fc_transfer, layer, body))
+
+							# empty body sequence and reconfigure its callback
+							body = []
+							local_state[content] = local_state[chunk] = body.append
+
+				else:
+					# need more for EOM
+					events = []
+					y = events.extend
+					for x in map(tokens, ((yield flow_events))):
+						y(x)
+					flow_events = []
+					events = iter(events)
+				# for x in events
+			# while not body_complete
+		except GeneratorExit:
+			raise
+		else:
+			flow_events.append((fc_terminate, layer))
+			layer = None
+
+	# Store overflow for next protocol.
+	events = []
+	y = events.extend
+	while True:
+		for x in map(tokens, (yield flow_events)):
+			y(x)
+		flow_events = ()
+
+class Protocol(object):
+	"""
+	Stack object for &libio.Transports.
 
 	[ Properties ]
 
-	/hosts
-		Set of &Host instances managed and referred to by the &Interface.
-	/index
-		The finite map of hostnames to &Host instances.
+	/receive_overflow
+		Transfers that occurred past protocol boundaries. Used during protocol
+		switching to properly maintain state.
 	"""
+	@classmethod
+	def client(Class) -> 'Protocol':
+		global Response
+		return Class(Response)
 
-	construct_connection_parts = staticmethod(server)
+	@classmethod
+	def server(Class) -> 'Protocol':
+		global Request
+		return Class(Request)
 
-	def actuate(self):
-		super().actuate()
+	def terminate(self, polarity=0):
+		self._termination ^= polarity
+		if self._termination == -2:
+			self.terminated = True
 
-		if self.hosts:
-			self.process(self.hosts)
+	def __init__(self, Layer:Layer, selected_version=b'HTTP/1.1'):
+		global fork, join
 
-	primary = None
-	hosts = None
-	def install(self, *hosts):
-		"""
-		Configure the set of HTTP hosts to route connections into.
-		"""
+		self.version = selected_version
 
-		self.index = {}
-		if hosts:
-			self.primary = hosts[0]
-			self.hosts = set(hosts)
-			for h in self.hosts:
-				self.index.update(zip(h.names, itertools.repeat(h)))
+		self._termination = 0
+		self.terminated = False
+		self.receive_overflow = []
 
-	@staticmethod
-	def route(context, request, connect, partial=functools.partial, tuple=tuple):
-		"""
-		Relocate the connection based on the initial request's data.
-		"""
+		self.input_state = fork(Layer)
+		self.fork = self.input_state.send
+		self.fork(None)
 
-		cxn = context.sector
-		ifs = cxn.controller
-		idx = ifs.index
-		host_sector = idx.get(request.host, ifs.primary)
+		self.output_state = join()
+		self.join = self.output_state.send
+		self.join(None)
 
-		cxn.relocate(host_sector)
-		assert cxn.controller is host_sector
+	def ht_transport_operations(http):
+		f = (False).__bool__
+		return ((http.fork, f, f), (http.join, f, f))
 
-		host_sector.initial(cxn, context, request, connect)
+libio.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
 
-class Host(libio.Sector):
+class Host(libio.Interface):
 	"""
-	An HTTP Host class for managing routing of service connections.
-
-	&Host is the conceptual root for a web interface. &Interface objects
-	&libio.Resource.relocate connections into the host matches.
+	An HTTP Host interface for managing routing of service connections,
+	and handling the representation of error cases.
 
 	[ Properties ]
 
-	/names
+	/h_names
 		The set hostnames that this host can facilitate.
 		The object can be an arbitrary container in order
 		to match patterns as well.
 
-	/canonical
-		The first name (&requisite.Parameters.names) given to &requisite.
-		Identifies the primary name of the Host.
+	/h_canonical
+		The first name given to &update_host_names.
 
-	/root
+	/h_root
 		The root of the host's path as a &..computation.libmatch.SubsequenceScan.
 		This is the initial path of the router in order to allow "mounts"
 		at arbitrary positions. Built from &requisite prefixes.
 
-	/index
+	/h_index
 		The handler for the root path. May be &None if &root can resolve it.
 
-	/settings
-		Index of data structures used by the host as parameters to protocol
-		transaction processors.
+	/h_allowed_methods
+		Option set provided in response to (http:initiate)`OPTIONS * HTTP/1.x`.
 	"""
-
-	def __init__(self, prefixes, *names):
-		super().__init__()
-		self.names = set(names)
-		self.prefixes = prefixes
-		self.root = libmatch.SubsequenceScan(prefixes.keys())
-		self.index = None
-
-		if names:
-			self.canonical = names[0]
-		else:
-			self.canonical = None
-
-	def close(self):
-		"""
-		Close the host by terminating the &libio.Nothing instance.
-		"""
-		self.nothing.terminate()
-
-	def actuate(self):
-		super().actuate()
-		self.nothing = libio.Nothing()
-		self.dispatch(self.nothing)
-
-	def structure(self):
-		props = [
-			('canonical', self.canonical),
-			('names', self.names),
-		]
-
-		p, r = super().structure()
-		return (props + list(p), r)
-
-	def initial(self, connection, context, request, connect):
-		"""
-		Process the initial request of the connection.
-		"""
-
-		# overwrite default accept callback, and perform it
-		accept_request = self.accept
-		context.accept_event_connect(accept_request)
-		accept_request(context, request, connect)
 
 	@staticmethod
 	@functools.lru_cache(64)
@@ -912,24 +1086,82 @@ class Host(libio.Sector):
 	@staticmethod
 	@functools.lru_cache(16)
 	def strcache(obj):
-		return str(obj).encode('ascii')
+		return obj.__str__().encode('ascii')
 
 	@staticmethod
 	@functools.lru_cache(16)
 	def descriptioncache(obj):
 		return httpdata.code_to_names[obj].replace('_', ' ')
 
-	@classmethod
-	def options(Class, query, px):
+	h_defaults = {
+		'h_options': (),
+		'h_allowed_methods': frozenset({
+			b'GET', b'HEAD', b'POST', b'PUT', b'PATCH', b'DELETE', b'OPTIONS'
+		}),
+	}
+
+	h_canonical = None
+	h_names = None
+	h_options = None
+	h_allowed_methods = None
+
+	def h_enable_options(self, *option_identifiers:str):
+		self.h_options.update(option_identifiers)
+
+	def h_disable_options(self, *option_identifiers:str):
+		self.h_options.difference_update(option_identifiers)
+
+	def h_update_names(self, *names):
 		"""
-		Handle a request for (protocol/http)`OPTIONS * HTTP/V`.
+		Modify the host names that this interface responds to.
+		"""
+
+		self.h_names = set(names)
+
+		if names:
+			self.h_canonical = names[0]
+		else:
+			self.h_canonical = None
+
+	def h_update_mounts(self, prefixes, root=None, Index=libmatch.SubsequenceScan):
+		"""
+		Update the host interface's root prefixes.
+		"""
+
+		self.h_prefixes = prefixes
+		self.h_root = Index(prefixes.keys())
+		self.h_index = root
+
+	def structure(self):
+		props = [
+			('h_canonical', self.h_canonical),
+			('h_names', self.h_names),
+			('h_options', self.h_options),
+			('h_allowed_methods', self.h_allowed_methods),
+		]
+
+		return (props, None)
+
+	def process(self, xacts):
+		"""
+		Process a sequence of protocol transactions by creating a sector
+		for &h_route to be ran within.
+		"""
+
+		sector = self.controller
+		for px in xacts:
+			s.dispatch(libio.Call(self.h_route, px.connection, px))
+
+	def h_options_request(self, query, px):
+		"""
+		Handle a request for (http:initiate)`OPTIONS * HTTP/#.#`.
 
 		Individual Resources may support an OPTIONS request as well.
 		"""
-		raise Exception("HTTP OPTIONS not implemented")
+		px.response_headers.append((b'Allow', b','.join(self.h_allowed_methods)))
+		px.write_nothing()
 
-	@classmethod
-	def error(Class, code, path, query, px, exc, description=None, version=b'HTTP/1.1'):
+	def h_error(self, code, path, query, px, exc, description=None, version=b'HTTP/1.1'):
 		"""
 		Host error handler. By default emits an XML document with an assigned stylesheet
 		that can be retrieved for formatting the error. Additional error data may by
@@ -940,12 +1172,12 @@ class Host(libio.Sector):
 		"""
 
 		strcode = str(code)
-		code_bytes = Class.strcache(code)
+		code_bytes = self.strcache(code)
 
 		if description is None:
-			description = Class.descriptioncache(code_bytes)
+			description = self.descriptioncache(code_bytes)
 
-		description_bytes = Class.strcache(description)
+		description_bytes = self.strcache(description)
 		errmsg = (
 			b'<?xml version="1.0" encoding="ascii"?>',
 			b'<?xml-stylesheet type="text/xsl" href="/if/error.xsl"?>',
@@ -960,20 +1192,20 @@ class Host(libio.Sector):
 			(b'Content-Length', length_strings(errmsg),)
 		])
 
-		proc = libio.Flow(libio.Iterate())
-		px.connection.dispatch(proc)
-
+		proc = libio.Iteration([errmsg])
+		px.connection.acquire(proc)
 		px.connect_output(proc)
-		proc.process([errmsg])
+		proc.actuate()
 
-		# If an exception occurred, drain the output and fault the connection.
-		if exc is not None:
-			fo = lambda: px.connection.output.fault(exc)
-			proc.drain(lambda: px.connection.output.drain(fo))
-		else:
-			proc.terminate()
+	def h_fallback(self, px, path, query):
+		"""
+		Method called when no prefix matches the request.
 
-	def route(self, px):
+		Provided for subclasses in order to override the usual (http:error)`404`.
+		"""
+		return self.h_error(404, Path(None, tuple(path.split('/'))), query, px, None)
+
+	def h_route(self, sector, px, dict=dict):
 		"""
 		Called from an I/O (normally input) event, routes the transaction
 		to the processor bound to the prefix matching the request's.
@@ -984,144 +1216,129 @@ class Host(libio.Sector):
 		global Path
 		global libri
 
-		split = px.request.path.decode('utf-8').split('?', 1)
-		uri_path = split[0]
+		req = px.request
+		path = req.path.decode('utf-8').split('?', 1)
+		path.extend((None,None))
+		path = path[:3]
+		uri_path = path[0]
 
-		if len(split) == 2:
-			query = dict(libri.parse_query(split[1]))
-		else:
-			query = None
+		parts = libri.Parts('authority', 'http', req.host+':80', *path)
+		ri = libri.structure(parts)
 
-		initial = self.root.get(uri_path, None)
+		initial = self.h_root.get(path[0], None)
 
 		# No prefix match.
 		if initial is None:
-			if uri_path == b'*' and px.request.method == "OPTIONS":
+			if uri_path == '*' and px.request.method == "OPTIONS":
 				return self.options(query, px)
 			else:
-				return self.error(404, Path(None, tuple(uri_path.split('/'))), query, px, None)
+				return self.h_fallback(px, uri_path, query)
 		else:
-			xact_processor = self.prefixes[initial]
+			xact_processor = self.h_prefixes[initial]
 			path = self.path(initial, uri_path)
 
-			try:
-				xact_processor(path, query, px)
-			except Exception as exc:
-				# The connection will be abruptly interrupted if
-				# the output flow has already been connected.
-				self.error(500, path, query, px, exc)
+			xact_processor(path, ri.get('query', {}), px)
 
-	@staticmethod
-	def accept(context, request, connect_input, partial=functools.partial):
+	def h_transaction_fault(self, sector):
 		"""
-		Accept an HTTP transaction from the remote end.
+		Called when a protocol transaction's sector faults.
 		"""
+		# The connection should be abruptly interrupted if
+		# the output flow has already been connected.
+		self.h_error(500, path, query, px, exc)
 
-		p = context.controller
-		response = p.output_layer() # construct response placeholder
-		out = p.sequence
-		out.enqueue(response) # *reserve* spot in output queue
-
-		if request.terminal:
-			response.header_sequence.append((b'Connection', b'close'))
-
-		connect_output = partial(out.connect, response)
-		cxn = p.controller
-		host = cxn.controller
-
-		px = ProtocolTransaction((
-			host.controller, host, cxn,
-			request, response,
-			connect_input, connect_output
-		))
-		px.response.add_headers([
-			(b'Date', libtime.now().select('rfc').encode('utf-8')),
-		])
-
-		host.route(px)
-
-class Client(libio.Connection):
+class Client(libio.Mitre):
 	"""
-	Client Connection Sector representing a single client connection.
-
-	&Client sectors manages the flows and protocol instances of a client
-	connection.
-
-	[ Properties ]
-
-	/response_endpoints
-		The callback queue that syncrhonizes the responses to their corresponding
-		requests. Items are added when requests are submitted and removed when
-		a response comes in.
+	Mitre flow initiating HTTP requests for a Connection sector.
 	"""
+	Protocol = Protocol.client
 
-	def manage(self):
-		r = functools.partial(self.http_transaction_open, self.response_endpoints)
-		super().manage(client(), r)
+	def __init__(self, router):
+		self.m_responses = []
+		self.m_requests = []
+		self.m_route = router
 
-	def actuate(self):
-		self.response_endpoints = []
-		self.add = self.response_endpoints.append
-		super().actuate()
+	def process(self, events, source=None):
+		"""
+		Received a set of response initiations. Join with requests, and
+		execute the receiver provided to &m_request.
+		"""
+		self.m_responses.extend(events)
+		signal_count = min(len(self.m_responses), len(self.m_requests))
 
-	@staticmethod
-	def http_transaction_open(receivers, source, layer, connect):
-		receiver, request = receivers[0]
-		del receivers[0]
-		receiver(source, request, layer, connect)
+		reqs = self.m_requests[:signal_count]
+		resp = self.m_responses[:signal_count]
+		del self.m_requests[:signal_count]
+		del self.m_responses[:signal_count]
+		for req, res in zip(reqs, resp):
+			rec = req[0]
+			rec(self, req[1], *res)
 
-	def http_request(self,
-			receiver:libio.core.ProtocolTransactionEndpoint,
-			layer:Layer,
+	def m_request(self,
+			receiver:libio.ProtocolTransactionEndpoint,
+			layer:Request,
 			flow:libio.Flow=None
 		):
 		"""
-		Emit an HTTP request.
+		Emit an HTTP request. The corresponding response will be joined to form a
+		&ProtocolTransaction instance.
 
 		[ Parameters ]
 
 		/receiver
 			The callback to be performed when a response for the request is received.
 		/layer
-			The request layer context.
+			The request layer context. &Request.
 		/flow
-			The request body to be emittted.
+			The request body to be emittted. &None if there is no body.
 		"""
 
-		self.add((receiver, layer))
-		out = self.protocol.sequence
-		out.enqueue(layer)
-		out.connect(layer, flow)
+		layer, connect = self.f_emit((layer,), self)[0]
+		self.m_requests.append((receiver, layer))
+		connect(flow)
 
-class Context(libio.Sector):
+class Server(libio.Mitre):
 	"""
-	The client context for dispatching &Client connections.
-	&Context provides a second level of configuration for &Agent controllers.
-
-	A context allows a user to dispatch connections to contain the effect
-	of state storage such that it can be inherited in the &Agent or simply
-	forgotten when the &Context is destroyed.
-
-	Contexts are a reasonable way to manage client masquerading.
+	Mitre managing incoming server connections for HTTP.
 	"""
+	Protocol = Protocol.server
 
-class Agent(libio.Sector):
+	def __init__(self, ref, router):
+		self.m_reference = ref
+		self.m_route = router
+
+	def process(self, events, source=None):
+		"""
+		Accept HTTP &Request's from the remote end and pair them with &Response's.
+		"""
+
+		global ProtocolTransaction
+		global Response
+
+		cxn = self.controller
+		# Reserve response slot and acquire connect callback.
+		responses = self.f_emit([Response() for i in range(len(events))], self)
+
+		for req, res in zip(events, responses):
+			px = ProtocolTransaction((
+				cxn, req[0], res[0], req[1], res[1], self.m_reference
+			))
+			px.response.add_headers([
+				(b'Date', libtime.now().select('rfc').encode('utf-8')),
+			])
+			if req[0].terminal:
+				res[0].header_sequence.append((b'Connection', b'close'))
+
+			self.m_route(cxn, px)
+
+class Agent(libio.Interface):
 	"""
-	&Client connection controller managing common resources and configuration.
-
-	Agents provide a set of interfaces that return a &Processor representing
-	the dispatched conceptual task. These conceptual tasks may be supported by
-	one or more &Client instances managed by the Agent.
-
 	[ Properties ]
 
 	/(&str)`title`
 		The default `User-Agent` header.
 
-	/(&ConnectionPool)`connections`
-		The &Client connections associated with their host.
-
-	/(dict)`cookies`
+	/(&dict)`cookies`
 		A dictionary of cookies whose keys are either an exact
 		string of the domain or a tuple of domain names for pattern
 		hosts.
@@ -1218,8 +1435,8 @@ class Agent(libio.Sector):
 		"""
 		Open a client connection and return the actuated &Client instance.
 		"""
-		global Client
 
+		global Client
 		hc = Client.open(self, endpoint, transports=transports)
 		self.connections[endpoint] = hc
 		self.process(hc)
@@ -1263,7 +1480,6 @@ conversions = {
 	libmedia.types['data']: lambda x: x,
 }
 
-
 def adapt(encoding_range, media_range, obj, iterating = None):
 	"""
 	Adapt an arbitrary Python object to the desired request type.
@@ -1300,7 +1516,6 @@ def adapt(encoding_range, media_range, obj, iterating = None):
 		adaption = conversions[str(match)](obj)
 
 	return match, adaption
-
 
 class Resource(object):
 	"""
@@ -1370,7 +1585,7 @@ class Resource(object):
 
 	def transformed(self, context, collection, path, query, px, flow, chain=itertools.chain):
 		"""
-		Once the request entity has been buffered into the &libio.Collect,
+		Once the request entity has been buffered into the &libio.Collection,
 		it can be parsed into parameters for the resource method.
 		"""
 
@@ -1416,18 +1631,17 @@ class Resource(object):
 		if px.connect_input is not None:
 			if False and self.limit == 0:
 				# XXX: zero limit with entity body.
-				px.host.error(413, path, query, px, None)
+				px.host.h_error(413, path, query, px, None)
 				return
 
 			# Buffer and transform the input to the callable adherring to the limit.
-			cl = libio.Collect.list()
-			fi = libio.Flow(cl)
-			collection = cl.storage
-			px.connection.dispatch(fi)
+			cl = libio.Collection.list()
+			collection = cl.c_storage
+			px.connection.dispatch(cl)
 			fi.atexit(partial(self.transformed, context, collection, path, query, px))
-			px.connect_input(fi)
+			px.connect_input(cl)
 
-			return fi
+			return cl
 		else:
 			return self.execute(context, None, path, query, px)
 
@@ -1488,9 +1702,9 @@ class Index(Resource):
 		elif points:
 			protocol_xact_method = getattr(self, points[0], None)
 			if protocol_xact_method is None:
-				return px.host.error(404, path, query, px, None)
+				return px.host.h_error(404, path, query, px, None)
 		else:
-			return px.host.error(404, path, query, px, None)
+			return px.host.h_error(404, path, query, px, None)
 
 		return protocol_xact_method(self, path, query, px)
 
@@ -1519,7 +1733,7 @@ class Dictionary(dict):
 
 	def __call__(self, path, query, px):
 		if path.points not in self:
-			px.host.error(404, path, query, px, None)
+			px.host.h_error(404, path, query, px, None)
 			return
 
 		mime, data, mode = self[path.points]
@@ -1537,8 +1751,25 @@ class Files(object):
 	def __init__(self, *routes):
 		self.routes = routes
 
+	def render_directory_listing(self, path):
+		"""
+		Iterator producing the XML elements describing the directory's content.
+		"""
+		get_type = libmedia.types.get
+
+		rpath = path.points
+		for x in routes:
+			sf = x.extend(rpath)
+			if sf.exists():
+				t = get_type(sf.extension, 'application/octet-stream')
+				yield from libxml.element('file', (), type=t, identifier=sf.identifier)
+
 	def list(self, path, query, px):
-		px.host.error(500, path, query, px, None)
+		px.host.h_error(500, path, query, px, None)
+		return
+		px.response.add_headers([
+			(b'Content-Type', b'text/xml'),
+		])
 
 	def __call__(self, path, query, px):
 		rpath = path.points
@@ -1574,4 +1805,4 @@ class Files(object):
 				break
 		else:
 			# No such resource.
-			px.host.error(404, path, query, px, None)
+			px.host.h_error(404, path, query, px, None)

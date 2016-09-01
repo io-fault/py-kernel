@@ -27,7 +27,7 @@ class DNS(libio.Sector):
 
 	def actuate(self):
 		super().actuate()
-		t = core.Thread()
+		t = libio.Thread()
 		t.requisite(self.process_query)
 
 def service(service_name):

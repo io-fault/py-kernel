@@ -1,12 +1,7 @@
 """
-Sector daemon used to manage a set of &.library.Sector instances.
-
-Sector daemons are normally organized into categories where a set of
-processes coexist to share the same process pool.
+Sector daemon used to manage a set of &.library.Sector instances
+that run a daemon process.
 """
-
-import sys
-import os
 
 def initialize(unit):
 	"""
@@ -19,31 +14,41 @@ def initialize(unit):
 	modules loaded into "/bin".
 	"""
 
+	import functools
 	from .. import libdaemon
 	from .. import libservice
-	from .. import library
+	from .. import library as libio
 
 	from ...routes import library as libroutes
 
-	# /dev/ports
-	library.core.Ports.load(unit)
+	# /dev/ports for listening sockets and datagrams.
+	libio.Ports.connect(unit)
 
 	proc = unit.context.process
-	modules = proc.invocation.parameters
 
 	r = libroutes.File.from_cwd()
 	s = libservice.Service(r.container, r.identifier)
 	s.load() # parameters
+	unit.place(s, "dev", "service")
 
-	root_sector = libdaemon.Control(modules)
+	root_sector = libio.Sector()
+
+	# &.libdaemon.Control.actuate does most of the work.
 	unit.place(root_sector, "control")
-	unit.place(s, "service")
+
 	root_sector.subresource(unit)
 	root_sector.actuate()
 
+	ctl = libdaemon.Control()
+	root_sector.dispatch(ctl)
+
 def main():
-	from .. import library
-	library.execute('sectord', **{
+	"""
+	Execute as a sectord process.
+	"""
+	import os
+	from .. import library as libio
+	libio.execute('sectord', **{
 		os.environ.get('SERVICE_NAME', 'sectord'): (initialize,)
 	})
 

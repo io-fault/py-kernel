@@ -4,7 +4,7 @@ import itertools
 
 from .. import security as library
 
-from .. import core
+from .. import library as libio
 from . import library as libtest
 
 key = b"""
@@ -78,20 +78,24 @@ def test_Transports_io(test, chain=itertools.chain):
 	client = cctx.connect()
 	server = sctx.accept()
 
-	cti, cto = core.Transports.create((client,))
-	ci = core.Flow(cti, core.Collect.list())
-	co = core.Flow(cto)
+	cti, cto = libio.Transports.create((client,))
+	ci = libio.Transformation(cti)
+	cc = libio.Collection.list()
+	co = libio.Transformation(cto)
 
-	sti, sto = core.Transports.create((server,))
-	si = core.Flow(sti, core.Collect.list())
-	so = core.Flow(sto)
+	sti, sto = libio.Transports.create((server,))
+	si = libio.Transformation(sti)
+	sc = libio.Collection.list()
+	so = libio.Transformation(sto)
 
-	sector = core.Sector()
+	sector = libio.Sector()
 	io_root.process(sector)
-	sector.process([ci, co, si, so])
+	sector.process([sc, cc, ci, co, si, so])
+	si.f_connect(sc)
+	ci.f_connect(cc)
 
-	so.connect(ci)
-	co.connect(si)
+	so.f_connect(ci)
+	co.f_connect(si)
 
 	if 0:
 		co.process((b'',))
@@ -103,11 +107,10 @@ def test_Transports_io(test, chain=itertools.chain):
 	co.process((b'abc',))
 	so.process((b'xyz',))
 
-	while io_context.tasks:
-		io_context()
+	io_context.flush()
 
-	ciseq = ci.sequence[-1].storage
-	siseq = si.sequence[-1].storage
+	ciseq = cc.c_storage
+	siseq = sc.c_storage
 
 	l = []
 	for x in ciseq:
@@ -120,8 +123,8 @@ def test_Transports_io(test, chain=itertools.chain):
 
 	inc = [b'A slight increase to the data transfer']
 	co.process(inc)
-	while io_context.tasks:
-		io_context()
+
+	io_context()
 
 	l = []
 	for x in siseq:
@@ -130,9 +133,8 @@ def test_Transports_io(test, chain=itertools.chain):
 
 	server_inc = [b'A slight increase to the data transfer(server out)']
 	so.process(server_inc)
-	while io_context.tasks:
-		io_context()
 
+	io_context()
 	l = []
 	for x in ciseq:
 		l.extend(x)
@@ -144,15 +146,13 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/client.terminated == False
 
 	co.terminate()
-	while io_context.tasks:
-		io_context()
+	io_context.flush()
 	test/client.terminated == True
 	test/server.terminated == True # recevied termination
 
 	si.terminate()
 	so.terminate()
-	while io_context.tasks:
-		io_context()
+	io_context.flush()
 
 	test/so.terminated == True
 	test/si.terminated == True

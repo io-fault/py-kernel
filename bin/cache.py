@@ -1,5 +1,5 @@
 """
-fault.io download client.
+fault.io HTTP download client.
 
 HTTP client designed for downloading resources to the current working directory.
 All requested resources are downloaded in parallel.
@@ -38,14 +38,15 @@ try:
 	with open(certificates, 'rb') as f:
 		security_context = security.public(certificates=(f.read(),))
 except:
+	raise
 	security = None
 	securtiy_context = None
 
 def response_collected(sector, request, response, flow):
 	print('response collected')
 
-def response_endpoint(protocol, request, response, connect, transports=(), tls=None):
-	sector = protocol.sector
+def response_endpoint(client, request, response, connect, transports=(), tls=None):
+	sector = client.sector
 	global gtls
 	gtls = tls
 
@@ -63,21 +64,23 @@ def response_endpoint(protocol, request, response, connect, transports=(), tls=N
 
 	identities.append(path)
 
-	with sector.allocate() as xact:
-		target = xact.append(str(path))
-		print(target)
-		trace = libio.Trace()
+	target = client.context.append_file(str(path))
+	sector.dispatch(target)
 
-		track = libc.compose(functools.partial(radar.track, path), libc.sum_lengths)
-		trace.monitor("rate", track)
+	trace = libio.Trace()
 
-		track = libc.partial(count, path)
-		trace.monitor("total", track)
+	track = libc.compose(functools.partial(radar.track, path), libc.sum_lengths)
+	trace.monitor("rate", track)
 
-		f = sector.flow((libio.Functional.chains(), trace), target)
+	track = libc.partial(count, path)
+	trace.monitor("total", track)
 
-	f.atexit(functools.partial(response_collected, sector, request, response))
-	connect(f)
+	tf = libio.Transformation(trace)
+	sector.dispatch(tf)
+	tf.f_connect(target)
+
+	target.atexit(functools.partial(response_collected, sector, request, response))
+	connect(tf)
 
 def request(struct):
 	req = libhttp.Request()
@@ -95,27 +98,24 @@ def request(struct):
 	return req
 
 def dispatch(sector, url):
-	struct, endpoint = url # libri.parse(x), internet.libio.Endpoint(y)
-
+	struct, endpoint = url # libri.parse(x), libio.Endpoint(y)
 	req = request(struct)
-
-	pair, = sector.context.connect_stream((endpoint,))
+	mitre = libhttp.Client(None)
 
 	if struct['scheme'] == 'https':
 		tls = security_context.connect()
-
-		hc = libhttp.Client(endpoint,
-			*[libio.KernelPort(x) for x in pair],
-			transports=(tls,),
-		)
+		series = sector.context.connect_subflows(endpoint, mitre, tls, libhttp.Protocol.client())
 	else:
 		tls = None
-		hc = libhttp.Client(endpoint, *[libio.KernelPort(x) for x in pair])
+		series = sector.context.connect_subflows(endpoint, mitre, libhttp.Protocol.client())
 
-	sector.dispatch(hc)
-	hc.manage()
-	hc.http_request(functools.partial(response_endpoint, tls=tls), req, None)
-	return hc
+	s = libio.Sector()
+	sector.dispatch(s)
+	s._flow(series)
+	mitre.m_request(functools.partial(response_endpoint, tls=tls), req, None)
+	series[0].process(None)
+
+	return s
 
 def process_exit(sector):
 	"""
@@ -135,7 +135,9 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 	return next
 
 def initialize(unit):
-	libio.core.Ports.load(unit)
+	global start_time
+
+	libio.Ports.connect(unit)
 	A = libhttp.Agent()
 
 	proc = unit.context.process
@@ -168,7 +170,6 @@ def initialize(unit):
 
 	hc = dispatch(root_sector, lendpoints[0])
 
-	global start_time
 	start_time = libtime.now()
 	root_sector.atexit(process_exit)
 	root_sector.scheduling()

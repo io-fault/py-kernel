@@ -29,14 +29,11 @@ import itertools
 import typing
 import signal # masking SIGINT/SIGTERM in threads.
 
-from . import core
 from . import traffic
 from .kernel import Interface as Kernel
 
 from ..system import library as libsys # cpu and memory
 from ..system import libmemory
-from ..internet import libri
-
 from ..chronometry import library as libtime
 
 __process_index__ = dict()
@@ -58,16 +55,31 @@ class Context(object):
 
 	inheritance = ('environment',)
 
-	def __init__(self, process):
+	def __init__(self, process, *api):
 		"""
 		Initialize a &Context instance with the given &process.
 		"""
 
 		self.process = process
-		self.context = None # weak reference to the context that this context was based on
+		self.context = process
 		self.association = None
 		self.environment = ()
 		self.attachments = [] # traffic transits to be acquired by a junction
+
+		self._connect, self._input, self._output, self._listen = api
+
+	def associate(self, resource, Ref=weakref.ref):
+		"""
+		Associate the context with a particular &.library.Resource object, &resource.
+
+		Only one association may exist and implies that the context will be destroyed
+		after the object is deleted.
+
+		Generally used by &.library.Sector instances that are augmenting the execution
+		context for subprocessors.
+		"""
+
+		self.association = Ref(resource)
 
 	@property
 	def unit(self):
@@ -77,7 +89,7 @@ class Context(object):
 		global Unit
 
 		point = self.association()
-		while not isinstance(point, core.Unit):
+		while point.controller is not None:
 			point = point.controller
 
 		return point
@@ -125,16 +137,6 @@ class Context(object):
 
 		return self.process.kernel.cancel(task)
 
-	def io(self):
-		"""
-		Signal the &Process that I/O occurred for this context.
-
-		XXX: Replace with direct Junction references in Transits?
-		"""
-
-		unit = self.association()
-		self.process.interchange.force(id=unit)
-
 	def inherit(self, context):
 		"""
 		Inherit the exports from the given &context.
@@ -142,33 +144,42 @@ class Context(object):
 
 		raise Exception("not implemented")
 
-	def associate(self, resource, Ref=weakref.ref):
+	def _sys_traffic_cycle(self):
 		"""
-		Associate the context with a particular &.library.Resource object, &resource.
-
-		Only one association may exist and implies that the context will be destroyed
-		after the object has finished its work.
+		Signal the &Process that I/O occurred for this context.
 		"""
 
-		self.association = Ref(resource)
+		self.process.interchange.force(id=self.association())
 
 	# Primary access to processor resources: task queue, work thread, and threads.
-	def attach(self, *transits):
-		"""
-		Attach a set of transits to the Junction.
-		"""
+	def _sys_traffic_attach(self, *transits):
+		# Enqueue flush once to clear new transits.
 		if not self.attachments:
-			self.enqueue(self._flush_attachments)
+			self.enqueue(self._sys_traffic_flush)
 		self.attachments.extend(transits)
 
-	def _flush_attachments(self):
+	def _sys_traffic_flush(self):
+		# Needs main task queue context.
+		new_transits = self.attachments
+		self.attachments = []
+
 		unit = self.association()
 		ix = self.process.interchange
-		old = self.attachments
-
-		self.attachments = []
-		ix.acquire(unit, old)
+		ix.acquire(unit, new_transits)
 		ix.force(id=unit)
+
+		del unit
+
+	def interfaces(self, processor):
+		"""
+		Iterator producing the stack of &Interface instances associated
+		with the sector ancestry.
+		"""
+		sector_scan = processor.controller
+		while not isinstance(sector_scan, Unit):
+			if isinstance(sector_scan, Sector):
+				yield from sector_scan.processors.get(Interface, ())
+			sector_scan = sector_scan.controller
 
 	def enqueue(self, *tasks):
 		"""
@@ -235,76 +246,156 @@ class Context(object):
 
 			yield fd
 
-	def accept_sockets(self, kports):
+	def connect_subflows_using(self, interface, endpoint, mitre, *protocols):
 		"""
-		Acquire the transits necessary for the set of &kports, file descriptors.
-		"""
-		global traffic
-		alloc = traffic.allocate
-
-		for x in kports:
-			yield alloc('octets://acquire/socket', x)
-
-	def connect_stream(self, endpoints):
-		"""
-		Allocate Transformer resources associated with connections to the endpoint
-		by the parameters: &protocol, &address, &port. The parameters are
-		usually retrieved from an endpoint instance.
-
-		Connect does not forward bind parameters.
+		Given an endpoint and a transport stack, return the series used to
+		manage the connection's I/O from the given &interface.
 
 		[ Parameters ]
 
-		/endpoints
-			The sequence of endpoints to establish connections to.
+		/interface
+			The &.library.Endpoint instance describing the interface to use for the
+			connection.
+
+		/endpoint
+			The &.library.Endpoint instance describing the target of the connection.
+
+		/protocols
+			A sequence of transport layers to use with the &.library.Transport instances.
+			A &.library.Transport pair will be created even if &protocols is empty.
+			This parameter might be merged into the mitre.
 		"""
+
 		global traffic
-		alloc = traffic.allocate
+		transits = traffic.allocate(
+			('octets', endpoint.protocol), (str(endpoint.address), endpoint.port)
+			# XXX: interface ref
+		)
+		return self._connect(mitre, transits, *protocols)
 
-		for x in endpoints:
-			yield alloc(('octets', x.protocol), (str(x.address), x.port))
+	def connect_subflows(self, endpoint, mitre, *protocols):
+		"""
+		Given an endpoint and a transport stack, return the series used to
+		manage the connection's I/O.
 
-	def open_files(self, paths):
+		[ Parameters ]
+
+		/endpoint
+			The &.library.Endpoint instance describing the target of the connection.
+
+		/protocols
+			A sequence of transport layers to use with the &.library.Transport instances.
+			A &.library.Transport pair will be created even if &protocols is empty.
+			This parameter might be merged into the mitre.
+		"""
+
+		global traffic
+		transits = traffic.allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
+		return self._connect(mitre, transits, *protocols)
+
+	def accept_subflows(self, fd, mitre, *protocols):
+		"""
+		Given a file descriptor and a transport stack, return the series used to
+		manage the connection's I/O.
+
+		[ Parameters ]
+
+		/fd
+			The &.library.Endpoint instance describing the target of the connection.
+
+		/protocols
+			A sequence of transport layers to use with the &.library.Transport instances.
+			A &.library.Transport pair will be created even if &protocols is empty.
+			This parameter might be merged into the mitre.
+		"""
+
+		global traffic
+		transits = traffic.allocate('octets://acquire/socket', fd)
+		return self._connect(mitre, transits, *protocols)
+
+	def read_file(self, path):
 		"""
 		Open a set of files for reading through a &.library.KernelPort.
 		"""
+
 		global traffic
-		alloc = traffic.allocate
+		return self._input(traffic.allocate('octets://file/read', path))
 
-		for x in paths:
-			yield alloc('octets://file/read', x)
-
-	def append_files(self, paths):
+	def append_file(self, path):
 		"""
 		Open a set of files for appending through a &.library.KernelPort.
 		"""
+
 		global traffic
-		alloc = traffic.allocate
+		return self._output(traffic.allocate('octets://file/append', path))
 
-		for x in paths:
-			yield alloc('octets://file/append', x)
+	def update_file(self, path, offset, size):
+		"""
+		Allocate a transit for overwriting data at the given offset of
+		the designated file.
+		"""
+		global traffic
+		global os
+		seek = os.lseek
 
-	def bind(self, interfaces):
+		t = traffic.allocate(('octets', 'file', 'overwrite'), path)
+		position = seek(t.port.fileno, 0, offset)
+
+		return self._output(t)
+
+	def listen(self, interfaces):
 		"""
-		On POSIX systems, this performs &/unix/man/2/bind and
-		&/unix/man/2/listen system calls.
+		On POSIX systems, this performs (system:manual)`bind` *and*
+		(system:manual)`listen` system calls for receiving socket connections.
+
+		Returns a generator producing (interface, Flow) pairs.
 		"""
+
 		global traffic
 		alloc = traffic.allocate
 
 		for x in interfaces:
-			yield alloc(('sockets', x.protocol), (str(x.address), x.port))
+			t = alloc(('sockets', x.protocol), (str(x.address), x.port))
+			yield (x, self._listen(t))
 
-	def connect_input(self, fds):
+	def acquire_listening_sockets(self, kports):
 		"""
-		Allocate &..traffic Transit instances for the given sequence
-		of file descriptors.
+		Acquire the transits necessary for the set of &kports, file descriptors,
+		and construct a pair of &KernelPort instances to represent them inside a &Flow.
+
+		[ Parameters ]
+		/kports
+			An iterable consisting of file descriptors referring to sockets.
+
+		[ Returns ]
+		/&Type
+			Iterable of pairs. First item of each pair being the interface's local endpoint,
+			and the second being the &KernelPort instance.
 		"""
 		global traffic
 		alloc = traffic.allocate
 
-		for x in fds:
-			yield alloc('octets://acquire/input', x)
+		for kp in kports:
+			socket_transit = alloc('sockets://acquire', kp)
+			yield (socket_transit.endpoint(), self._listen(socket_transit))
+
+	def connect_output(self, fd):
+		"""
+		Allocate &..traffic Transit instances for the given sequence
+		of file descriptors.
+		"""
+
+		global traffic
+		return self._output(traffic.allocate('octets://acquire/output', fd))
+
+	def connect_input(self, fd):
+		"""
+		Allocate &..traffic Transit instances for the given sequence
+		of file descriptors.
+		"""
+
+		global traffic
+		return self._input(traffic.allocate('octets://acquire/input', fd))
 
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
 		"""
@@ -312,6 +403,7 @@ class Context(object):
 
 		Returns the process identifier and standard error's file descriptor as a tuple.
 		"""
+
 		stdout = stdin = stderr = ()
 
 		try:
@@ -367,7 +459,18 @@ class Context(object):
 
 		return pid
 
-	def stream_shared_segments(self, path:str, range:tuple, *downstream, Segments=libmemory.Segments):
+	def system_execute(self, invocation:libsys.KInvocation):
+		"""
+		Execute the &..system.library.KInvocation inheriting standard input, output, and error.
+
+		This is used almost exclusively by shell-type processes where the calling process
+		suspends TTY I/O until the child exits.
+		"""
+
+		global Subprocess
+		return Subprocess(invocation())
+
+	def stream_shared_segments(self, path:str, range:tuple, *_, Segments=libmemory.Segments):
 		"""
 		Construct a new Flow with an initial Iterate Transformer
 		flowing shared memory segments from the memory mapped file.
@@ -383,21 +486,11 @@ class Context(object):
 		/range
 			A triple, (start, stop, size), or &None if the entire file should be used.
 			Where size is the size of the memory slices to emit.
-
-		/downstream
-			The set of &Transformer instances that follow the &Iterate instance.
 		"""
-		global Iterate, Flow
+		global Iteration, Flow
 
 		segs = Segments.open(path, range)
-		sector = self.sector
-
-		f = Flow()
-		i = Iterate()
-		f.requisite(i, *downstream)
-		sector.dispatch(f)
-
-		return f, functools.partial(f.process, s)
+		return Iteration(segs)
 
 class Fabric(object):
 	"""
@@ -476,9 +569,7 @@ class Fabric(object):
 
 		return tid in self.threading
 
-# Process exists here as it is rather distinct from core.*
-# It doesn't fall into the classification of a Resource.
-class Representation(object):
+class Process(object):
 	"""
 	The representation of the system process running Python. Usually referred
 	to as `process` by &Context and other classes.
@@ -503,8 +594,8 @@ class Representation(object):
 		Resolve the current logical process based on the thread's identifier.
 		&None is returned if the thread was not created by a &Process.
 		"""
-		global __process_index__
 
+		global __process_index__
 		x = tid()
 		for y in __process_index__:
 			if y.fabric.executing(x):
@@ -514,6 +605,7 @@ class Representation(object):
 		"""
 		Return the primary &.library.Unit instance associated with the process.
 		"""
+
 		global __process_index__
 		return __process_index__[self][None]
 
@@ -553,6 +645,7 @@ class Representation(object):
 		Fork the process and enqueue the given tasks in the child.
 		Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
+
 		global libsys
 		return libsys.Fork.dispatch(self.boot, *tasks)
 
@@ -562,7 +655,7 @@ class Representation(object):
 		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
 		self.fabric.spawn(None, self.main, ())
 
-	def boot(self, *tasks):
+	def boot(self, main_thread_calls, *tasks):
 		"""
 		Boot the Context with the given tasks enqueued in the Task queue.
 		"""
@@ -572,6 +665,9 @@ class Representation(object):
 			raise RuntimeError("already booted")
 
 		libsys.fork_child_cleanup.add(self.void)
+		for boot_init_call in main_thread_calls:
+			boot_init_call()
+
 		self.actuate(*tasks)
 		# replace boot() with protect() for main thread protection
 		libsys.Fork.substitute(libsys.protect)
@@ -595,6 +691,7 @@ class Representation(object):
 		"""
 		global __process_index__
 		global __traffic_index__
+		global libsys
 
 		self._exit_stack.__exit__(None, None, None)
 
@@ -618,12 +715,16 @@ class Representation(object):
 		Normally, &execute is used to manage the construction of the
 		&Representation instance.
 		"""
+
 		# Context Wide Resources
 		self.identity = identity
 		self.invocation = invocation # exit resource and invocation parameters
 
 		# track number of loop and designate maintenance frequency
-		self.cycles = 0 # count of task cycles
+		self.cycle_count = 0 # count of task cycles
+		self.cycle_start_time = None
+		self.cycle_start_time_decay = None
+
 		self.maintenance_frequency = 256 # in task cycles
 
 		self._logfile = sys.stderr
@@ -652,8 +753,6 @@ class Representation(object):
 	def _init_taskq(self, Queue = collections.deque):
 		self.loading_queue = Queue()
 		self.processing_queue = Queue()
-		#self._tq = (Queue(), Queue())
-		#self._tq_state = (0, 1)
 		self._tq_maintenance = set()
 
 	def _init_traffic(self, Interchange=traffic.library.Interchange):
@@ -663,15 +762,11 @@ class Representation(object):
 
 	@property
 	def interchange(self):
-		global core
+		"""
+		The &..traffic.library.Interchange instance managing the I/O file descriptors used
+		by the &Process.
+		"""
 		return __traffic_index__[self]
-
-	def io(self, unit):
-		"""
-		Context manager to allocate Transit resources for use by the given Unit.
-		"""
-
-		return self.interchange.xact(id = unit)
 
 	def void(self):
 		"""
@@ -687,6 +782,15 @@ class Representation(object):
 		self.kernel.void()
 		self.kernel = None
 		self.interchange.void()
+
+	def report(self, target=sys.stderr):
+		"""
+		Report a snapshot of the process' state to the given &target.
+		"""
+
+		target.write("[%s]\n" %(libtime.now().select('iso'),))
+		for unit in set(__process_index__[self].values()):
+			unit.report(target)
 
 	def __repr__(self):
 		return "{0}(identity = {1!r})".format(self.__class__.__name__, self.identity)
@@ -711,28 +815,18 @@ class Representation(object):
 			('threads', len(self.fabric.threading)),
 			('units', nunits),
 			('executable', sys.executable),
+
+			# Track basic (task loop) cycle stats.
+			('cycles', self.cycle_count),
+			('frequency', None),
+			('decay', self.cycle_start_time_decay),
 		]
 
-		python = os.environ.get('PYTHON')
+		python = os.environ.get('PYTHON', sys.executable)
 		if python is not None:
 			p.append(('python', python))
 
 		return (p, sr)
-
-	def report(self, target=sys.stderr):
-		"""
-		Send an overview of the logical process state to the given target.
-		"""
-
-		txt = "[%s]\n" %(libtime.now().select('iso'),)
-
-		units = set(__process_index__[self].values())
-		for unit in units:
-			txt += '\n'.join(core.format(unit.identity, unit))
-
-		target.write(txt)
-		target.write('\n')
-		target.flush()
 
 	def maintain(self, task):
 		"""
@@ -776,6 +870,7 @@ class Representation(object):
 		managed by &fabric.
 		"""
 
+		time_snapshot = libtime.now
 		ix = self.interchange
 		cwq = self.processing_queue # current working queue; should be empty at start
 		nwq = self.loading_queue # next working queue
@@ -789,7 +884,9 @@ class Representation(object):
 		setswitchinterval(2)
 
 		while 1:
-			self.cycles += 1 # bump cycle
+			self.cycle_count += 1 # bump cycle
+			self.cycle_start_time = time_snapshot()
+			self.cycle_start_time_decay = 1 # Incremented by main thread.
 
 			# The processing queue becomes the loading and the loading becomes processing.
 			self.processing_queue, self.loading_queue = cwq, nwq = nwq, cwq
@@ -842,6 +939,8 @@ class Representation(object):
 				remove_entry = False
 
 				if event[0] == 'process':
+					# Defer read until system event connect.
+					# Might allow SIGCHLD support on linux.
 					event = ('process', event[1])
 					args = (event[1], libsys.process_delta(event[1]),)
 					remove_entry = True

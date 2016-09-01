@@ -16,7 +16,7 @@ def initialize(unit):
 	from .. import library as libio
 
 	# init listening interfaces
-	libio.core.Ports.load(unit)
+	libio.Ports.load(unit)
 
 	# No command line options atm. Maybe an override for the faultd directory.
 	command_params = unit.context.process.invocation.parameters

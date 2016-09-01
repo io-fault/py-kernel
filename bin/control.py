@@ -32,7 +32,7 @@ from .. import library as libio
 from .. import libservice # fs-socket resolution
 
 def response_collected(sector, request, response, flow):
-	events = flow.sequence[0].storage
+	events = flow.storage
 	for x in itertools.chain(*itertools.chain(*events)):
 		sys.stderr.buffer.write(x)
 	sys.stderr.write('\n')
@@ -40,7 +40,7 @@ def response_collected(sector, request, response, flow):
 def response_endpoint(context, request, response, connect):
 	sector = context.sector
 
-	f = libio.Flow(libio.Collect.list())
+	f = libio.Collection.list()
 	sector.dispatch(f)
 
 	f.atexit(functools.partial(response_collected, sector, request, response))
@@ -107,12 +107,11 @@ def main():
 		(b'Content-Length', str(len(parameters)).encode('ascii')),
 	])
 
-	i = libio.Iterate(terminal=True)
-	fi = libio.Flow(i)
-	sector.dispatch(fi)
+	fi = libio.Iteration([(parameters,)])
+	sector.acquire(fi)
 
 	hc.http_request(response_endpoint, req, fi)
-	fi.process([(parameters,)])
+	fi.actuate()
 
 if __name__ == '__main__':
 	from .. import library
