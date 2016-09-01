@@ -3,7 +3,7 @@ faultd service management interfaces.
 
 Manages the service state stored on disk.
 
-[ Data ]
+[ Properties ]
 
 /environment
 	The environment variable that will be referenced in order
@@ -46,8 +46,8 @@ import sys
 import itertools
 import xml.etree.ElementTree as xmllib
 
-from ..chronometry import library as timelib
-from ..routes import library as routeslib
+from ..chronometry import library as libtime
+from ..routes import library as libroutes
 from ..xml import library as libxml
 
 types = set((
@@ -60,39 +60,44 @@ types = set((
 	'unspecified',
 ))
 
-environment = 'FAULTD_DIRECTORY'
-default_route = routeslib.File.home() / '.faultd'
+environment = 'FAULT_DAEMON_DIRECTORY'
+default_route = libroutes.File.home() / '.fault' / 'daemons'
 
 def identify_route(override=None):
-	"Return the service directory route."
+	"""
+	Return the service directory route.
+	"""
+
+	global libroutes
 
 	if override is not None:
-		return routeslib.File.from_path(override)
+		return libroutes.File.from_path(override)
 
 	env = os.environ.get(environment)
 
 	if env is None:
 		return default_route
 
-	return routeslib.File.from_path(env)
+	return libroutes.File.from_path(env)
 
-def extract(xml, ns="https://fault.io/xml/spawns"):
+def extract(xml, nsmap={"fs": "https://fault.io/xml/spawns"}):
 	"""
 	Extract a service configuration from an XML file.
 	"""
 
 	xr = xmllib.XML(xml)
+	find = lambda x: xr.find(x, nsmap)
 
 	typ = xr.attrib["type"]
 
-	env_element = xr.find("./{%s}environment" %(ns,))
-	params = xr.find("./{%s}parameters" %(ns,))
-	reqs = xr.find("./{%s}requirements" %(ns,))
+	env_element = find("fs:environment")
+	params = find("fs:parameters")
+	reqs = find("fs:requirements")
 
 	doc = xr.attrib.get("abstract")
 
-	libelements = xr.find("./{%s}libraries" %(ns,))
-	ifelements = xr.find("./{%s}interfaces" %(ns,))
+	libelements = find("fs:libraries")
+	ifelements = find("fs:interfaces")
 
 	exe = xr.attrib.get("executable", None)
 	dist = xr.attrib.get("concurrency", None)
@@ -143,6 +148,7 @@ def extract(xml, ns="https://fault.io/xml/spawns"):
 def construct(struct,
 		encoding="utf-8",
 		ns="https://fault.io/xml/spawns",
+		chain=itertools.chain.from_iterable
 	):
 	"""
 	Construct an XML configuration for a service spawn.
@@ -151,35 +157,35 @@ def construct(struct,
 	xmlctx = libxml.Serialization()
 
 	return xmlctx.root('spawn',
-		itertools.chain.from_iterable((
+		chain((
 			xmlctx.element('requirements',
-				itertools.chain.from_iterable(
+				chain(
 					xmlctx.element('service', None, ('name', x))
 					for x in struct['requirements']
 				)
 			),
 			xmlctx.element('environment',
-				itertools.chain.from_iterable(
+				chain(
 					xmlctx.element('setting', None, ('name', k), ('value', v))
 					for k, v in struct['environment'].items()
 				)
 			),
 			xmlctx.element('parameters',
-				itertools.chain.from_iterable(
+				chain(
 					xmlctx.element('field', None, ('literal', x))
 					for x in struct['parameters']
 				)
 			),
 			xmlctx.element('libraries',
-				itertools.chain.from_iterable(
+				chain(
 					xmlctx.element('module', None, ('libname', x), ('fullname', fn))
 					for x, fn in (struct.get('libraries', None) or {}).items()
 				)
 			),
 			xmlctx.element('interfaces',
-				itertools.chain.from_iterable(
+				chain(
 					xmlctx.element('interface',
-						itertools.chain.from_iterable(
+						chain(
 							xmlctx.element('bind', None,
 								('type', atype),
 								('address', address),
@@ -219,7 +225,9 @@ class Service(object):
 	"""
 
 	def libexec(self, recreate=False, root="root"):
-		"Return the path to a hardlink for the service. Create if absent."
+		"""
+		Return the path to a hardlink for the service. Create if absent.
+		"""
 
 		root = self.coservice(root)
 		led = root.route / "libexec"
@@ -241,7 +249,9 @@ class Service(object):
 		return fp
 
 	def coservice(self, service):
-		"Return the Service instance to the &service in the same set."
+		"""
+		Return the Service instance to the &service in the same set.
+		"""
 
 		if service == self.name:
 			return self
@@ -267,20 +277,31 @@ class Service(object):
 		self.libraries = None
 
 	def critical(self, message):
-		"Log a critical message."
+		"""
+		Log a critical message. Usually used by &.bin.rootd and
+		&.bin.sectord.
+		"""
 
-		ts = timelib.now().select('iso')
+		logfile = self.route / "critical.log"
+		ts = libtime.now().select('iso')
 
-		with (self.route / "critical.log").open('a') as f:
+		with logfile.open('a') as f:
 			f.write('%s: %s\n' %(ts, message))
 
 	def trim(self):
-		"Trim the critical log in the service's directory."
+		"""
+		Trim the critical log in the service's directory.
+
+		! PENDING:
+			Not implemented.
+		"""
 
 		pass
 
 	def execution(self):
-		"Return a tuple consisting of the executable and the parameters."
+		"""
+		Return a tuple consisting of the executable and the parameters.
+		"""
 
 		if self.type == 'root':
 			exe = self.libexec('faultd')
@@ -330,12 +351,16 @@ class Service(object):
 		self.route.void()
 
 	def exists(self):
-		"Whether or not the service directory exists."
+		"""
+		Whether or not the service directory exists.
+		"""
 
 		return self.route.exists()
 
 	def prepare(self):
-		"Create the service directory and any type specific subnodes."
+		"""
+		Create the service directory and any type specific subnodes.
+		"""
 
 		self.route.init("directory")
 
@@ -347,13 +372,17 @@ class Service(object):
 				(self.route / 'libexec').init("directory")
 
 	def load(self):
-		"Load the service definition from the filesystem"
+		"""
+		Load the service definition from the filesystem.
+		"""
 
 		self.load_enabled()
 		self.load_invocation()
 
 	def store(self):
-		"Store the service definition to the filesystem"
+		"""
+		Store the service definition to the filesystem.
+		"""
 
 		self.store_invocation()
 		self.store_enabled()
@@ -379,12 +408,12 @@ class Service(object):
 		}
 
 	def load_invocation(self):
-		with (self.route / "invocation.xml").open('rb') as f:
-			data = f.read()
-			if data:
-				inv = extract(data)
-			else:
-				inv = None
+		inv_r = self.route / "invocation.xml"
+		data = inv_r.load()
+		if data:
+			inv = extract(data)
+		else:
+			inv = None
 
 		if inv is not None:
 			for k, v in inv.items():
@@ -395,37 +424,40 @@ class Service(object):
 
 	def store_invocation(self):
 		xml = b''.join(construct(self.parts))
-		with (self.route / "invocation.xml").open('wb') as f:
-			f.write(xml)
+		inv_r = self.route / "invocation.xml"
+		inv_r.store(xml)
 
 	def load_enabled(self, map={'true':True, 'false':False}):
-		with (self.route / "enabled").open('r') as f:
-			self.enabled = map.get(f.read().strip().lower(), False)
+		en_r = self.route / "enabled"
+		text = en_r.load().decode('ascii')
+		self.enabled = map.get(text.strip().lower(), False)
 
 	def store_enabled(self):
-		with (self.route / "enabled").open('w') as f:
-			f.write(str(self.enabled)+'\n')
+		en_r = self.route / "enabled"
+		en_r.store(str(self.enabled).lower().encode('ascii')+b'\n')
 
 	def load_pid(self):
-		with (self.route / "pid").open('r') as f:
-			self.pid = int(f.read())
-			return self.pid
+		pid_r = self.route / "pid"
+		self.pid = int(pid_r.load().decode('ascii').strip())
 
 	def store_pid(self):
-		with (self.route / "pid").open('w') as f:
-			f.write(str(self.pid)+'\n')
+		pid_r = self.route / "pid"
+		pid_r.store(str(self.pid).encode('ascii')+b'\n')
 
 	@property
 	def status(self):
-		"Get and set the contents of the status file in the Service directory."
+		"""
+		Get and set the contents of the status file in the Service directory.
+		"""
 
-		with (self.route / "status").open('r') as f:
-			return f.read().strip()
+		return (self.route / "status").load().decode('utf-8').strip()
 
 	@status.setter
 	def status(self, val):
-		"Valid values: 'terminated', 'running', 'initializing', 'exception'."
+		"""
+		Valid values: 'terminated', 'running', 'initializing', 'exception'.
+		"""
 
-		with (self.route / "status").open('w') as f:
-			return f.write(str(val)+'\n')
+		status_r = self.route / "status"
+		status_r.store(str(val).encode('utf-8')+b'\n')
 
