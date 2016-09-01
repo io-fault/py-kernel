@@ -3497,6 +3497,7 @@ class Mitre(Flow):
 
 	Subclasses of this flow manage the routing of protocol requests.
 	"""
+	f_type = 'mitre'
 
 	def f_connect(self, flow:Processor):
 		"""
@@ -3939,7 +3940,7 @@ class Null(Flow):
 		pass
 null = Null()
 
-class Funnel(Transformation):
+class Funnel(Flow):
 	"""
 	A union of events that emits data received from a set of &Transformation instances.
 
@@ -3949,9 +3950,6 @@ class Funnel(Transformation):
 
 	Funnels will not terminate when connected upstreams terminate.
 	"""
-
-	def process(self, event, source=None):
-		self.xf_sequence[0].process((source, event))
 
 	def terminate(self, by=None):
 		global Flow
@@ -4383,21 +4381,6 @@ def Encoding(
 	while True:
 		input = (yield output)
 		output = operation(input)
-
-class Circulation(Device):
-	"""
-	Unit device for broadcasting and messaging to other sector daemons.
-
-	Circulation is used to support message passing to worker processes of the same service
-	across processes, machines, and sites.
-	"""
-
-	def actuate(self):
-		"""
-		Acquire the ports used to facilitate communication.
-		"""
-		ports = self.controller.ports
-		site = ports.acquire('site')
 
 class Ports(Device):
 	"""
