@@ -2299,7 +2299,7 @@ class System(Interface):
 		self.if_router = router
 
 	def actuate(self):
-		global Terminal
+		global null, Sockets
 		super().actuate()
 
 		alloc = Allocator.allocate_integer_array
@@ -2315,9 +2315,13 @@ class System(Interface):
 		for listen in ctx.acquire_listening_sockets(fds.values()):
 			x, flow = listen
 			sector.dispatch(flow)
+
 			if_r = (x.interface, x.port)
-			if_t = Terminal(if_r, self.if_spawn_connections)
-			flow.connect(if_t)
+			if_t = Sockets(if_r, self.if_spawn_connections)
+			sector.dispatch(if_t)
+			if_t.f_connect(null)
+
+			flow.f_connect(if_t)
 
 			add(if_r)
 			flow.process(None) # Start allocating file descriptor arrays.
@@ -3489,12 +3493,12 @@ class Flow(Processor):
 
 class Mitre(Flow):
 	"""
-	The joining flow between the two series of a bidirectional channel.
+	The joining flow between input and output.
 
 	Subclasses of this flow manage the routing of protocol requests.
 	"""
 
-	def f_connect(self, flow:Processor, partial=functools.partial):
+	def f_connect(self, flow:Processor):
 		"""
 		Connect the given flow as downstream without inheriting obstructions.
 		"""
@@ -3504,27 +3508,26 @@ class Mitre(Flow):
 		self.f_emit = flow.process
 		self.atexit(flow.terminate)
 
-class Terminal(Flow):
+class Sockets(Mitre):
 	"""
-	A Flow that is the end of a series, but performs some routing of
-	the received events.
-
-	Terminals are primarily used as replacements for &Mitre instances
-	used for supporting connections.
+	Mitre for transport flows created by &System in order to accept sockets.
 	"""
-	f_type = 'terminal'
-
 	def __init__(self, reference, router):
-		self.t_reference = reference
-		self.t_router = router
+		self.m_reference = reference
+		self.m_router = router
 
 	def process(self, event, source=None):
 		"""
 		Accept the event, but do nothing as Terminals do not propogate events.
 		"""
-		update = self.t_router((self.t_reference, event))
+		update = self.m_router((self.m_reference, event))
 		if update:
-			self.t_router = update
+			self.m_router = update
+
+	def atexit(self, receiver):
+		if receiver != self.f_downstream.terminate:
+			# Sockets() always sends to null, don't bother with a atexit entry.
+			return super().atexit(receiver)
 
 class Iteration(Flow):
 	"""
@@ -3956,21 +3959,6 @@ class Funnel(Transformation):
 		if not isinstance(by, Flow):
 			# Termination induced by flows are ignored.
 			super().terminate(by=by)
-
-class Fork(Terminal):
-	"""
-	A &Terminal that distributes events to a set of Flows based on the identified key.
-
-	A &Fork is the semi-inverse of &Funnel.
-	"""
-
-	def __init__(self, identify):
-		self.identify = identify
-		self.switch = {}
-
-	def process(self, event):
-		for flow, event in self.split(event):
-			self.switch[flow].process(event, source=self)
 
 class Trace(Reflection):
 	"""
