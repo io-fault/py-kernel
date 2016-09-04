@@ -1,7 +1,7 @@
 import sys
 from .. import libservice as library
 
-system_extract_data = b"""<?xml version="1.0" encoding="utf-8"?>
+system_extract_data = b"""<?xml version="1.0" encoding="ascii"?>
 <spawn xmlns="https://fault.io/xml/spawns" type="command" executable="/bin/cat" abstract="Admin Information.">
  <requirements>
   <service name="NONE"/>
@@ -33,7 +33,7 @@ def test_construct(test):
 	test/x == ix
 
 def test_service_routes(test):
-	tr = test.exit.enter_context(library.libroutes.File.temporary())
+	tr = test.exits.enter_context(library.libroutes.File.temporary())
 	for i in range(12):
 		sr = tr / ('s'+str(i))
 		sr.init("directory")
@@ -44,7 +44,7 @@ def test_service_routes(test):
 		test/(bn in s) == True
 
 def test_Service(test):
-	tr = test.exit.enter_context(library.libroutes.File.temporary())
+	tr = test.exits.enter_context(library.libroutes.File.temporary())
 	# create, store/load and check empty
 
 	srv = library.Service(tr, "test-service")
