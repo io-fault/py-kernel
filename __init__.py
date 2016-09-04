@@ -9,7 +9,8 @@ concepts similar to processes and &.library.Flow instances represent unidirectio
 
 faultd manages a set of processes and exclusive commands. The invocation parameters and
 environment are defined by XML files stored inside directories inside the
-(system:environment)`FAULTD_DIRECTORY` path or the user's (system:directory)`~/.faultd`.
+(system:environment)`FAULT_DIRECTORY` path or the user's
+(system:directory)`~/.fault/daemons`.
 
 XML is used to provide access to the configuration's structure and to allow command based
 manipulations for control.
@@ -19,8 +20,7 @@ services, but it can easily manage arbitrary daemons as well.
 
 [ HTTP ]
 
-The &.libhttp module provides classes for managing HTTP clients and servers. HTTP servers
-are implemented as a &.bin.sectord process.
+&..web.libhttpd manages the high-level server interfaces.
 
 [ SMTP ]
 

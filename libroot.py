@@ -46,15 +46,16 @@ from ..chronometry import library as libtime
 
 from . import libservice
 from . import library as libio
-from . import libhttp
 
-class HumanInterface(libhttp.Index):
+from ..web import libhttpd
+
+class HumanInterface(libhttpd.Index):
 	pass
 
-class HumanInterfaceSupport(libhttp.Index):
+class HumanInterfaceSupport(libhttpd.Index):
 	pass
 
-class Commands(libhttp.Index):
+class Commands(libhttpd.Index):
 	"""
 	HTTP Control API used by control (Host) connections.
 
@@ -65,7 +66,7 @@ class Commands(libhttp.Index):
 		self.managed = managed
 		self.services = services
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def sleep(self, resource, parameters) -> (str, str):
 		"""
 		Send a stop signal associated with a timer to pause the process group.
@@ -80,7 +81,7 @@ class Commands(libhttp.Index):
 		else:
 			return (service.name, "cannot signal service when not running")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def enable(self, resource, parameters) -> typing.Tuple[str, str]:
 		"""
 		Enable the service, but do not start it.
@@ -92,7 +93,7 @@ class Commands(libhttp.Index):
 
 		return (service.name, "enabled")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def disable(self, resource, parameters):
 		"""
 		Disable the service, but do not change its status.
@@ -104,7 +105,7 @@ class Commands(libhttp.Index):
 
 		return (service.name, "disabled")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def signal(self, resource, parameters):
 		"""
 		Send the given signal to the process.
@@ -120,7 +121,7 @@ class Commands(libhttp.Index):
 		else:
 			return "signal not sent as service has not been executed"
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def stop(self, resource, parameters):
 		"""
 		Signal the service to stop and inhibit it from being restarted if enabled.
@@ -141,7 +142,7 @@ class Commands(libhttp.Index):
 		managed.subprocess.signal_process_group(signal.SIGTERM)
 		return (service.name, "daemon signalled to terminate")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def restart(self, resource, parameters):
 		"""
 		Signal the service to stop (SIGTERM) and allow it to restart.
@@ -158,7 +159,7 @@ class Commands(libhttp.Index):
 
 		return (service.name, "daemon signalled to restart")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def reload(self, resource, parameters):
 		"""
 		Send a SIGHUP to the service.
@@ -173,7 +174,7 @@ class Commands(libhttp.Index):
 		else:
 			return (service.name, "reload ineffective when service is not running")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def replace(self, resource, parameters):
 		service = self.services[parameters['service']]
 		# substitute the sectord process (code/process update)
@@ -184,7 +185,7 @@ class Commands(libhttp.Index):
 		# 5. [sectord] exec to new process and load state from environment
 		return (service.name, "substitute not supported")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def start(self, resource, parameters):
 		"""
 		Start the daemon unless it's already running; explicit starts ignore
@@ -200,13 +201,13 @@ class Commands(libhttp.Index):
 			managed.invoke()
 			return (service.name, "invoked")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def environment(self, resource, parameters):
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
 		return service.environment
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def normalize(self, resource, parameters):
 		"""
 		Normalize the set of services by shutting down any running
@@ -223,7 +224,7 @@ class Commands(libhttp.Index):
 			elif service.disabled and service.status == 'executed':
 				yield (service.name, managed.subprocess.signal(signal.SIGTERM))
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def execute(self, resource, parameters):
 		"""
 		Execute the command associated with the service. Only applies to command types.
@@ -240,11 +241,11 @@ class Commands(libhttp.Index):
 			managed.invoke()
 			return (service.name, "service invoked")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def report(self, resource, parameters):
 		pass
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def timestamp(self, resource, parameters):
 		"""
 		Return the faultd's perception of time.
@@ -253,11 +254,11 @@ class Commands(libhttp.Index):
 
 	# /if/signal?number=9
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def __resource__(self, resource, path, query, px):
 		pass
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def list(self, resource, parameters):
 		"""
 		List the set of configured services.
@@ -267,7 +268,7 @@ class Commands(libhttp.Index):
 		service_set = [x for x in self.services.keys()]
 		return service_set
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def create(self, resource, parameters):
 		"""
 		Create a service.
@@ -275,7 +276,7 @@ class Commands(libhttp.Index):
 
 		name = parameters['service']
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def void(self, resource, parameters):
 		"""
 		Terminate the service and destroy it's stored configuration.
@@ -289,7 +290,7 @@ class Commands(libhttp.Index):
 		s = self.services[name]
 		s.void()
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def interface(self, resource, parameters):
 		"""
 		Add a set of interfaces.
@@ -562,10 +563,10 @@ class Control(libio.Control):
 		for slot, binds in srv.interfaces.items():
 			ports.bind(slot, *itertools.starmap(libio.endpoint, binds))
 
-		control = libhttp.Host(self.root_paths, 'control')
-		scheduler = libhttp.Host({}, 'scheduler')
+		control = libhttpd.Host(self.root_paths, 'control')
+		scheduler = libhttpd.Host({}, 'scheduler')
 
-		hi = libhttp.Interface('http', libhttp.Interface.accept)
+		hi = libhttpd.Interface('http', libhttpd.Interface.accept)
 		hi.install(control, scheduler)
 		self.dispatch(hi)
 

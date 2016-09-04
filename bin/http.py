@@ -18,7 +18,7 @@ import operator
 
 from .. import library as libio
 
-from .. import libhttp
+from .. import http
 from .. import libcommand
 
 def output_thread(transformer, queue, file):
@@ -90,7 +90,7 @@ def main(sector):
 
 	endpoint = libio.endpoint(protocol, endpoint, port)
 
-	req = libhttp.Request()
+	req = http.Request()
 	req.initiate((method.encode('ascii'), path.encode('utf-8'), b'HTTP/1.1'))
 
 	req.add_headers([
@@ -102,7 +102,7 @@ def main(sector):
 		req.add_headers(((b'Accept', b'*/*'),))
 	req.add_headers(headers)
 
-	hc = libhttp.Client.open(sector, endpoint)
+	hc = http.Client.open(sector, endpoint)
 
 	if req.content:
 		with sector.allocate() as xact:

@@ -45,13 +45,14 @@ import itertools
 import importlib
 
 from . import library as libio
-from . import libhttp
+from . import http
 
 from ..chronometry import library as libtime
 from ..routes import library as libroutes
 from ..system import library as libsys
+from ..web import libhttpd
 
-class Commands(libhttp.Index):
+class Commands(libhttpd.Index):
 	"""
 	HTTP Control API used by control (Host) connections.
 	"""
@@ -59,7 +60,7 @@ class Commands(libhttp.Index):
 	def __init__(self):
 		pass
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def inject(self, resource, parameters) -> str:
 		"""
 		Inject arbitrary code for introspective purposes.
@@ -67,7 +68,7 @@ class Commands(libhttp.Index):
 
 		return None
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def report(self, resource, parameters):
 		"""
 		Build a report describing the process.
@@ -82,14 +83,14 @@ class Commands(libhttp.Index):
 			]
 		])
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def timestamp(self, resource, parameters):
 		"""
 		Return the faultd's perception of time.
 		"""
 		return libtime.now().select("iso")
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def terminate(self, resource, parameters):
 		"""
 		Issue &Unit.terminate after the Connection's Sector exits.
@@ -102,7 +103,7 @@ class Commands(libhttp.Index):
 
 		return 'terminating\n'
 
-	@libhttp.Resource.method()
+	@libhttpd.Resource.method()
 	def __resource__(self, resource, path, query, px):
 		pass
 
@@ -339,12 +340,12 @@ class Control(libio.Interface):
 		"""
 
 		sector = self.controller
-		host = self.ctl_host = libhttp.Host()
+		host = self.ctl_host = libhttpd.Host()
 		host.h_update_mounts({'/sys/': Commands()})
 		host.h_update_names('control')
 		host.h_options = {}
 
-		si = libio.System(libhttp.Server, host, host.h_route, (), ('control', fid))
+		si = libio.System(http.Server, host, host.h_route, (), ('control', fid))
 		sector.process((host, si))
 
 	def ctl_subactuate(self):

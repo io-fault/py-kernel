@@ -27,7 +27,7 @@ from ...internet import libri
 from ...routes import library as libroutes
 
 from .. import libcommand
-from .. import libhttp
+from .. import http
 from .. import library as libio
 from .. import libservice # fs-socket resolution
 
@@ -88,11 +88,11 @@ def main():
 		struct['path'] = ['sys', '']
 
 	pair, = sector.context.connect_stream((endpoint,))
-	hc = libhttp.Client(endpoint, *[libio.KernelPort(x) for x in pair])
+	hc = http.Client(endpoint, *[libio.KernelPort(x) for x in pair])
 	sector.dispatch(hc)
 	hc.manage()
 
-	req = libhttp.Request()
+	req = http.Request()
 	path = libri.http(struct)
 
 	# The operations performed by .bin.control have side-effects.

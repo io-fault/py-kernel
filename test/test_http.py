@@ -1,39 +1,10 @@
 import itertools
 import json
-from .. import libhttp as library
+from .. import http as library
 from .. import library as libio
 from . import library as libtest
 
-def test_adapt(test):
-	plain = library.libmedia.Type.from_string("text/plain")
-	jsont = library.libmedia.Type.from_string("application/json")
-	octets = library.libmedia.Type.from_string("application/octet-stream")
-
-	mr = library.libmedia.Range.from_string("text/plain, */*")
-
-	output = library.adapt(None, mr, "Text to be encoded")
-	test/output == (plain, b'Text to be encoded')
-
-	mr = library.libmedia.Range.from_string("application/json, */*")
-	input = {'some': 'dictionary'}
-	expect = (json.dumps(input).encode('utf-8'),)
-	output = library.adapt(None, mr, input)
-	test/output[0] == jsont
-	test/output[1] == expect[0]
-
-	mr = library.libmedia.Range.from_string("application/json, */*")
-	input = ['some', 'list', 'of', 1, 2, 3]
-	expect = (json.dumps(input).encode('utf-8'),)
-	output = library.adapt(None, mr, input)
-	test/output == (jsont, expect[0])
-
-	mr = library.libmedia.Range.from_string("application/octet-stream")
-	input = b'datas'
-	expect = (input,)
-	output = library.adapt(None, mr, input)
-	test/output == (octets, expect[0])
-
-def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.io.libhttp', method=b'GET',
+def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.io.http', method=b'GET',
 		body=b'', ctype=b'text/plain', chunks=()
 	):
 	init = b'%s %s %s\r\n' % (method, uri, version)
@@ -75,7 +46,7 @@ def test_fork(test):
 
 	test/layer / library.Request
 	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.libhttp'
+	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
 	test/layer.host == 'test.fault.io'
 
@@ -89,7 +60,7 @@ def test_fork(test):
 
 	test/layer / library.Request
 	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.libhttp'
+	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
 	test/layer.host == 'test.fault.io'
 
@@ -109,7 +80,7 @@ def test_fork(test):
 
 	test/layer / library.Request
 	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.libhttp'
+	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
 	test/layer.host == 'test.fault.io'
 	test/layer.terminal == True
@@ -175,7 +146,7 @@ def test_Protocol(test):
 
 	test/layer / library.Request
 	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.libhttp'
+	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
 	test/layer.host == 'test.fault.io'
 

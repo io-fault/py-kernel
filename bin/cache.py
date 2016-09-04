@@ -19,7 +19,7 @@ from ...routes import library as libroutes
 from ...computation import library as libc
 from .. import library as libio
 
-from .. import libhttp
+from .. import http
 from .. import libinternet
 
 transfer_counter = collections.Counter()
@@ -83,7 +83,7 @@ def response_endpoint(client, request, response, connect, transports=(), tls=Non
 	connect(tf)
 
 def request(struct):
-	req = libhttp.Request()
+	req = http.Request()
 	path = libri.http(struct)
 
 	req.initiate((b'GET', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
@@ -100,14 +100,14 @@ def request(struct):
 def dispatch(sector, url):
 	struct, endpoint = url # libri.parse(x), libio.Endpoint(y)
 	req = request(struct)
-	mitre = libhttp.Client(None)
+	mitre = http.Client(None)
 
 	if struct['scheme'] == 'https':
 		tls = security_context.connect()
-		series = sector.context.connect_subflows(endpoint, mitre, tls, libhttp.Protocol.client())
+		series = sector.context.connect_subflows(endpoint, mitre, tls, http.Protocol.client())
 	else:
 		tls = None
-		series = sector.context.connect_subflows(endpoint, mitre, libhttp.Protocol.client())
+		series = sector.context.connect_subflows(endpoint, mitre, http.Protocol.client())
 
 	s = libio.Sector()
 	sector.dispatch(s)
@@ -138,7 +138,6 @@ def initialize(unit):
 	global start_time
 
 	libio.Ports.connect(unit)
-	A = libhttp.Agent()
 
 	proc = unit.context.process
 	urls = proc.invocation.parameters['system']['arguments']
