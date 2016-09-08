@@ -1,10 +1,10 @@
-identity = 'http://fault.io/python/fault.io'
+identity = 'http://fault.io/python/io'
 name = 'io'
 abstract = 'Explicitly structured processing for managing complex applications'
 icon = '⚗'
 
-versioning = 'continuous'
 fork = 'overflow'
+versioning = 'continuous'
 status = 'flux'
 
 controller = 'fault.io'
