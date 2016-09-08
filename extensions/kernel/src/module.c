@@ -348,6 +348,19 @@ interface_track(PyObj self, PyObj args)
 		PyErr_SetFromErrno(PyExc_OSError);
 		return(NULL);
 	}
+	else
+	{
+		if (kev.filter == EV_ERROR)
+		{
+			errno = (int) kev.data;
+
+			if (uselink)
+				PySet_Discard(kif->kif_kset, link);
+
+			PyErr_SetFromErrno(PyExc_OSError);
+			return(NULL);
+		}
+	}
 
 	Py_RETURN_NONE;
 }
