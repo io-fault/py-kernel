@@ -1,6 +1,6 @@
-/*
- * kernel.py.c - kernel interfaces for process invocation and exit signalling
- */
+/**
+	Kernel interfaces for process invocation and system signal management.
+*/
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -10,7 +10,7 @@
 
 #include <sys/event.h>
 
-#include <fault/roles.h>
+#include <fault/libc.h>
 #include <fault/python/environ.h>
 
 typedef struct kevent kevent_t; /* kernel event description */
@@ -906,7 +906,7 @@ interface_dealloc(PyObj self)
 	if (kif->kif_kqueue != -1)
 	{
 		close(kif->kif_kqueue);
-		PyErr_WarnFormat(PyExc_ResourceWarning, 0, QPATH("Interface") " instance not voided before deallocation");
+		PyErr_WarnFormat(PyExc_ResourceWarning, 0, MODULE_QPATH("Interface") " instance not voided before deallocation");
 	}
 }
 
@@ -973,7 +973,7 @@ PyDoc_STRVAR(interface_doc,
 PyTypeObject
 InterfaceType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	QPATH("Interface"),          /* tp_name */
+	MODULE_QPATH("Interface"),   /* tp_name */
 	sizeof(struct Interface),    /* tp_basicsize */
 	0,                           /* tp_itemsize */
 	interface_dealloc,           /* tp_dealloc */
