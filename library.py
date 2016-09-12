@@ -10,6 +10,7 @@ Resources and Processor class hierarchy for managing explicitly structured proce
 
 import os
 import sys
+import errno
 import array
 import weakref
 import collections
@@ -1936,9 +1937,24 @@ class Subprocess(Processor):
 		proc = self.context.process
 		callback = self.sp_exit
 
+		# Track it first.
 		for pid in self.active_processes:
 			proc.system_event_connect(('process', pid), self, callback)
 			proc.kernel.track(pid)
+
+		# Validate that the process exists; it may have exited before .track() above.
+		finished = False
+		while not finished:
+			try:
+				for pid in self.active_processes:
+					os.kill(pid, 0)
+				else:
+					finished = True
+			except OSError as err:
+				if err.errno != os.ESRCH:
+					raise
+				proc.system_event_disconnect(('process', pid))
+				self.sp_exit(pid, libsys.process_delta(pid))
 
 		return super().actuate()
 
