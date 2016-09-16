@@ -2233,6 +2233,9 @@ class Thread(Processor):
 	def requisite(self, callable):
 		self.callable = callable
 
+	def __init__(self, callable):
+		self.callable = callable
+
 	def trap(self):
 		final = None
 		try:
