@@ -1,70 +1,32 @@
 """
-Service management daemon for fault.io based applications.
+Service management daemon, &.libroot.Set, for &..io based applications.
 
-By default, this script resolves the root service from the
-(system:environment)`FAULTD_DIRECTORY` environment variable.
-This can be avoided by importing the module, and using &initialize as a root for a Unit.
+By default, this executable resolves the root service from the
+(system:environment)`FAULT_DAEMON_DIRECTORY` environment variable. A parameter
+may be provided to override that setting and the default (system:path)`~/.fault`.
+
+This module is intended for use with system invocation only.
+
+! WARNING:
+	If the selected daemon directory does not exist, it will be created
+	and initialized for use as a root sector daemon.
 """
-
 import os
 import sys
-
-def initialize(unit):
-	# Avoid imports in module body as it execl() if it's not the faultd hardlink.
-	from .. import libroot
-	from .. import libservice
-	from .. import library as libio
-
-	# init listening interfaces
-	libio.Ports.load(unit)
-
-	# No command line options atm. Maybe an override for the faultd directory.
-	command_params = unit.context.process.invocation.parameters
-
-	# Root Daemon Control
-	root_sector = libroot.Control()
-	root_sector.requisite(libservice.identify_route())
-
-	unit.place(root_sector, "control")
-	root_sector.subresource(unit)
-	unit.context.enqueue(root_sector.actuate)
+from .. import libservice
 
 if __name__ == '__main__':
-	# Some redundancy here for supporting faultd hardlinks.
-	# Hardlinks to python3 are used to make it possible
-	# to reveal more appropriate names in the process list.
+	# Root Service Invocation; resolve the hardlink and exec() as sectord.
+	params = sys.argv[1:]
+	os.environ['PYTHON'] = sys.executable
 
-	if os.environ.get('FAULTD') is None:
-		# Initial Python Invocation; resolve the hardlink and exec().
+	r = libservice.identify_route(*params[:1])
+	rs = libservice.Service(r, None)
+	if not rs.exists():
+		libservice.configure_root_service(rs)
 
-		# Doesn't matter if the user invoked the hard link directly,
-		# this is a long running server process, so any pointless overhead
-		# should be irrelevant.
-		params = sys.argv[1:]
-		os.environ['FAULTD'] = str(os.getpid())
-		os.environ['PYTHON'] = sys.executable
+	os.environ['SERVICE_NAME'] = 'faultd'
+	rs.load()
+	rs.execute() # For rootd, the replacement will enter .bin.sectord.
 
-		from .. import libservice
-
-		r = libservice.identify_route()
-		rs = libservice.Service(r, 'root')
-		if not rs.exists():
-			rs.create('root')
-			rs.executable = sys.executable # reveal original executable
-			rs.enabled = True
-			rs.parameters = ['-m', __package__+'.rootd'] + params
-			rs.store()
-		else:
-			rs.prepare()
-
-		rs.load()
-
-		path, command = rs.execution()
-
-		# execl in order to rename the process to faultd in the process list
-		os.execl(path, *command)
-		assert False # should not reach after execl
-	else:
-		# After the execl(), the actual execution is reached.
-		from .. import library as libio
-		libio.execute(faultd = (initialize,)) # Inside execl() providing process name.
+	assert False # Should not reach after execl.
