@@ -76,6 +76,9 @@ class ProtocolTransaction(tuple):
 		"""
 		Used to note that no read will occur.
 		*Must* be used when no body is expected. Usually called by the &Client or &Server.
+
+		! FUTURE:
+			Throws exception or emits error in cases where body is present.
 		"""
 		self.connect_input(None)
 
@@ -94,7 +97,7 @@ class ProtocolTransaction(tuple):
 		self.response.initiate((self.request.version, b'200', b'OK'))
 		self.connect_output(i)
 
-		return f
+		return i
 
 	def write_output(self, mime:str, data:bytes):
 		"""
@@ -136,7 +139,7 @@ class ProtocolTransaction(tuple):
 		Contructs an awaitable iterator that can be used inside
 		a coroutine to read the data sent from the remote endpoint.
 		"""
-		raise NotImplementedError("coroutine support")
+		raise Exception("coroutine support not implemented")
 
 	def read_input_into_buffer(self, callback, limit=None):
 		"""
@@ -171,7 +174,7 @@ class ProtocolTransaction(tuple):
 
 	def write_kport_to_output(self, fd, limit=None):
 		"""
-		Transfer data from the &kport, file descriptor to the output
+		Transfer data from the &kport, file descriptor, to the output
 		constrained by the limit.
 
 		The file descriptor will be closed after the transfer is complete.
@@ -226,24 +229,6 @@ class ProtocolTransaction(tuple):
 		"""
 		pass
 
-class Path(libroutes.Route):
-	"""
-	A Path sequence used to aid in request routing and request path construction.
-	"""
-
-	def __str__(self):
-		return '/' + '/'.join(self.absolute)
-
-	@property
-	def index(self):
-		"""
-		Whether the Path is referrring to a directory index. (Ends with a slash)
-		"""
-		if self.points:
-			return self.points[-1] == ""
-		else:
-			self.absolute[-1] == ""
-
 class Layer(libio.Layer):
 	"""
 	The HTTP layer of a connection; superclass of &Request and &Response that provide
@@ -272,7 +257,9 @@ class Layer(libio.Layer):
 
 	@property
 	def content(self):
-		"Whether the Layer Context is associated with content."
+		"""
+		Whether the Layer Context is associated with content.
+		"""
 		return self.length is not None
 
 	@property
@@ -369,7 +356,7 @@ class Layer(libio.Layer):
 		"""
 		"""
 		global libmedia
-		return libmedia.type_from_string(self.headers[b'content-type'].decode('utf-8'))
+		return libmedia.type_from_bytes(self.headers[b'content-type'])
 
 	@property
 	def date(self, parse=libtime.parse_rfc1123) -> libtime.Timestamp:
@@ -478,7 +465,7 @@ class Layer(libio.Layer):
 
 class Request(Layer):
 	"""
-	Request portion of an HTTP transaction
+	Request portion of an HTTP transaction.
 	"""
 
 	@property
@@ -493,10 +480,10 @@ class Request(Layer):
 	def version(self):
 		return self.initiation[2]
 
-	def declare_without_content(self, method:bytes, path:bytes, version:bytes=b'HTTP/1.1'):
+	def declare_without_content(self, method:bytes, path:str, version:bytes=b'HTTP/1.1'):
 		self.initiate((method, path.encode('utf-8'), version))
 
-	def declare_with_content(self, method:bytes, length:int, path:bytes, version:bytes=b'HTTP/1.1'):
+	def declare_with_content(self, method:bytes, length:int, path:str, version:bytes=b'HTTP/1.1'):
 		self.initiate((method, path.encode('utf-8'), version))
 		hs = self.header_sequence
 		hm = self.headers
@@ -796,12 +783,10 @@ class Protocol(object):
 	"""
 	@classmethod
 	def client(Class) -> 'Protocol':
-		global Response
 		return Class(Response)
 
 	@classmethod
 	def server(Class) -> 'Protocol':
-		global Request
 		return Class(Request)
 
 	def terminate(self, polarity=0):
@@ -810,8 +795,6 @@ class Protocol(object):
 			self.terminated = True
 
 	def __init__(self, Layer:Layer, selected_version=b'HTTP/1.1'):
-		global fork, join
-
 		self.version = selected_version
 
 		self._termination = 0
@@ -834,7 +817,7 @@ libio.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
 
 class Client(libio.Mitre):
 	"""
-	Mitre flow initiating HTTP requests for a Connection sector.
+	Mitre initiating requests for an HTTP Connection.
 	"""
 	Protocol = Protocol.client
 
@@ -875,7 +858,7 @@ class Client(libio.Mitre):
 		/layer
 			The request layer context. &Request.
 		/flow
-			The request body to be emittted. &None if there is no body.
+			The request body to be emittted. &None if there is no body to send.
 		"""
 
 		layer, connect = self.f_emit((layer,), self)[0]

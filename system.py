@@ -595,7 +595,6 @@ class Process(object):
 		&None is returned if the thread was not created by a &Process.
 		"""
 
-		global __process_index__
 		x = tid()
 		for y in __process_index__:
 			if y.fabric.executing(x):
@@ -606,26 +605,25 @@ class Process(object):
 		Return the primary &.library.Unit instance associated with the process.
 		"""
 
-		global __process_index__
 		return __process_index__[self][None]
 
 	@classmethod
-	def spawn(Class, invocation, Unit, units, identity='root'):
+	def spawn(Class, invocation, Unit, units, identity='root', critical=libsys.critical):
 		"""
 		Construct a booted &Process using the given &invocation
 		with the specified &Unit.
 		"""
-		global __process_index__
 
 		proc = Class(identity, invocation = invocation)
-		lpd = __process_index__[proc] = {}
+		lpd = {}
+		__process_index__[proc] = lpd
 
 		inits = []
 		for identity, roots in units.items():
 			unit = Unit()
 			unit.requisite(identity, roots, process = proc, Context = Context)
 			lpd[identity] = unit
-			proc._enqueue(functools.partial(libsys.critical, None, unit.actuate))
+			proc._enqueue(functools.partial(critical, None, unit.actuate))
 
 		lpd[None] = unit # determines primary program
 		return proc
@@ -646,11 +644,10 @@ class Process(object):
 		Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
 
-		global libsys
 		return libsys.Fork.dispatch(self.boot, *tasks)
 
 	def actuate(self, *tasks):
-		# kernel interface: watch pid exits, process signals, and enqueue events
+		# kernel interface: watch process exits, process signals, and timers.
 		self.kernel = Kernel()
 		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
 		self.fabric.spawn(None, self.main, ())
@@ -658,6 +655,9 @@ class Process(object):
 	def boot(self, main_thread_calls, *tasks):
 		"""
 		Boot the Context with the given tasks enqueued in the Task queue.
+
+		Only used inside the main thread for the initialization of the
+		controlling processor.
 		"""
 		global libsys
 
@@ -669,7 +669,7 @@ class Process(object):
 			boot_init_call()
 
 		self.actuate(*tasks)
-		# replace boot() with protect() for main thread protection
+		# replace boot() with protect() for main thread protection/watchdog
 		libsys.Fork.substitute(libsys.protect)
 
 	def main(self):
@@ -689,10 +689,6 @@ class Process(object):
 		"""
 		Terminate the context. If no contexts remain, exit the process.
 		"""
-		global __process_index__
-		global __traffic_index__
-		global libsys
-
 		self._exit_stack.__exit__(None, None, None)
 
 		del __process_index__[self]

@@ -1,37 +1,6 @@
 import sys
 from .. import libservice as library
 
-system_extract_data = b"""<?xml version="1.0" encoding="ascii"?>
-<spawn xmlns="https://fault.io/xml/spawns" type="command" executable="/bin/cat" abstract="Admin Information.">
- <requirements>
-  <service name="NONE"/>
- </requirements>
- <environment>
-  <setting name="ENV" value="VAL"/>
- </environment>
- <parameters>
-  <field literal="-f"/>
-  <field literal="some_file"/>
- </parameters>
-</spawn>
-"""
-
-def test_extract(test):
-	struct = library.extract(system_extract_data)
-	test/struct['executable'] == "/bin/cat"
-	test/struct['environment'] == {"ENV": "VAL"}
-	test/struct['parameters'] == ["-f", "some_file"]
-	test/struct['requirements'] == ["NONE"]
-	test/struct['abstract'] == "Admin Information."
-	test/struct['type'] == "command"
-
-def test_construct(test):
-	ix = library.extract(system_extract_data)
-	i = library.construct(ix)
-	xml = b''.join(i)
-	x = library.extract(xml)
-	test/x == ix
-
 def test_service_routes(test):
 	tr = test.exits.enter_context(library.libroutes.File.temporary())
 	for i in range(12):
@@ -56,13 +25,12 @@ def test_Service(test):
 	srv.load()
 
 	test/srv.libraries == libs
-	test/srv.enabled == False
+	test/srv.actuates == False
 	test/srv.parameters == []
-	test/srv.requirements == []
 	test/srv.environment == {}
 
 	# modify and store, then create new service to compare
-	enabled = srv.enabled = True
+	enabled = srv.actuates = True
 	params = srv.parameters = ['--long-param', 'some', 'parameter']
 	docs = srv.abstract = "SOME DOCUMENTATION"
 	env = srv.environment = {"ENV1" : "VALUE1", "ENV2": "VALUE2"}
@@ -76,14 +44,14 @@ def test_Service(test):
 	test/srv2.environment == env
 	test/srv2.abstract == docs
 	test/srv2.parameters == params
-	test/srv2.enabled == enabled
-	test/srv2.enabled == True
+	test/srv2.actuates == enabled
+	test/srv2.actuates == True
 
 	# check the alteration.
-	srv.enabled = False
-	srv.store_enabled()
-	srv2.load_enabled()
-	test/srv2.enabled == False
+	srv.actuates = False
+	srv.store_actuation()
+	srv2.load_actuation()
+	test/srv2.actuates == False
 
 if __name__ == '__main__':
 	import sys

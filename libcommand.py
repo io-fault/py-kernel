@@ -30,13 +30,6 @@ def initialize(unit, main=None):
 	else:
 		libs = ()
 
-	for name in libs:
-		# XXX: need some environment configuration for managing default libraries.
-		if 0:
-			unit.link(name)
-			lib = libio.Library.from_fullname(path)
-			unit.place(lib, "lib", name)
-
 	if inspect.isgeneratorfunction(main):
 		main_proc = libio.Coroutine(main)
 	else:
@@ -48,7 +41,7 @@ def initialize(unit, main=None):
 
 def execute(name='__main__'):
 	"""
-	Ran by script depending on libcommand:
+	Ran by scripts and executable modules depending on libcommand:
 
 	#!/pl/python
 		if __name__ == '__main__':

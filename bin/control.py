@@ -87,10 +87,11 @@ def main():
 	else:
 		struct['path'] = ['sys', '']
 
-	pair, = sector.context.connect_stream((endpoint,))
-	hc = http.Client(endpoint, *[libio.KernelPort(x) for x in pair])
-	sector.dispatch(hc)
-	hc.manage()
+	mitre = http.Client(None)
+	series = sector.context.connect_subflows(endpoint, mitre, http.Protocol.client())
+	s = libio.Sector()
+	s._flow(series)
+	sector.dispatch(s)
 
 	req = http.Request()
 	path = libri.http(struct)
@@ -110,8 +111,8 @@ def main():
 	fi = libio.Iteration([(parameters,)])
 	sector.acquire(fi)
 
-	hc.http_request(response_endpoint, req, fi)
-	fi.actuate()
+	mitre.m_request(response_endpoint, req, fi)
+	series[0].process(None)
 
 if __name__ == '__main__':
 	from .. import library

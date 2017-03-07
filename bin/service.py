@@ -39,13 +39,6 @@ def command_void(srv):
 
 	srv.route.void()
 
-def command_document(srv, *params):
-	"Document the service describing its purpose."
-
-	srv.load()
-	srv.documentation = ' '.join(params)
-	srv.store()
-
 def command_define(srv, *params):
 	"Define the executable and its parameters for starting the service."
 
@@ -74,13 +67,6 @@ def command_disable(srv):
 	srv.enabled = False
 	srv.store_enabled()
 
-def command_set_concurrency(srv, level):
-	"Number of forks to create when spawning sectord based services."
-
-	srv.load()
-	srv.concurrency = int(level)
-	srv.store()
-
 def command_environ_add(srv, *pairs):
 	"Add the given settings as environment variables. (No equal sign used in assignments)"
 
@@ -99,59 +85,6 @@ def command_environ_del(srv, *varnames):
 
 	srv.store_invocation()
 
-def command_requirement_add(srv, *reqs):
-	"Add the given parameters as service requirements (service dependencies)."
-
-	srv.load()
-	srv.requirements.extend(reqs)
-	srv.store_invocation()
-
-def command_requirement_del(srv, *reqs):
-	"Remove the given parameters from the service requirements list."
-
-	srv.load()
-
-	for r in reqs:
-		srv.requirements.remove(r)
-
-	srv.store_invocation()
-
-def command_library_add(srv, *reqs):
-	"Add the given parameters to the list of libraries; library name-path pairs."
-
-	srv.load()
-
-	for k, v in zip(pairs[::2], pairs[1::2]):
-		srv.libraries[k] = v
-
-	srv.store_invocation()
-
-def command_library_del(srv, *reqs):
-	"Remove the given parameters from the list of libraries."
-
-	srv.load()
-
-	for r in reqs:
-		del srv.libraries[k]
-
-	srv.store_invocation()
-
-def command_interface_add(srv, slot, atype, *binds):
-	"Add a set of interface bindings to the selected slot."
-
-	srv.load()
-	bind_set = srv.interfaces.setdefault(slot, set())
-
-	for (addr, port) in zip(binds[::2], binds[1::2]):
-		bind_set.add((atype, addr, port))
-
-	srv.store()
-
-def command_interface_del(srv, slot, *binds):
-	"Remove a set of interface bindings from the selected slot."
-
-	pass
-
 def command_set_type(srv, type):
 	"Set the service's type: daemon, command, or sectors."
 
@@ -163,53 +96,41 @@ def command_report(srv):
 	"Report the service's definition to standard error."
 
 	srv.load()
-	name = srv.service
+	name = srv.route
 
 	command = [srv.executable]
 	command.extend(srv.parameters)
 
-	docs = "" #srv.documentation
-	dist = srv.concurrency
-	reqs = ' '.join(srv.requirements)
 	envvars = ' '.join(['%s=%r' %(k, v) for k, v in srv.environment.items()])
 	dir = srv.route.fullpath
-
-	ifs = ''
-	for slot, binds in srv.interfaces.items():
-		ifs += slot + '='
-		ifs += ' '.join(['[%s]:%s' %(a, p) for t, a, p in binds])
+	docs = (srv.route / 'readme.txt').load().decode('utf-8')
 
 	report = """
-		Service: {name}
+		Service: {srv.identifier}
 		Type: {srv.type}
-		Enabled: {srv.enabled}
-		Concurrency: {dist}
+		Actuation: {srv.actuation}
 		Directory: {dir}
-		Command: {command}
-		Requirements: {reqs}
-		Environment: {envvars}
-		Interfaces: {ifs}
-		Documentation:
+		Command: {command}\n""".format(**locals())
 
-			{docs}\n\n""".format(**locals())
+	if docs:
+		report += \
+		"\t\tDocumentation: \n\n{docs}\n\n".format(docs=docs)
+	else:
+		report += '\n'
 
 	sys.stderr.write(report)
+	raise SystemExit(64) # EX_USAGE
 
 def command_execute(srv):
 	"For testing, execute the service (using exec) as if it were ran by faultd."
 
 	srv.load()
-	params = srv.parameters or ()
-	params = (srv.service,) + tuple(params)
-
-	os.environ.update(srv.environment or ())
-	os.chdir(srv.route.fullpath)
-	os.execl(srv.executable, *params)
-
-	assert False
+	srv.execute()
 
 def command_update(srv):
-	"Recreate the hardlink for root and sectors."
+	"""
+	Recreate the hardlink for root and sectors.
+	"""
 
 	srv.load()
 
@@ -219,8 +140,7 @@ def command_update(srv):
 command_synopsis = {
 	'create': "type:(sectors|daemon|command) executable [parameters ...]",
 	'env-add': "[VARNAME1 VALUE1 VARNAME2 VALUE2 ...]",
-	'lib-add': "[LIBRARY_NAME MODULE_PATH ...]",
-	'if-add': "interface-slot-name type:(local|ip4|ip6) addr-1 port-1 addr-2 port-2 ..."
+	'env-del': "[VARNAME1 VARNAME2 ...]",
 }
 
 command_map = {
@@ -229,24 +149,12 @@ command_map = {
 	'command': command_define,
 	'update': command_update,
 	'type': command_set_type,
-	'concurrency': command_set_concurrency,
+	'enable': command_enable,
+	'disable': command_disable,
 
 	'env-add': command_environ_add,
 	'env-del': command_environ_del,
 
-	'req-add': command_requirement_add,
-	'req-del': command_requirement_del,
-
-	'lib-add': command_library_add,
-	'lib-del': command_library_del,
-
-	'if-add': command_interface_add,
-	'if-del': command_interface_del,
-
-	'enable': command_enable,
-	'disable': command_disable,
-
-	'document': command_document,
 	'execute': command_execute,
 	'report': command_report,
 }
@@ -277,7 +185,8 @@ def menu(route, syn=command_synopsis):
 		for cname, cdoc, lineno in commands
 	])
 
-	sl = route.subnodes()[0]
+	ddir = route / 'daemons'
+	sl = ddir.subnodes()[0]
 	service_head = "\n\nServices [%s][%d]:\n\n\t" %(route.fullpath, len(sl),)
 	service_list = '\n\t'.join([x.identifier for x in sl]) or '[None]'
 
@@ -308,6 +217,7 @@ def main(*args, fiod=None):
 		# show help
 		sys.stderr.write(menu(fiod))
 		sys.stderr.write('\n')
+		raise SystemExit(64) # EX_USAGE
 	else:
 		service, *args = args
 		if args:
@@ -316,7 +226,8 @@ def main(*args, fiod=None):
 			command = 'report'
 			params = args
 
-		si = libservice.Service(fiod, service)
+		srvdir = fiod / 'daemons' / service
+		si = libservice.Service(srvdir, service)
 		ci = command_map[command]
 		ci(si, *params)
 

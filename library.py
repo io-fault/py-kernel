@@ -43,7 +43,7 @@ __shortname__ = 'libio'
 #ref://reflectd.idx/index-entry?qtl=10#resolution.status.data
 	#http://hostname/path/to/resource
 		# qtl: Query Time Limit (seconds)
-		#octets://gai.ai:port/domain.name?qtl=10#record-count-of-resolution
+		#octets://gai.ai/domain.name?service=http&timeout|qtl=10#record-count-of-resolution
 
 		#octets://v6.ip:80/::1#fd
 		#octets://v4.ip:5555/127.0.0.1#fd
@@ -290,7 +290,10 @@ def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 			# resource
 			identity, resource = value
 			rc = resource.__class__
-			modname = rc.__module__.rsplit('.', 1)[-1]
+			if '__shortname__' in sys.modules[rc.__module__].__dict__:
+				modname = sys.modules[rc.__module__].__shortname__
+			else:
+				modname = rc.__module__.rsplit('.', 1)[-1]
 			rc_id = modname + '.' + rc.__qualname__
 
 			if hasattr(resource, 'actuated'):
@@ -1205,14 +1208,6 @@ class Unit(Processor):
 
 	@staticmethod
 	def _connect_subflows(mitre, transit, *protocols):
-		global KernelPort
-		global Transformation
-		global Catenation
-		global Division
-		global meter_input
-		global meter_output
-		global Transports
-
 		kin = KernelPort(transit[0])
 		kout = KernelPort(transit[1])
 
@@ -1226,10 +1221,6 @@ class Unit(Processor):
 
 	@staticmethod
 	def _listen(transit):
-		global KernelPort
-		global Transformation
-		global meter_input
-
 		kin = KernelPort(transit)
 		fi = Transformation(*meter_input(kin, allocate=Allocator.allocate_integer_array))
 
@@ -1237,10 +1228,6 @@ class Unit(Processor):
 
 	@staticmethod
 	def _input(transit):
-		global KernelPort
-		global Transformation
-		global meter_input
-
 		kin = KernelPort(transit)
 		fi = Transformation(*meter_input(kin))
 
@@ -1248,10 +1235,6 @@ class Unit(Processor):
 
 	@staticmethod
 	def _output(transit):
-		global KernelPort
-		global Transformation
-		global meter_output
-
 		kout = KernelPort(transit)
 		fo = Transformation(*meter_output(kout))
 
@@ -1423,12 +1406,17 @@ class Unit(Processor):
 		addr = self.u_reverse_index.pop(processor)
 		del self.u_index[addr]
 
+		p = self.u_hierarchy
+		for x in addr[:-1]:
+			p = p[x]
+		del p[addr[-1]]
+
 		if processor.exceptions:
 			# Redundant with Sector.exited
 			# But special for Unit exits as we have the address
 			self.faulted(processor, path = addr)
 
-		if addr[0] == 'bin' and not self.u_index[('bin',)]:
+		if addr[0] == 'bin' and not self.u_hierarchy['bin']:
 			# Exit condition, /bin/* is empty. Check for Unit control callback.
 			exits = self.u_exit
 			if exits:
@@ -1441,9 +1429,14 @@ class Unit(Processor):
 						exits.discard(unit_exit_cb)
 
 			if not exits:
-				# Unit has no more executables, and there
-				# are no more remaining, so terminate.
-				self.context.process.enqueue(self.terminate)
+				ctl = self.u_index.get(('control',))
+				if ctl:
+					ctl.atexit(self.terminate)
+					ctl.terminate()
+				else:
+					# Unit has no more executables, and there
+					# are no more remaining, so terminate.
+					self.context.process.enqueue(self.terminate)
 
 	def actuate(self):
 		"""
@@ -1849,23 +1842,6 @@ class Extension(Sector):
 			x = x.controller
 
 		self.context.faulted(trapping_sector) # fault occurred inside extension
-
-class Control(Processor):
-	"""
-	A control processor that provides an exit handler for the &Unit.
-	Control instances are used by daemon processes to manage the control interfaces
-	used to manage the process.
-
-	By default, the Control &Sector exits as if there was no control instance.
-	"""
-
-	def ctl_sectors_exit(self, unit):
-		"""
-		Called when /control is present and /bin is emptied.
-		If not overridden by a subclass, the process will exit.
-		"""
-
-		unit.terminate()
 
 class Subprocess(Processor):
 	"""
@@ -2665,7 +2641,7 @@ class Transports(Transformer):
 	def terminate(self):
 		flow = self.controller
 
-		if flow.f_permanent:
+		if flow.f_permanent and self.stack:
 			self.stack[-1].terminate(self.polarity)
 
 		for x in list(self.stack):
@@ -2793,9 +2769,9 @@ class KernelPort(Transformer):
 
 	def __init__(self, transit=None):
 		self.transit = transit
-		#transit.resize_exoresource(1024*128)
 		self.acquire = transit.acquire
 		transit.link = self
+		#transit.resize_exoresource(1024*128)
 
 	def __repr__(self):
 		c = self.__class__
@@ -3381,7 +3357,8 @@ class Flow(Processor):
 		if self.f_downstream:
 			self.f_downstream.terminate(by=self)
 
-		self.controller.exited(self)
+		if self.controller:
+			self.controller.exited(self)
 
 	def interrupt(self, by=None):
 		"""
@@ -3400,7 +3377,7 @@ class Flow(Processor):
 			ds = self.f_downstream
 			ds.terminate(self)
 			dsc = ds.controller
-			if dsc.functioning:
+			if dsc is not None and dsc.functioning:
 				dsc.exited(ds)
 
 		return True
@@ -4488,10 +4465,7 @@ class Ports(Device):
 		where the constructed Relay instances are simply passed through.
 		"""
 
-		ports = self.sets[slot]
-		del self.sets[slot]
-
-		return ports
+		return self.sets[slot]
 
 	def associate(self, slot, processor):
 		"""
@@ -4601,8 +4575,6 @@ def execute(*identity, **units):
 	its hierarchy is then populated with &Sector instances.
 	"""
 
-	global libsys
-
 	if identity:
 		ident, = identity
 	else:
@@ -4631,22 +4603,27 @@ def parallel(*tasks, identity='parallel'):
 	global _parallel_lock
 
 	_parallel_lock.acquire()
+	unit = None
 	try:
 		join = libsys.create_lock()
 		join.acquire()
 
-		# TODO: Needs to select a different libsys.critical implementation.
-			# Panic's get raised in invoking thread?
-		# TODO: Concurrency is not properly supported (exclusive access across threads).
 		inv = libsys.Invocation(lambda x: join.release())
-		spr = system.Process.spawn(inv, Unit, {identity:tasks}, identity=identity)
+		# TODO: Separate parallel's Process initialization from job dispatching.
+		spr = system.Process.spawn(
+			inv, Unit, {identity:tasks}, identity=identity,
+			critical=functools.partial
+		)
 		spr.actuate()
+
 		unit = spr.primary()
 		# TODO: Yield a new root sector associated with the thread that spawned it.
 		yield unit
 	except:
 		# TODO: Exceptions should interrupt the managed Sector.
-		unit.terminate()
+		join.release()
+		if unit is not None:
+			unit.terminate()
 		raise
 	finally:
 		join.acquire()

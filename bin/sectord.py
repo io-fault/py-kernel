@@ -16,7 +16,6 @@ def initialize(unit):
 
 	import functools
 	from .. import libdaemon
-	from .. import libservice
 	from .. import library as libio
 
 	from ...routes import library as libroutes
@@ -27,9 +26,7 @@ def initialize(unit):
 	proc = unit.context.process
 
 	r = libroutes.File.from_cwd()
-	s = libservice.Service(r.container, r.identifier)
-	s.load() # parameters
-	unit.place(s, "dev", "service")
+	unit.place(None, "dev", "service")
 
 	root_sector = libio.Sector()
 

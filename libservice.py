@@ -11,7 +11,7 @@ Manages the service state stored on disk.
 
 /default_route
 	A &routes.library.File instance pointing to the default route
-	relative to the user's home directory. (~/.faultd)
+	relative to the user's home directory. (~/.fault)
 
 [ Service Types ]
 
@@ -38,17 +38,16 @@ The types of services that are managed by a faultd instance.
 
 /unspecified
 	Placeholder type used when a created service has not been given
-	a type.
+	a type. Unspecified services may be removed arbitrarily.
 """
 
 import os
 import sys
 import itertools
-import xml.etree.ElementTree as xmllib
 
 from ..chronometry import library as libtime
 from ..routes import library as libroutes
-from ..xml import library as libxml
+from ..system import libxml as system_xml
 
 types = set((
 	'daemon',
@@ -61,7 +60,11 @@ types = set((
 ))
 
 environment = 'FAULT_DAEMON_DIRECTORY'
-default_route = libroutes.File.home() / '.fault' / 'daemons'
+default_route = libroutes.File.home() / '.fault' / 'rootd'
+
+xml_namespaces = {
+	"s": "http://fault.io/xml/sectors",
+}
 
 def identify_route(override=None):
 	"""
@@ -80,132 +83,6 @@ def identify_route(override=None):
 
 	return libroutes.File.from_path(env)
 
-def extract(xml, nsmap={"fs": "https://fault.io/xml/spawns"}):
-	"""
-	Extract a service configuration from an XML file.
-	"""
-
-	xr = xmllib.XML(xml)
-	find = lambda x: xr.find(x, nsmap)
-
-	typ = xr.attrib["type"]
-
-	env_element = find("fs:environment")
-	params = find("fs:parameters")
-	reqs = find("fs:requirements")
-
-	doc = xr.attrib.get("abstract")
-
-	libelements = find("fs:libraries")
-	ifelements = find("fs:interfaces")
-
-	exe = xr.attrib.get("executable", None)
-	dist = xr.attrib.get("concurrency", None)
-
-	env = {
-		x.attrib["name"]: x.attrib["value"]
-		for x in list(env_element)
-	}
-
-	if libelements:
-		libs = [
-			(x.attrib["libname"], x.attrib["fullname"])
-			for x in list(libelements)
-		]
-		libs = dict(libs)
-	else:
-		libs = None
-
-	if ifelements:
-		interfaces = {
-			element.attrib["name"]: set([
-				(x.attrib["type"], x.attrib["address"], x.attrib["port"])
-				for x in list(element)
-			])
-			for element in list(ifelements)
-		}
-	else:
-		interfaces = {}
-
-	fields = [x.attrib["literal"] for x in list(params)]
-
-	deps = [x.attrib["name"] for x in list(reqs)]
-
-	struct = {
-		'executable': exe,
-		'environment': env,
-		'parameters': fields,
-		'requirements': deps,
-		'abstract': doc,
-		'libraries': libs,
-		'interfaces': interfaces,
-		'type': typ,
-		'concurrency': None if dist is None else int(dist),
-	}
-
-	return struct
-
-def construct(struct,
-		encoding="utf-8",
-		ns="https://fault.io/xml/spawns",
-		chain=itertools.chain.from_iterable
-	):
-	"""
-	Construct an XML configuration for a service spawn.
-	"""
-
-	xmlctx = libxml.Serialization()
-
-	return xmlctx.root('spawn',
-		chain((
-			xmlctx.element('requirements',
-				chain(
-					xmlctx.element('service', None, ('name', x))
-					for x in struct['requirements']
-				)
-			),
-			xmlctx.element('environment',
-				chain(
-					xmlctx.element('setting', None, ('name', k), ('value', v))
-					for k, v in struct['environment'].items()
-				)
-			),
-			xmlctx.element('parameters',
-				chain(
-					xmlctx.element('field', None, ('literal', x))
-					for x in struct['parameters']
-				)
-			),
-			xmlctx.element('libraries',
-				chain(
-					xmlctx.element('module', None, ('libname', x), ('fullname', fn))
-					for x, fn in (struct.get('libraries', None) or {}).items()
-				)
-			),
-			xmlctx.element('interfaces',
-				chain(
-					xmlctx.element('interface',
-						chain(
-							xmlctx.element('bind', None,
-								('type', atype),
-								('address', address),
-								('port', port)
-							)
-							for atype, address, port in binds
-						),
-						('name', slot),
-					)
-					for slot, binds in struct.get('interfaces', {}).items()
-				)
-			),
-		)),
-		('executable', struct.get('executable')),
-		('concurrency', struct.get('concurrency')),
-		('type', struct["type"]),
-		('abstract', struct.get('abstract')),
-		namespace=ns,
-	)
-
 def service_routes(route=default_route):
 	"""
 	Collect the routes to the set of services in the directory.
@@ -216,26 +93,59 @@ def service_routes(route=default_route):
 		bn = i.basename
 		yield bn, i
 
+_actuation_map = {'enabled':True, 'disabled':False, True:'enabled', False:'disabled'}
+
+def configure_root_service(srv):
+	"""
+	Given a &Service selecting an uninitialized file system path,
+	configure the path as a root sector daemon.
+	"""
+	srv.create('root')
+	srv.executable = sys.executable # reveal original executable
+	srv.actuation = 'enabled'
+	# rootd is a sector daemon.
+	srv.parameters = [
+		'-m', __package__+'.bin.sectord',
+		__package__+'.libroot.Set.rs_initialize'
+	]
+	srv.store()
+
+	# The services controlled by &srv
+	(srv.route / 'daemons').init('directory')
+
+	# initialize sectors.xml
+	from . import libdaemon, library as libio
+	xml = srv.route / 'sectors.xml'
+	struct = {
+		'concurrency': 0,
+		'interfaces': {
+			'http': [
+				libio.endpoint('local', str(srv.route/'if'), 'http'),
+			]
+		},
+	}
+	xml.store(b''.join(libdaemon.serialize_sectors(struct)))
+
 class Service(object):
 	"""
-	faultd service state.
+	faultd service states manager.
 
 	Represents the faultd service stored on disk. The load and store methods are used
 	to perform the necessary updates to or from disk.
 	"""
 
-	def libexec(self, recreate=False, root="root"):
+	def libexec(self, recreate=False, root=None):
 		"""
 		Return the path to a hardlink for the service. Create if absent.
 		"""
 
-		root = self.coservice(root)
-		led = root.route / "libexec"
+		r = self.route
+		led = r / "libexec"
 
 		if self.type == 'root':
 			exe = led / 'faultd'
 		else:
-			exe = led / self.name
+			exe = led / self.identifier
 
 		fp = exe.fullpath
 
@@ -248,33 +158,46 @@ class Service(object):
 
 		return fp
 
-	def coservice(self, service):
+	def prepare(self):
 		"""
-		Return the Service instance to the &service in the same set.
+		Create the service directory and any type specific subnodes.
 		"""
 
-		if service == self.name:
-			return self
+		typ = self.type
+		r = self.route
 
-		return self.__class__(self.faultd, service)
+		r.init("directory")
+		(r / 'libexec').init("directory")
 
-	def __init__(self, route, service):
-		self.faultd = +route
-		self.name = self.service = service
-		self.route = route / service
+		if typ in ('sectors', 'root'):
+			if_dir = (r / 'if')
+			if_dir.init("directory")
+
+	def void(self):
+		"""
+		Destroy the service directory.
+		"""
+
+		self.route.void()
+
+	def __init__(self, route:libroutes.File, identifier:str, type='unspecified'):
+		"""
+		Initialize the Service structure selecting the &route as its
+		storage location. The &route may not exist upon instantiation
+		as it may be the first use in which the user may choose to
+		initialize a directory or merely check for whether it is
+		a service at all.
+		"""
+		self.route = route
+		self.identifier = identifier
+		self.type = type
 
 		self.executable = None
-		self.requirements = []
 		self.environment = {}
 		self.parameters = []
-		self.abstract = None
-		self.enabled = None
-		self.type = 'unspecified'
-		self.interfaces = {}
-		self.concurrency = None
 
-		# sectors
-		self.libraries = None
+		self.abstract = None
+		self.actuation = 'disabled'
 
 	def critical(self, message):
 		"""
@@ -307,11 +230,31 @@ class Service(object):
 			exe = self.libexec('faultd')
 			return exe, ['faultd'] + (self.parameters or [])
 		elif self.type == 'sectors':
-			exe = self.libexec(self.name)
-			return exe, [self.name] + (self.parameters or [])
+			exe = self.libexec(self.identifier)
+			return exe, [self.identifier] + (self.parameters or [])
 		else:
 			# daemon or command
 			return self.executable, [self.executable] + (self.parameters or [])
+
+	def execute(self):
+		"""
+		Execute the service replacing the process image. &execute does not return.
+
+		Environment variables will be updated by the running process,
+		the current working directory will be switched to service's directory,
+		&route, and the service with be executed according to the current
+		working settings assigned to &self.
+
+		A call to &load prior to running this is often reasonable.
+		"""
+		global os
+
+		os.environ.update(self.environment or ())
+		exe, params = self.execution()
+		os.chdir(self.route.fullpath)
+		os.execl(exe, *params)
+
+		assert False
 
 	def create(self, type, types=types):
 		"""
@@ -336,19 +279,12 @@ class Service(object):
 		if type not in types:
 			raise ValueError("unknown service type: " + type)
 
-		self.enabled = False
+		self.actuation = 'disabled'
 		self.type = type
 		self.prepare()
 		self.store()
 
 		self.critical("created service")
-
-	def void(self):
-		"""
-		Destroy the service directory.
-		"""
-
-		self.route.void()
 
 	def exists(self):
 		"""
@@ -357,26 +293,12 @@ class Service(object):
 
 		return self.route.exists()
 
-	def prepare(self):
-		"""
-		Create the service directory and any type specific subnodes.
-		"""
-
-		self.route.init("directory")
-
-		if self.type in ('sectors', 'root'):
-			if_dir = (self.route / 'if')
-			if_dir.init("directory")
-
-			if self.type == 'root':
-				(self.route / 'libexec').init("directory")
-
 	def load(self):
 		"""
 		Load the service definition from the filesystem.
 		"""
 
-		self.load_enabled()
+		self.load_actuation()
 		self.load_invocation()
 
 	def store(self):
@@ -385,19 +307,15 @@ class Service(object):
 		"""
 
 		self.store_invocation()
-		self.store_enabled()
+		self.store_actuation()
 
 	# one pair for each file
 	invocation_attributes = (
-		'libraries',
+		'type',
+		'abstract',
 		'executable',
-		'requirements',
 		'environment',
 		'parameters',
-		'abstract',
-		'type',
-		'interfaces',
-		'concurrency',
 	)
 
 	@property
@@ -408,33 +326,55 @@ class Service(object):
 		}
 
 	def load_invocation(self):
-		inv_r = self.route / "invocation.xml"
+		inv_r = self.route / "if" / "invocation.xml"
 		data = inv_r.load()
 		if data:
-			inv = extract(data)
+			# Delay import.
+			import xml.etree.ElementTree as et
+			inv = system_xml.Execute.structure(et.XML(data))
 		else:
 			inv = None
 
 		if inv is not None:
 			for k, v in inv.items():
 				self.__dict__[k] = v
-			if self.type == 'sectors':
-				if self.libraries is None:
-					self.libraries = {}
 
 	def store_invocation(self):
-		xml = b''.join(construct(self.parts))
-		inv_r = self.route / "invocation.xml"
+		global system_xml
+		xml = b''.join(system_xml.Execute.serialize(self.parts))
+		inv_r = self.route / "if" / "invocation.xml"
 		inv_r.store(xml)
 
-	def load_enabled(self, map={'true':True, 'false':False}):
-		en_r = self.route / "enabled"
-		text = en_r.load().decode('ascii')
-		self.enabled = map.get(text.strip().lower(), False)
+	def load_actuation(self):
+		en_r = self.route / "actuation.txt"
+		text = en_r.load().decode('ascii').strip().lower()
+		self.actuation = text.strip().lower()
 
-	def store_enabled(self):
-		en_r = self.route / "enabled"
-		en_r.store(str(self.enabled).lower().encode('ascii')+b'\n')
+	def store_actuation(self):
+		en_r = self.route / "actuation.txt"
+		actstr = str(self.actuation).lower().encode('ascii')+b'\n'
+		en_r.store(actstr)
+
+	@property
+	def actuates(self) -> bool:
+		"""
+		Manage the actuation state of the service. &True means the
+		actuation.txt file contain `'enabled'`, &False means the
+		file contains `'disabled'`. Updating the property stores
+		the state to the file.
+		"""
+		global _actuation_map
+		return _actuation_map.get(self.actuation, False)
+
+	@actuates.setter
+	def actuates(self, val:bool):
+		global _actuation_map
+		actstr = _actuation_map[val] # &val must be True or False.
+
+		if actstr != self.actuation:
+			# Update file if different from memory.
+			self.actuation = actstr
+			self.store_actuation()
 
 	def load_pid(self):
 		pid_r = self.route / "pid"
@@ -454,10 +394,5 @@ class Service(object):
 
 	@status.setter
 	def status(self, val):
-		"""
-		Valid values: 'terminated', 'running', 'initializing', 'exception'.
-		"""
-
 		status_r = self.route / "status"
 		status_r.store(str(val).encode('utf-8')+b'\n')
-
