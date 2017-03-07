@@ -56,16 +56,16 @@ def command_define(srv, *params):
 def command_enable(srv):
 	"Enable the service causing it to be started when faultd is ran."
 
-	srv.load_enabled()
-	srv.enabled = True
-	srv.store_enabled()
+	srv.load_actuation()
+	srv.actuates = True
+	srv.store_actuation()
 
 def command_disable(srv):
 	"Disable the service; attempts to start afterward will fail unless forced."
 
-	srv.load_enabled()
-	srv.enabled = False
-	srv.store_enabled()
+	srv.load_actuation()
+	srv.actuates = False
+	srv.store_actuation()
 
 def command_environ_add(srv, *pairs):
 	"Add the given settings as environment variables. (No equal sign used in assignments)"
