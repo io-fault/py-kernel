@@ -432,28 +432,55 @@ set_timer(Interface kif, int recur, int note, unsigned long quantity, PyObj link
 }
 
 static int
-note_unit(int unit)
+note_unit(int unit, unsigned long *l)
 {
 	const int ms = (0xCE << 2) | 0xBC;
 	int note;
 
 	switch (unit)
 	{
-		case 'n':
-			note = NOTE_NSECONDS;
-		break;
+		#ifdef NOTE_NSECONDS
+			case 'n':
+				note = NOTE_NSECONDS;
+			break;
+		#else
+			#warning Converting nanoseconds to milliseconds when necessary.
+			case 'n':
+				/* nanoseconds to milliseconds */
+				note = 0;
+				*l = *l / 1000000;
+			break;
+		#endif
+
+		#ifdef NOTE_USECONDS
+			case 'u':
+			case ms:
+				note = NOTE_USECONDS; /* microseconds */
+			break;
+		#else
+			#warning Converting microseconds to milliseconds when necessary.
+			case 'u':
+				/* microseconds to milliseconds */
+				note = 0;
+				*l = *l / 1000;
+			break;
+		#endif
+
+		#ifdef NOTE_SECONDS
+			case 's':
+				note = NOTE_SECONDS;
+			break;
+		#else
+			#warning Converting seconds to milliseconds when necessary.
+			case 's':
+				/* microseconds to milliseconds */
+				note = 0;
+				*l = (*l) * 1000;
+			break;
+		#endif
 
 		case 'm':
 			note = 0; /* milliseconds */
-		break;
-
-		case 'u':
-		case ms:
-			note = NOTE_USECONDS; /* microseconds */
-		break;
-
-		case 's':
-			note = NOTE_SECONDS;
 		break;
 
 		default:
@@ -484,7 +511,7 @@ interface_alarm(PyObj self, PyObj args, PyObj kw)
 	if (!PyArg_ParseTupleAndKeywords(args, kw, "Ok|C", (char **) kwlist, &link, &l, &unit))
 		return(NULL);
 
-	note = note_unit(unit);
+	note = note_unit(unit, &l);
 	if (note < 0)
 		return(NULL);
 
@@ -513,7 +540,7 @@ interface_recur(PyObj self, PyObj args, PyObj kw)
 	if (!PyArg_ParseTupleAndKeywords(args, kw, "Ok|C", (char **) kwlist, &link, &l, &unit))
 		return(NULL);
 
-	note = note_unit(unit);
+	note = note_unit(unit, &l);
 	if (note < 0)
 		return(NULL);
 
