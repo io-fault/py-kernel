@@ -60,11 +60,12 @@ def deliver_io_events(junction, events, iter=iter):
 					# prior to running the KernelPort's termination.
 					kp.inject((xfer,))
 
+				if demand is not None:
+					kp.k_transition() # Accept the next memory transfer.
+
 				if term:
-					kp.terminated() # 
+					kp.f_terminated()#
 					# Ignore termination for None links
-				elif demand is not None:
-					kp.transition() # Accept the next memory transfer.
 
 				link = None
 			else:

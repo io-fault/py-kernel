@@ -108,6 +108,9 @@ class TTransit(object):
 	def inject(self, event):
 		self.f_emit((event,))
 
+	def k_transition(self):
+		pass
+
 def sector():
 	"Construct a root Sector and Context for testing."
 	ctx = TContext()

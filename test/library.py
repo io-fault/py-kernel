@@ -55,6 +55,9 @@ class Context(object):
 class Transit(object):
 	link = None
 
+	def k_transition(self):
+		pass
+
 	def acquire(self, obj):
 		self.resource = obj
 

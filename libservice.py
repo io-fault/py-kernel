@@ -22,6 +22,7 @@ The types of services that are managed by a faultd instance.
 
 /sectors
 	A daemon that is specialized for fault.io sectord executions.
+	This includes &.libroot processes.
 
 /command
 	Exclusive command execution; guarantees that only a configured

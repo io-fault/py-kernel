@@ -266,7 +266,6 @@ class Context(object):
 			This parameter might be merged into the mitre.
 		"""
 
-		global traffic
 		transits = traffic.allocate(
 			('octets', endpoint.protocol), (str(endpoint.address), endpoint.port)
 			# XXX: interface ref
@@ -289,7 +288,6 @@ class Context(object):
 			This parameter might be merged into the mitre.
 		"""
 
-		global traffic
 		transits = traffic.allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
 		return self._connect(mitre, transits, *protocols)
 
@@ -309,7 +307,6 @@ class Context(object):
 			This parameter might be merged into the mitre.
 		"""
 
-		global traffic
 		transits = traffic.allocate('octets://acquire/socket', fd)
 		return self._connect(mitre, transits, *protocols)
 
@@ -318,7 +315,6 @@ class Context(object):
 		Open a set of files for reading through a &.library.KernelPort.
 		"""
 
-		global traffic
 		return self._input(traffic.allocate('octets://file/read', path))
 
 	def append_file(self, path):
@@ -326,7 +322,6 @@ class Context(object):
 		Open a set of files for appending through a &.library.KernelPort.
 		"""
 
-		global traffic
 		return self._output(traffic.allocate('octets://file/append', path))
 
 	def update_file(self, path, offset, size):
@@ -351,7 +346,6 @@ class Context(object):
 		Returns a generator producing (interface, Flow) pairs.
 		"""
 
-		global traffic
 		alloc = traffic.allocate
 
 		for x in interfaces:
@@ -372,7 +366,7 @@ class Context(object):
 			Iterable of pairs. First item of each pair being the interface's local endpoint,
 			and the second being the &KernelPort instance.
 		"""
-		global traffic
+
 		alloc = traffic.allocate
 
 		for kp in kports:
@@ -385,7 +379,6 @@ class Context(object):
 		of file descriptors.
 		"""
 
-		global traffic
 		return self._output(traffic.allocate('octets://acquire/output', fd))
 
 	def connect_input(self, fd):
@@ -394,7 +387,6 @@ class Context(object):
 		of file descriptors.
 		"""
 
-		global traffic
 		return self._input(traffic.allocate('octets://acquire/input', fd))
 
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:

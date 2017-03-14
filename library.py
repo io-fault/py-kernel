@@ -958,6 +958,13 @@ class Processor(Resource):
 		self.context.enqueue(partial(trap, self, task))
 	del _fio_fault_trap
 
+	def exit(self):
+		"""
+		Exit the processor by signalling the controlling processor that termination
+		has completed.
+		"""
+		return self.controller.exited(self)
+
 	def atexit(self, exit_callback):
 		"""
 		Register a callback to be executed when the Processor has been unlinked from
@@ -1220,6 +1227,17 @@ class Unit(Processor):
 		return (fi, di, mitre, co, fo) # _flow input
 
 	@staticmethod
+	def _connect_subflows(mitre, transit, *protocols):
+		kin = KInput(transit[0])
+		kout = KOutput(transit[1])
+
+		ti, to = FTransports.create(protocols)
+		co = Catenation()
+		di = Division()
+
+		return (kin, ti, di, mitre, co, to, kout) # _flow input
+
+	@staticmethod
 	def _listen(transit):
 		kin = KernelPort(transit)
 		fi = Transformation(*meter_input(kin, allocate=Allocator.allocate_integer_array))
@@ -1235,10 +1253,7 @@ class Unit(Processor):
 
 	@staticmethod
 	def _output(transit):
-		kout = KernelPort(transit)
-		fo = Transformation(*meter_output(kout))
-
-		return fo
+		return KOutput(transit)
 
 	@property
 	def ports(self):
@@ -1732,20 +1747,6 @@ class Sector(Processor):
 		gc.subresource(self)
 
 		return gc.actuate()
-
-	def flow(self, *sequences, chain=itertools.chain):
-		"""
-		Create a flow and designate the sequences of Transformers
-		as its requisites (pipeline).
-
-		Each argument must be sequences of transformers.
-		"""
-
-		global Transformation
-		f = Transformation(*chain(*sequences))
-		self.dispatch(f)
-
-		return f
 
 	def _flow(self, series):
 		# XXX: Replace .flow() or create a more stable access point. (implicit or explicit)
@@ -2422,6 +2423,7 @@ class Transports(Transformer):
 	the flows are completely dependent on the &Transports.
 
 	[ Properties ]
+
 	/t_termination_index
 		Not Implemented.
 
@@ -2641,7 +2643,7 @@ class Transports(Transformer):
 	def terminate(self):
 		flow = self.controller
 
-		if flow.f_permanent and self.stack:
+		if self.stack:
 			self.stack[-1].terminate(self.polarity)
 
 		for x in list(self.stack):
@@ -2805,7 +2807,7 @@ class KernelPort(Transformer):
 		self.process = self.transit.acquire
 		self.controller.context._sys_traffic_attach(self.transit)
 
-	def transition(self):
+	def k_transition(self):
 		# Called when the resource was exhausted
 		# Unused atm and pending deletion.
 		pass
@@ -2823,7 +2825,7 @@ class KernelPort(Transformer):
 			t.terminate() # terminates one direction.
 	interrupt = terminate
 
-	def terminated(self):
+	def f_terminated(self):
 		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
 
 		# Called when the termination condition is received,
@@ -3148,7 +3150,6 @@ class Condition(object):
 			return condition
 
 	def __repr__(self):
-		global Inexorable
 		if self is Inexorable:
 			return 'Inexorable'
 
@@ -3396,6 +3397,19 @@ class Flow(Processor):
 		pass
 
 	@property
+	def f_empty(self):
+		"""
+		Whether the flow is actively performing a transfer.
+
+		This property returns &True in cases where the Flow's
+		state is such that it may independently send events downstream.
+
+		Flows that have buffers *should* implement this method.
+		"""
+
+		return True
+
+	@property
 	def f_obstructed(self):
 		"""
 		Whether or not the &Flow is obstructed.
@@ -3420,7 +3434,6 @@ class Flow(Processor):
 		Instruct the Flow to signal the cessation of transfers.
 		The cessation may be permanent depending on the condition.
 		"""
-		global Inexorable
 
 		if not self.f_obstructions:
 			first = True
@@ -3500,7 +3513,7 @@ class Mitre(Flow):
 		Connect the given flow as downstream without inheriting obstructions.
 		"""
 
-		# Similar to &Flow, but no obstruction events.
+		# Similar to &Flow, but obstruction notifications are not carried upstream.
 		self.f_downstream = flow
 		self.f_emit = flow.process
 		self.atexit(flow.terminate)
@@ -3637,6 +3650,533 @@ class Collection(Flow):
 	def process(self, obj, source=None):
 		self.c_operation(obj)
 
+class FTransports(Flow):
+	"""
+	Transports represents a stack of protocol layers and manages their
+	initialization and termination so that the outermost layer is
+	terminated before the inner layers, and vice versa for initialization.
+
+	Transports are primarily used to manage protocol layers like TLS where
+	the flows are completely dependent on the &Transports.
+
+	[ Properties ]
+
+	/tf_termination_index
+		Not Implemented.
+
+		/(&int)`x > 0`
+			The lowest index of the stack that has terminated
+			in both directions. When &tf_termination_index is equal
+			to `1`, the transports will reach a terminated
+			state and the connected flows will receive terminate events.
+		/&None
+			No part of the stack has terminated.
+
+	/tf_polarity
+		/`-1`
+			The transport is sending events out.
+		/`+1`
+			The transport is receiving events in.
+
+	/tf_operations
+		The operations used to apply the layers for the respective direction.
+
+	/operation_set
+		Class-wide dictionary containing the functions
+		needed to resolve the transport operations used by a layer.
+	"""
+
+	operation_set = Transports.operation_set
+	@classmethod
+	def create(Class, transports, Stack=list):
+		"""
+		Create a pair of &Transports instances.
+		"""
+		global weakref
+
+		i = Class(1)
+		o = Class(-1)
+
+		i._tf_opposite = weakref.ref(o)
+		o._tf_opposite = weakref.ref(i)
+
+		stack = i.tf_stack = o.tf_stack = Stack(transports)
+
+		ops = [
+			Class.operation_set[x.__class__](x) for x in stack
+		]
+		i.tf_operations = [x[0] for x in ops]
+
+		# Output must reverse the operations in order to properly
+		# layer the transports.
+		o.tf_operations = [x[1] for x in ops]
+		o.tf_operations.reverse()
+
+		return (i, o)
+
+	polarity = 0 # neither input nor output.
+	def __init__(self, polarity:int):
+		self._tf_opposite = None
+		self.tf_stack = None
+		self.tf_polarity = polarity
+		self.tf_termination_index = None
+
+	def __repr__(self, format="<{path} [{stack}]>"):
+		path = self.__class__.__module__.rsplit('.', 1)[-1]
+		path += '.' + self.__class__.__qualname__
+		return format.format(path=path, stack=repr(self.tf_stack))
+
+	@property
+	def opposite(self):
+		"""
+		The transformer of the opposite direction for the Transports pair.
+		"""
+		return self._tf_opposite()
+
+	def drain(self):
+		"""
+		Drain the transport layer.
+
+		Buffers are left as empty as possible, so flow termination is the only
+		condition that leaves a requirement for drain completion.
+		"""
+
+		if self.tf_stack:
+			# Only block if there are items on the stack.
+			if not self.terminating and self.functioning:
+				# Run empty process to flush.
+				self.process(())
+				return None
+			else:
+				# Terminal Drain.
+				if self.f_permanent:
+					# flow is permanently obstructed and transfers
+					# are irrelevant at one level or another
+					# so try to process whatever is available, finish
+					# the drain operation so termination can finish.
+					self.process(())
+					# If a given Transports side is dead, so is the other.
+					self.opposite.closed()
+
+					# If it's permanent, no drain can be performed.
+					return None
+				else:
+					# Signal transport that termination needs to occur.
+					self.tf_stack[-1].terminate(self.tf_polarity)
+
+					# Send whatever termination signal occurred.
+					self.context.enqueue(self.empty)
+
+					return None
+		else:
+			# No stack, not draining.
+			pass
+
+		# No stack or not terminating.
+		return None
+
+	def empty(self):
+		self.process(())
+
+	def terminal(self):
+		self.process(())
+
+		if not self.tf_stack:
+			self._f_terminated()
+			return
+
+		if not self.tf_stack[-1].terminated:
+			o = self.opposite
+			if o.terminating and o.functioning:
+				# Terminate other side if terminating and functioning.
+				self.tf_stack[-1].terminate(-self.tf_polarity)
+				o.process(())
+
+	def process(self, events, source=None):
+		if not self.tf_operations:
+			# Opposite cannot have work if empty.
+			self.f_emit(events) # Empty transport stack acts a passthrough.
+			return
+
+		opposite_has_work = False
+
+		for ops in self.tf_operations:
+			# ops tuple callables:
+			# 0: transfer data into and out of the transport
+			# 1: Current direction has transfers
+			# 2: Opposite direction has transfers
+			# (Empty transfers can progress data)
+
+			# put all events into the transport layer's buffer.
+			events = ops[0](events)
+
+			if opposite_has_work is False and ops[2]():
+				opposite_has_work = True
+		else:
+			# No processing if empty.
+			self.f_emit(events)
+
+		# Termination must be checked everytime unless process() was called from here
+		if opposite_has_work:
+			# Use recursion on purpose and allow
+			# the maximum stack depth to block an infinite loop.
+			# from a poorly written stack entry.
+			self.opposite.process(())
+
+		stack = self.tf_stack
+
+		if stack and stack[-1].terminated:
+			# *fully* terminated. pop item after allowing the opposite to complete
+
+			# This needs to be done as the transport needs the ability
+			# to flush any remaining events in the opposite direction.
+			opp = self.opposite
+
+			del stack[-1] # both sides; stack is shared.
+
+			# operations is perspective sensitive
+			if self.tf_polarity == 1:
+				# recv/input
+				del self.tf_operations[-1]
+				del opp.tf_operations[0]
+			else:
+				# send/output
+				del self.tf_operations[0]
+				del opp.tf_operations[-1]
+
+			if stack:
+				if self.terminating:
+					# continue termination.
+					self.tf_stack[-1].terminate(self.tf_polarity)
+					self.context.enqueue(self.terminal)
+			else:
+				# empty stack. check for terminating conditions.
+				if self.terminating:
+					self._f_terminated()
+				if opp is not None and opp.terminating:
+					opp._f_terminated()
+
+	def terminate(self, by=None):
+		"""
+		Initiate the termination the transport stack.
+		"""
+
+		if self.terminated or self.terminating or self.interrupted:
+			return False
+
+		self.terminator = by
+		self.terminating = True
+
+		if self.tf_stack:
+			self.tf_stack[-1].terminate(self.tf_polarity)
+			self.empty()
+		else:
+			# empty stack, finish termination immediately.
+			self._f_terminated()
+
+		return True
+
+class Kernel(Flow):
+	"""
+	Flow moving data in or out of the system's kernel.
+	"""
+	k_status = None
+
+	def inject(self, events):
+		return self.f_emit(events)
+
+	def f_clear(self, *args):
+		r = super().f_clear(*args)
+		if self.f_obstructed:
+			pass
+		return r
+
+	def __init__(self, transit=None):
+		self.k_transferring = None
+		self.k_transferred = None
+
+		self.transit = transit
+		self.acquire = transit.acquire
+		transit.link = self
+		super().__init__()
+
+	def actuate(self):
+		self.context._sys_traffic_attach(self.transit)
+		super().actuate()
+
+	def k_meta(self):
+		if self.transit:
+			return self.transit.port, self.transit.endpoint()
+		else:
+			return self.k_status
+
+	def __repr__(self):
+		c = self.__class__
+		mn = c.__module__.rsplit('.', 1)[-1]
+		qn = c.__qualname__
+		port, ep = self.k_meta()
+
+		if self.transit is None:
+			res = "(no transit)"
+		else:
+			if self.transit.resource is None:
+				res = "none"
+			else:
+				res = str(len(self.transit.resource))
+
+		s = '<%s.%s(%s) RL:%s [%s] at %s>' %(
+			mn, qn,
+			str(ep),
+			res,
+			str(port),
+			hex(id(self))
+		)
+
+		return s
+
+	def structure(self):
+		p = []
+		kp, ep = self.k_meta()
+		p.append(('kport', kp.fileno))
+		p.append(('endpoint', str(ep)))
+		if self.transit is not None:
+			r = self.transit.resource
+			p.append(('resource', len(r) if r is not None else 'none'))
+
+		return (p, ())
+
+	def k_transition(self):
+		# Called when the resource was exhausted
+		# Unused atm and pending deletion.
+		raise NotImplementedError("Kernel flows must implement transition")
+
+	def k_kill(self):
+		"""
+		Called by the controlling &Flow, acquire status information and
+		unlink the transit.
+		"""
+
+		t = self.transit
+		self.transit = None
+		self.k_status = (t.port, t.endpoint())
+		t.link = None # signals I/O loop to not inject.
+		t.terminate() # terminates one direction.
+		return t
+
+	def interrupt(self, by=None):
+		if self.transit is not None:
+			self.k_kill()
+
+		super().interrupt(by=by)
+
+	def f_terminated(self):
+		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
+
+		# Called when the termination condition is received,
+		# but *after* any transfers have been injected.
+
+		# io.traffic calls this when it sees termination of the transit.
+
+		if self.transit is None:
+			# terminate has already been ran; status is *likely* present
+			pass
+		else:
+			t = self.transit
+			t.link = None
+			self.k_status = (t.port, t.endpoint())
+			self.transit = None
+
+			# No need to run transit.terminate() as this is only
+			# executed by io.traffic in response to shutdown.
+			# t.terminate()
+
+			# Exception is not thrown as the transport's error condition
+			# might be irrelevant to the success of the application.
+			# If a transaction was successfully committed and followed
+			# with a transport error, it's probably appropriate to
+			# show the transport issue, if any, as a warning.
+			if self.interrupted:
+				# Presume the exit already occurred.
+				pass
+			else:
+				if self.terminating:
+					self.terminated = True
+					self.terminating = False
+					self.controller.exited(self)
+				else:
+					self.f_obstruct('kernel port closed', None, Inexorable)
+
+	def process(self, event, source=None):
+		raise NotImplementedError("kernel flows must implement process")
+
+	def inject(self, events, sum=sum, map=map, len=len):
+		self.k_transferred += sum(map(len, events))
+		self.f_emit(events)
+
+class KInput(Kernel):
+	"""
+	Transformer that continually allocates memory for the downstream Transformers.
+
+	Used indirectly by &KernelPort instances that reference an input transit.
+	"""
+
+	allocate_integer_array = (array.array("i", [-1]).__mul__, 24)
+	allocate_byte_array = (bytearray, 1024*4)
+
+	@classmethod
+	def sockets(Class, transit):
+		"""
+		Allocate a &KInput instance for transferring accepted sockets.
+		"""
+		return Class(transit, allocate=Class.allocate_integer_array)
+
+	def __init__(self, transit, allocate=allocate_byte_array):
+		super().__init__(transit=transit)
+
+		self.ki_allocate = allocate[0]
+		self.ki_resource_size = allocate[1]
+
+	def f_terminated(self):
+		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
+
+		# Called when the termination condition is received,
+		# but *after* any transfers have been injected.
+
+		# io.traffic calls this when it sees termination of the transit.
+
+		if self.transit is None:
+			# terminate has already been ran; status is *likely* present
+			pass
+		else:
+			t = self.transit
+			t.link = None
+			self.k_status = (t.port, t.endpoint())
+			self.transit = None
+
+			# No need to run transit.terminate() as this is only
+			# executed by io.traffic in response to shutdown.
+			# t.terminate()
+
+			# Exception is not thrown as the transport's error condition
+			# might be irrelevant to the success of the application.
+			# If a transaction was successfully committed and followed
+			# with a transport error, it's probably appropriate to
+			# show the transport issue, if any, as a warning.
+			if self.interrupted:
+				# Presume the exit already occurred.
+				pass
+			else:
+				if self.terminating:
+					self.terminated = True
+					self.terminating = False
+					self.exit()
+				else:
+					self.f_obstruct('kernel port closed', None, Inexorable)
+					self.terminate('kernel')
+
+	def k_transition(self):
+		"""
+		Transition in the next buffer provided that the Flow was not obstructed.
+		"""
+
+		if self.f_obstructed:
+			# Don't allocate another buffer if the flow has been
+			# explicitly obstructed by the downstream.
+			return
+
+		alloc = self.ki_allocate(self.ki_resource_size)
+		self.k_transferring = len(alloc)
+		self.k_transferred = 0
+		self.acquire(alloc)
+
+	def process(self, event, source=None):
+		"""
+		Normally ignored, but will induce a transition if no transfer is occurring.
+		"""
+		if self.transit.resource is None:
+			self.k_transition()
+
+class KOutput(Kernel):
+	"""
+	Transformer that buffers received events until it is signalled that they may be processed.
+
+	The queue is limited to a certain number of items rather than a metadata constraint;
+	for instance, the sum of the length of the buffer entries. This allows the connected
+	Flows to dynamically choose the buffer size by adjusting the size of the events.
+	"""
+
+	ko_limit = 16
+
+	@property
+	def ko_overflow(self):
+		"""
+		Queue entries exceeds limit.
+		"""
+		return len(self.ko_queue) > self.ko_limit
+
+	@property
+	def f_empty(self):
+		return (
+			self.transit is not None and \
+			len(self.ko_queue) == 0 and \
+			self.transit.resource is None
+		)
+
+	def __init__(self, transit, Queue=collections.deque):
+		super().__init__(transit=transit)
+		self.ko_queue = Queue()
+
+	def k_transition(self):
+		# Acquire the next buffer to be sent.
+		if self.ko_queue:
+			nb = self.ko_queue.popleft()
+			self.acquire(nb)
+			self.k_transferring = len(nb)
+			self.k_transferred = 0
+		else:
+			# Clear obstruction when and ONLY when the buffer is emptied.
+			# This is done to avoid thrashing.
+			self.k_transferring = None
+			self.k_transferred = None
+			self.f_clear(self)
+
+			if self.terminating:
+				self.transit.terminate()
+
+	def process(self, event, source=None, len=len):
+		"""
+		Enqueue a sequence of events for processing by the following Transformer.
+		"""
+
+		# Events *must* be processed, so extend the queue unconditionally.
+		self.ko_queue.extend(event)
+
+		if self.k_transferring is None:
+			# nothing transferring, so there should be no transfer resources (Transit/Detour)
+			self.k_transition()
+		else:
+			# Set obstruction if the queue size exceeds the limit.
+			if len(self.ko_queue) > self.ko_limit:
+				self.f_obstruct(self, None,
+					Condition(self, ('ko_overflow',))
+				)
+
+	def terminate(self, by=None):
+		if self.terminated or self.terminating or self.interrupted:
+			return False
+
+		self.terminating = True
+		self.terminator = by
+
+		if self.f_empty:
+			# Only terminate transit if it's done.
+			self.transit.terminate()
+			self.terminating = False
+			self.terminated = True
+			self.exit()
+
+		return True
+
 class Transformation(Flow):
 	"""
 	A Processor consisting of a sequence of transformations.
@@ -3684,6 +4224,7 @@ class Transformation(Flow):
 		sr = ()
 		s = self.xf_sequence
 		p = [(i, s[i]) for i in range(len(s))]
+		p.append(('c', self.continuation))
 
 		return (p, sr)
 
@@ -3782,7 +4323,6 @@ class Transformation(Flow):
 
 		Called after a terminal &drain to set the terminal state..
 		"""
-		global Inexorable
 		assert self.terminating is True
 
 		self.terminated = True
@@ -3793,7 +4333,7 @@ class Transformation(Flow):
 			# signal terminate.
 			x.terminate()
 
-		if self.f_downstream:
+		if self.f_downstream is not None:
 			self.f_downstream.terminate(by=self)
 
 		self.f_obstruct(self.__class__.terminate, None, Inexorable)
@@ -4235,6 +4775,7 @@ class Division(Flow):
 		Direct the given events to their corresponding action in order to
 		map protocol stream events to &Flow instances.
 		"""
+
 		ops = self.div_operations.__getitem__
 		for event in events:
 			ops(event[0])(self, *event)
