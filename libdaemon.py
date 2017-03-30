@@ -339,7 +339,10 @@ class Control(libio.Interface):
 		ports = unit.ports
 
 		for bsector, root, origin in rt_load_argument_sectors(unit):
-			bsector.acquire(libio.Call.partial(root, bsector))
+			try:
+				bsector.acquire(libio.Call.partial(root, bsector))
+			except TypeError:
+				raise Exception("initialization object is not callable")
 
 		# The control interface must be shut down in the forks.
 		# The interchange is voided the moment we get into the fork,

@@ -1,6 +1,21 @@
 """
 Support for running tests outside of a &.library.Unit environment.
 """
+import collections
+
+class ExitController(object):
+	"""
+	Root controller for tests.
+	"""
+	def __init__(self):
+		self.exits = []
+		self.callbacks = collections.defaultdict(list)
+
+	def exited(self, processor):
+		self.exits.append(processor)
+
+	def exit_event_connect(self, subject, cb):
+		self.callbacks[subject].append(cb)
 
 class Context(object):
 	"""
@@ -13,16 +28,24 @@ class Context(object):
 
 	def __init__(self):
 		self.tasks = []
+		self.faults = []
+
+	def _sys_traffic_attach(self, *ignored):
+		pass
 
 	def associate(self, processor):
 		self.association = lambda: processor
 		processor.context = self
 
-	def enqueue(self, *task, controller=None):
-		self.tasks.extend(task)
+	def enqueue(self, *tasks, controller=None):
+		self.tasks.extend(tasks)
 
-	def attach(self, *ignored):
-		pass # Tests don't use real transits.
+	def faulted(self, resource):
+		self.faults.append(resource)
+		faultor = resource.controller
+		faultor.interrupt()
+		if faultor.controller:
+			faultor.controller.exited(faultor)
 
 	def __call__(self):
 		l = len(self.tasks)
@@ -45,15 +68,9 @@ class Context(object):
 	def cancel(self, task):
 		pass
 
-	def faulted(self, resource):
-		self.faults.append(resource)
-		faultor = resource.controller
-		faultor.interrupt()
-		if faultor.controller:
-			faultor.controller.exited(faultor)
-
 class Transit(object):
 	link = None
+	resource = None
 
 	def k_transition(self):
 		pass

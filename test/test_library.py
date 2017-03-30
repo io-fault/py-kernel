@@ -6,8 +6,10 @@ import itertools
 
 from .. import library
 from .. import libcommand
+from . import library as testlib
 
 def test_parallel(test):
+	return
 	t = False
 	def nothing(*args):
 		nonlocal t
@@ -27,96 +29,14 @@ def test_parallel(test):
 		pass
 	test/t == True
 
-class ExitController(object):
-	"""
-	Root controller for tests.
-	"""
-	def __init__(self):
-		self.exits = []
-		self.callbacks = collections.defaultdict(list)
-
-	def exited(self, processor):
-		self.exits.append(processor)
-
-	def exit_event_connect(self, subject, cb):
-		self.callbacks[subject].append(cb)
-
-# used to emulate io.library.Context
-class TContext(object):
-	process = None
-
-	def __init__(self):
-		self.tasks = []
-		self.faults = []
-
-	def _sys_traffic_attach(self, *ignored):
-		pass # Tests don't use real transits.
-
-	def associate(self, processor):
-		self.association = lambda: processor
-		processor.context = self
-
-	def enqueue(self, *tasks):
-		self.tasks.extend(tasks)
-
-	def faulted(self, resource):
-		self.faults.append(resource)
-		faultor = resource.controller
-		faultor.interrupt()
-		if faultor.controller:
-			faultor.controller.exited(faultor)
-
-	def __call__(self):
-		l = len(self.tasks)
-		e = self.tasks[:l]
-		del self.tasks[:l]
-		for x in e:
-			x()
-
-	def defer(self, mt):
-		pass
-
-	def cancel(self, task):
-		pass
-
-	def flush(self, maximum=128):
-		i = 0
-		while self.tasks:
-			self()
-			i += 1
-			if i > maximum:
-				raise Exception('exceeded maximum iterations for clear test context task queue')
-
-class TTransit(object):
-	link = None
-
-	# for representation during debugging
-	resource = None
-	port = '<test transit>'
-	def endpoint(self):
-		return None
-
-	def acquire(self, obj):
-		self.resource = obj
-
-	def subresource(self, obj):
-		self.controller = obj
-
-	def process(self, event):
-		pass
-
-	def inject(self, event):
-		self.f_emit((event,))
-
-	def k_transition(self):
-		pass
-
 def sector():
-	"Construct a root Sector and Context for testing."
-	ctx = TContext()
+	"""
+	Construct a root Sector and Context for testing.
+	"""
+	ctx = testlib.Context()
 	sect = library.Sector()
 	sect.context = ctx
-	x = ExitController()
+	x = testlib.ExitController()
 	sect.controller = x
 	sect.actuate()
 	return ctx, sect
@@ -174,13 +94,6 @@ def test_Join(test):
 	test/j['p1'] == jp1
 	test/j['p2'] == jp2
 	test/set(j) == {jp1, jp2}
-
-def test_Transformer(test):
-	class X(library.Transformer):
-		def process(self, arg):
-			pass
-
-	x=X()
 
 def test_Condition(test):
 	Type = library.Condition
@@ -243,28 +156,24 @@ def test_FlowControl(test):
 
 def test_Flow_operation(test):
 	# base class transformers emit what they're given to process
-	xf1 = library.Reflection()
-	xf2 = library.Reflection()
-	xf3 = library.Reflection()
+	f = library.Flow()
+	end = library.Collection.list()
+	f.f_connect(end)
 
-	endpoint = []
-	def append(x, source=None):
-		endpoint.append(x)
-
-	f = library.Transformation(xf1, xf2, xf3)
+	endpoint = end.c_storage
 	f.actuate()
-	f.f_emit = append
+	end.actuate()
 
 	f.process("event")
-
 	test/endpoint == ["event"]
 
 	f.process("event2")
-
 	test/endpoint == ["event", "event2"]
 
 def test_Flow_obstructions(test):
-	"Validate signaling of &library.Flow obstructions"
+	"""
+	Validate signaling of &library.Flow obstructions.
+	"""
 
 	status = []
 	def obstructed(flow):
@@ -294,7 +203,9 @@ def test_Flow_obstructions(test):
 	test/status == [True, False]
 
 def test_Flow_obstructions_initial(test):
-	"Validate obstruction signaling when obstruction is presented before the watch"
+	"""
+	Validate obstruction signaling when obstruction is presented before the watch.
+	"""
 
 	status = []
 	def obstructed(flow):
@@ -303,7 +214,8 @@ def test_Flow_obstructions_initial(test):
 	def cleared(flow):
 		status.append(False)
 
-	f = library.Transformation(library.Reflection())
+	f = library.Flow()
+	f.actuate()
 	f.f_obstruct(test, None)
 
 	f.f_watch(obstructed, cleared)
@@ -312,17 +224,19 @@ def test_Flow_obstructions_initial(test):
 	test/status == [True]
 
 def test_Flow_obstructions(test):
-	"Validate that joins receive obstruction notifications"
+	"""
+	Validate that joins receive obstruction notifications.
+	"""
 
 	l = []
-	class ObstructionWatcher(library.Reactor):
-		def suspend(self, flow):
-			l.append('suspend')
+	def suspend(flow):
+		l.append('suspend')
 
-		def resume(self, flow):
-			l.append('resume')
+	def resume(flow):
+		l.append('resume')
 
-	f = library.Transformation(ObstructionWatcher())
+	f = library.Flow()
+	f.f_watch(suspend, resume)
 	f.actuate()
 
 	f.f_obstruct(test, None)
@@ -339,8 +253,7 @@ def test_Flow_obstructions(test):
 	test/l == ['suspend', 'resume', 'suspend',]
 
 def setup_connected_flows():
-	reservoir = []
-	ctx = TContext()
+	ctx = testlib.Context()
 	usector = library.Sector()
 	usector.context = ctx
 	usector.actuate()
@@ -349,16 +262,12 @@ def setup_connected_flows():
 	dsector.context = ctx
 	dsector.actuate()
 
-	us = library.Transformation(library.Reflection())
-	ds = library.Transformation(library.Reflection())
+	us = library.Flow()
+	ds = library.Collection.list()
 	usector.dispatch(us)
 	dsector.dispatch(ds)
 
-	def append(event, source=None, end=reservoir):
-		end.append((event, source))
-
-	ds.f_emit = append
-	return usector, dsector, reservoir, us, ds
+	return usector, dsector, ds.c_storage, us, ds
 
 def test_Flow_connect_events(test):
 	"""
@@ -371,10 +280,11 @@ def test_Flow_connect_events(test):
 	test/us.functioning == True
 	test/ds.functioning == True
 	us.process(1)
-	test/reservoir == [(1, ds)]
+	test/reservoir == [1]
 
 	# validate that terminate is inherited
 	us.terminate()
+	us.context()
 	test/us.terminated == True
 	usector.context()
 	test/ds.terminated == True
@@ -386,7 +296,8 @@ def test_Flow_connect_events(test):
 	us.interrupt()
 	test/us.interrupted == True
 	usector.context() # context is shared
-	test/ds.interrupted == True
+	test/ds.interrupted == False
+	test/ds.terminated == True
 
 	# faulted flow
 	usector, dsector, reservoir, us, ds = setup_connected_flows()
@@ -396,7 +307,7 @@ def test_Flow_connect_events(test):
 	us.fault(Exception("int"))
 	usector.context() # context is shared
 	test/us.interrupted == True
-	test/ds.interrupted == True
+	test/ds.interrupted == False
 
 	# The downstream should have had its exit signalled
 	# which means the controlling sector should have
@@ -406,8 +317,8 @@ def test_Flow_connect_events(test):
 
 def test_Iteration(test):
 	c = library.Collection.list()
-	e = ExitController()
-	ctx = TContext()
+	e = testlib.ExitController()
+	ctx = testlib.Context()
 
 	c.controller = e
 	c.context = ctx
@@ -424,8 +335,8 @@ def test_Iteration(test):
 	test/i.terminated == True
 
 def test_null(test):
-	e = ExitController()
-	ctx = TContext()
+	e = testlib.ExitController()
+	ctx = testlib.Context()
 	i = library.Iteration(range(100))
 	i.controller = e
 	i.context = ctx
@@ -438,8 +349,8 @@ def test_null(test):
 def test_Collection(test):
 	"Similar to test_iterate, but install all storage types"
 
-	ctx = TContext()
-	exit = ExitController()
+	ctx = testlib.Context()
+	exit = testlib.ExitController()
 
 	c = library.Collection.dict()
 	c.controller = exit
@@ -484,17 +395,6 @@ def test_Collection(test):
 	b.actuate()
 	b.process([b'data', b' ', b'more'])
 	test/b.c_storage == b'data more'
-
-def test_Functional(test):
-	r = []
-
-	ft = library.Functional(lambda x: x+1)
-	ft.f_emit = r.append
-
-	ft.process(1)
-	ft.process(2)
-
-	test/r == [2,3]
 
 def test_Call(test):
 	Type = library.Call
@@ -544,80 +444,34 @@ def test_Coroutine(test):
 	test/effects[-1] == 'called'
 	test/effects[0] == sect
 
-def test_Allocator(test):
-	ctx = TContext()
-	t = TTransit()
-	d = library.KernelPort(t)
+def test_KInput(test):
+	ctx = testlib.Context()
+	t = testlib.Transit()
+	f = library.KInput(t)
 
-	f = library.Transformation(*library.meter_input(d))
 	f.context = ctx
-	meter = f.xf_sequence[0]
 	f.actuate()
+	test/t.link == f
+	f.k_transition()
 
-	test/t.link == f.xf_sequence[1]
-	test/meter.transferred == 0
-	test/t.link == f.xf_sequence[1]
-	f.xf_sequence[0].transition()
-	fst_resource = t.resource
-
-	test/meter.transferring == len(t.resource)
+	# test that allocation is occurring after transition.
+	test/f.k_transferring == len(t.resource)
 	rlen = len(t.resource)
 	test/rlen > 0
+	test/f.k_transferring == rlen
 
-	chunk = rlen // 2
-	t.link.inject((t.resource[:chunk],))
-
-	test/meter.transferred == chunk
-
-	t.link.inject((t.resource[chunk:rlen-1],))
-	test/meter.transferred == rlen-1
-
-	test/meter.transferring == rlen
-
-	t.link.inject((t.resource[rlen-1:],))
-	test/meter.transferred == 0
-	test/id(t.resource) != id(fst_resource)
-
-def test_Throttle(test):
-	ctx = TContext()
-	t = TTransit()
-	d = library.KernelPort(t)
-
-	f = library.Transformation(*library.meter_output(d))
+def test_KOutput(test):
+	ctx = testlib.Context()
+	t = testlib.Transit()
+	f = library.KOutput(t)
 	f.context = ctx
-	meter = f.xf_sequence[0]
 	f.actuate()
+	test/f.transit == t
+	test/t.link == f
 
-	test/t.link == f.xf_sequence[1]
-	test/meter.transferred == 0
 	# nothing has been allocated
-	test/meter.transferring == None
-
 	f.process((b'datas',))
-	fst_resource = t.resource
-
-	test/meter.transferring == len(t.resource)
-	rlen = len(t.resource)
-	test/rlen > 0
-
-	chunk = rlen // 2
-	t.link.inject((t.resource[:chunk],))
-
-	test/meter.transferred == chunk
-
-	t.link.inject((t.resource[chunk:rlen-1],))
-	test/meter.transferred == rlen-1
-
-	test/meter.transferring == rlen
-
-	f.process((b'following',))
-	t.link.inject((t.resource[rlen-1:],))
-	test/meter.transferred == 0
-	test/id(t.resource) != id(fst_resource)
-
-	# it appears desirable to test that the t.resource becomes None after
-	# a full transfer, but that's testing the Transit's buffer exhaustion;
-	# here, we're primarily interesting in successful rotations.
+	test/f.k_transferring == len(t.resource)
 
 def test_Catenation(test):
 	"""
@@ -628,7 +482,7 @@ def test_Catenation(test):
 	fc_terminate = library.FlowControl.terminate
 	fc_initiate = library.FlowControl.initiate
 	fc_transfer = library.FlowControl.transfer
-	ctx = TContext()
+	ctx = testlib.Context()
 
 	S = library.Sector()
 	S.context = ctx
@@ -736,7 +590,7 @@ def test_Division(test):
 	fc_init = library.FlowControl.initiate
 
 	Type = library.Division
-	Context = TContext()
+	Context = testlib.Context()
 	S = library.Sector()
 	S.context = Context
 	S.actuate()
@@ -768,6 +622,32 @@ def test_Division(test):
 	test/c.terminated == False
 	x.process([(fc_terminate, 1)])
 	Context()
+	test/c.terminated == True
+
+def test_Transformation(test):
+	ctx = testlib.Context()
+	i = 0
+	def f(event):
+		nonlocal i
+		i = i + 1
+		return event+1
+	t = library.Transformation(f)
+	c = library.Collection.list()
+	t.context = ctx
+	c.context = ctx
+	t.f_connect(c)
+
+	t.process(10)
+	test/i == 1
+	t.process(20)
+	test/i == 2
+	t.process(30)
+	test/i == 3
+
+	t.terminate()
+	test/t.terminated == True
+	test/c.c_storage == [11,21,31]
+	ctx()
 	test/c.terminated == True
 
 if __name__ == '__main__':

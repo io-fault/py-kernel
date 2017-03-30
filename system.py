@@ -329,12 +329,9 @@ class Context(object):
 		Allocate a transit for overwriting data at the given offset of
 		the designated file.
 		"""
-		global traffic
-		global os
-		seek = os.lseek
 
 		t = traffic.allocate(('octets', 'file', 'overwrite'), path)
-		position = seek(t.port.fileno, 0, offset)
+		position = os.lseek(t.port.fileno, 0, offset)
 
 		return self._output(t)
 

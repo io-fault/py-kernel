@@ -32,6 +32,21 @@ def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.
 
 	return (init + header_data + b'\r\n\r\n' + body,)
 
+def test_ranges(test):
+	"""
+	Check Range header parsing.
+	"""
+	test/list(library.ranges(0, None)) == [(0, 0)]
+	test/list(library.ranges(123, None)) == [(0, 123)]
+	test/list(library.ranges(100, None)) == [(0, 100)]
+
+	# HTTP Ranges are inclusive.
+	test/list(library.ranges(100, b"bytes=0-0")) == [(0, 1)]
+	test/list(library.ranges(100, b"bytes=0-100")) == [(0, 101)]
+
+	# Missing starts means last n-bytes.
+	test/list(library.ranges(100, b"bytes=-50")) == [(50, 100)]
+
 def test_fork(test):
 	"""
 	Validate requests without bodies, sized bodies, and chunked transfers.
@@ -127,8 +142,7 @@ def test_Protocol(test):
 	S.actuate()
 
 	http = library.Protocol.server()
-	ti, to = libio.Transports.create((http,))
-	fi, fo = libio.Transformation(ti), libio.Transformation(to)
+	fi, fo = libio.Transports.create((http,))
 	ic = libio.Collection.list()
 	oc = libio.Collection.list()
 

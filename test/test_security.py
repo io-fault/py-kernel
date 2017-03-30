@@ -79,23 +79,19 @@ def test_Transports_io(test, chain=itertools.chain):
 	server = sctx.accept()
 
 	cti, cto = libio.Transports.create((client,))
-	ci = libio.Transformation(cti)
 	cc = libio.Collection.list()
-	co = libio.Transformation(cto)
 
 	sti, sto = libio.Transports.create((server,))
-	si = libio.Transformation(sti)
 	sc = libio.Collection.list()
-	so = libio.Transformation(sto)
 
 	sector = libio.Sector()
 	io_root.process(sector)
-	sector.process([sc, cc, ci, co, si, so])
-	si.f_connect(sc)
-	ci.f_connect(cc)
+	sector.process([sc, cc, cti, cto, sti, sto])
+	sti.f_connect(sc)
+	cti.f_connect(cc)
 
-	so.f_connect(ci)
-	co.f_connect(si)
+	sto.f_connect(cti)
+	cto.f_connect(sti)
 
 	if 0:
 		co.process((b'',))
@@ -104,8 +100,8 @@ def test_Transports_io(test, chain=itertools.chain):
 			io_context()
 
 	# Should enqueue writes until SSLOK.
-	co.process((b'abc',))
-	so.process((b'xyz',))
+	cto.process((b'abc',))
+	sto.process((b'xyz',))
 
 	io_context.flush()
 
@@ -122,7 +118,7 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/[x for x in l if x] == [b'abc']
 
 	inc = [b'A slight increase to the data transfer']
-	co.process(inc)
+	cto.process(inc)
 
 	io_context()
 
@@ -132,7 +128,7 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/[x for x in l if x] == [b'abc', inc[0]]
 
 	server_inc = [b'A slight increase to the data transfer(server out)']
-	so.process(server_inc)
+	sto.process(server_inc)
 
 	io_context()
 	l = []
@@ -141,23 +137,23 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/[x for x in l if x] == [b'xyz', server_inc[0]]
 
 	# termination can only occur when both sides have initiated termination.
-	ci.terminate()
-	test/ci.terminating == True
+	cti.terminate()
+	test/cti.terminating == True
 	test/client.terminated == False
 
-	co.terminate()
+	cto.terminate()
 	io_context.flush()
 	test/client.terminated == True
 	test/server.terminated == True # recevied termination
 
-	si.terminate()
-	so.terminate()
+	sti.terminate()
+	sto.terminate()
 	io_context.flush()
 
-	test/so.terminated == True
-	test/si.terminated == True
-	test/co.terminated == True
-	test/ci.terminated == True
+	test/sto.terminated == True
+	test/sti.terminated == True
+	test/cto.terminated == True
+	test/cti.terminated == True
 
 if __name__ == '__main__':
 	import sys; from ...development.libtest import execute
