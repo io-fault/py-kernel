@@ -31,6 +31,45 @@ length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
 length_strings = libc.compose(operator.methodcaller('encode', 'utf-8'), str, sum, functools.partial(map,len))
 HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
+def decode_number(string, int=int):
+	ustring = string.decode('ascii')
+	return int(ustring, 10)
+
+def ranges(length, range_header):
+	"""
+	# Generator producing the ranges specified by the given Range header.
+	# &length is used to properly normalize the emitted range tuples.
+	"""
+	if range_header is None:
+		yield (0, length)
+		return
+
+	for x in range_header.split():
+		if x.startswith(b'bytes='):
+			break
+	else:
+		yield (0, length)
+		return
+
+	label, ranges = x.split(b'=')
+	for x in ranges.split(b','):
+		start, stop = x.split(b'-')
+		if not start:
+			# empty start range
+			if not stop:
+				yield (0, length)
+			else:
+				# Convert to slice.
+				stop = decode_number(stop)
+				yield (length - stop, length)
+		else:
+			if not stop:
+				stop = length
+			else:
+				stop = decode_number(stop) + 1
+
+			yield (decode_number(start), stop)
+
 class ProtocolTransaction(tuple):
 	"""
 	The set of objects associated with a protocol transaction.
@@ -53,11 +92,46 @@ class ProtocolTransaction(tuple):
 
 	del ig
 
+	def __lshift__(self, flow):
+		"""
+		# Connect the transaction's input to the flow.
+		"""
+		self.connect_input(flow)
+		return self
+
+	def __rshift__(self, flow):
+		"""
+		# Connect the flow to the transaction's output.
+		"""
+		self.connect_output(flow)
+		return self
+
+	@property
+	def terminal(self):
+		"""
+		# Whether the Transaction is the last.
+		"""
+		return self.response.terminal
+
+	def redirect(self, location):
+		"""
+		# Location header redirect.
+		"""
+
+		if self.request.connection in {b'close', None}:
+			self.response.add_headers([(
+				b'Connection', b'close'
+			)])
+
+		self.response.add_headers([(b'Location', location.encode('ascii'))])
+		self.response.initiate((b'HTTP/1.1', b'302', b'Found'))
+		self.write_null()
+
 	def reflect(self):
 		"""
-		Send the input back to the output. Usually, after configuring the response layer.
+		# Send the input back to the output. Usually, after configuring the response layer.
 
-		Primarily used for performance testing.
+		# Primarily used for performance testing.
 		"""
 
 		f = libio.Flow()
@@ -67,37 +141,36 @@ class ProtocolTransaction(tuple):
 
 	def write_null(self):
 		"""
-		Used to send a request or a response without a body.
-		Necessary to emit the headers of the transaction.
+		# Used to send a request or a response without a body.
+		# Necessary to emit the headers of the transaction.
 		"""
 		self.connect_output(None)
 
 	def read_null(self):
 		"""
-		Used to note that no read will occur.
-		*Must* be used when no body is expected. Usually called by the &Client or &Server.
+		# Used to note that no read will occur.
+		# *Must* be used when no body is expected. Usually called by the &Client or &Server.
 
-		! FUTURE:
-			Throws exception or emits error in cases where body is present.
+		# ! FUTURE:
+			# Throws exception or emits error in cases where body is present.
 		"""
 		self.connect_input(None)
 
 	def iterate_output(self, iterator:typing.Iterable):
 		"""
-		Construct a Flow consisting of a single &libio.Iterate instance
-		used to stream output to the connection protocol state.
+		# Construct a Flow consisting of a single &libio.Iterate instance
+		# used to stream output to the connection protocol state.
 
-		The &libio.Flow will be dispatched into the &Connection for proper
-		fault isolation in cases that the iterator produces an exception.
+		# The &libio.Flow will be dispatched into the &Connection for proper
+		# fault isolation in cases that the iterator produces an exception.
 		"""
-		global libio
 
-		i = libio.Iteration(iterator)
-		self.connection.dispatch(i)
+		f = libio.Iteration(iterator)
+		self.connection.dispatch(f)
 		self.response.initiate((self.request.version, b'200', b'OK'))
-		self.connect_output(i)
+		self.connect_output(f)
 
-		return i
+		return f
 
 	def write_output(self, mime:str, data:bytes):
 		"""
@@ -105,7 +178,6 @@ class ProtocolTransaction(tuple):
 		If other headers are desired, they *must* be configured before running
 		this method.
 		"""
-		global length_string
 
 		self.response.add_headers([
 			(b'Content-Type', mime.encode('utf-8')),
@@ -122,14 +194,13 @@ class ProtocolTransaction(tuple):
 		The response must be properly initialized before invoking this method.
 
 		[ Parameters ]
+
 		/path
 			A string containing the file's path.
 		"""
-		global libio, libmemory
 
 		f = libio.Iteration(((x,) for x in libmemory.Segments.open(str(path))))
 		self.connection.dispatch(f)
-
 		self.connect_output(f)
 
 		return f
@@ -165,8 +236,7 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		t, = cxn.context.append_files(str(route))
-		f = libio.Transformation(*libio.meter_output(t))
+		f = cxn.context.append_file(str(route))
 		cxn.dispatch(f)
 		self.connect_input(f)
 
@@ -181,8 +251,7 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		t, = cxn.context.connect_input(fd)
-		f = libio.Transformation(*libio.meter_input(t))
+		f = cxn.context.connect_input(fd)
 		cxn.dispatch(f)
 		self.connect_output(f)
 
@@ -198,8 +267,7 @@ class ProtocolTransaction(tuple):
 		"""
 
 		cxn = self.connection
-		t, = cxn.context.connect_output(fd)
-		f = libio.Transformation(*libio.meter_output(t))
+		f = cxn.context.connect_output(fd)
 		cxn.dispatch(f)
 
 		self.connect_input(f)
@@ -221,6 +289,7 @@ class ProtocolTransaction(tuple):
 
 		self.connect_input(fi)
 		self.connect_output(fo)
+
 		return f
 
 	def proxy(self, endpoint):
@@ -238,7 +307,7 @@ class Layer(libio.Layer):
 
 	/cached_headers
 		The HTTP headers that will be available inside a &dict instance
-		as well as the canonical header sequence.
+		as well as the canonical header sequence that preserves order.
 
 	/(&HeaderSequence)`header_sequence`
 		The sequence of headers.
@@ -280,11 +349,39 @@ class Layer(libio.Layer):
 		# no entity body
 		return None
 
+	def byte_ranges(self, length):
+		"""
+		The byte ranges of the request.
+		"""
+
+		range_str = self.headers.get(b'range')
+		return ranges(length, range_str)
+
+	@property
+	def upgrade_insecure(self):
+		"""
+		The (http/header-id)`Upgrade-Insecure-Requests` header as a boolean.
+		&None if not the header was not present, &True if the header value was
+		(octets)`1` and &False if (octets)`0`.
+		"""
+
+		x = self.headers.get(b'upgrade-insecure-requests')
+		if x is None:
+			return None
+		elif x == b'1':
+			return True
+		elif x == b'0':
+			return False
+		else:
+			raise ValueError("Upgrade-Insecure-Requests not valid")
+
 	cached_headers = set(
 		x.lower() for x in [
 			b'Connection',
 			b'Upgrade',
 			b'Host',
+			b'Upgrade-Insecure-Requests',
+			b'Range',
 
 			b'Transfer-Encoding',
 			b'Transfer-Extension',
@@ -337,7 +434,9 @@ class Layer(libio.Layer):
 	@staticmethod
 	@functools.lru_cache(32)
 	def media_range_cache(range_data, parse_range=libmedia.Range.from_bytes):
-		global libmedia
+		"""
+		Cached access to a media range header.
+		"""
 
 		if range_data is not None:
 			return parse_range(range_data)
@@ -349,13 +448,15 @@ class Layer(libio.Layer):
 		"""
 		Structured form of the Accept header.
 		"""
+
 		return self.media_range_cache(self.headers.get(b'accept'))
 
 	@property
 	def media_type(self) -> libmedia.Type:
 		"""
+		The structured media type extracted from the (http/header-id)`Content-Type` header.
 		"""
-		global libmedia
+
 		return libmedia.type_from_bytes(self.headers[b'content-type'])
 
 	@property
@@ -372,7 +473,10 @@ class Layer(libio.Layer):
 
 	@property
 	def host(self) -> str:
-		return self.headers.get(b'host').decode('idna')
+		"""
+		Decoded host header.
+		"""
+		return self.headers.get(b'host', b'').decode('idna')
 
 	@property
 	def encoding(self) -> str:
@@ -570,6 +674,7 @@ class Response(Layer):
 
 def join(
 		checksum=None,
+		status=None,
 
 		rline=libhttp.Event.rline,
 		headers=libhttp.Event.headers,
@@ -628,11 +733,13 @@ def join(
 	transformer = commands.__getitem__
 
 	while 1:
+		event = None
 		events = (yield transfer)
 		transfer = []
 		for event in events:
 			out_events, layer = transformer(event[0])(*event)
 			transfer.extend(serialize(out_events))
+			status[event[0]] += 1
 
 def fork(
 		Layer,
@@ -654,7 +761,6 @@ def fork(
 	"""
 	Split an HTTP stream into flow events for use by &libio.Division.
 	"""
-	global libhttp
 
 	tokenizer = libhttp.disassembly()
 	tokens = tokenizer.send
@@ -773,14 +879,15 @@ def fork(
 
 class Protocol(object):
 	"""
-	Stack object for &libio.Transports.
+	# Stack object for &libio.Transports.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/receive_overflow
-		Transfers that occurred past protocol boundaries. Used during protocol
-		switching to properly maintain state.
+	# /receive_overflow
+		# Transfers that occurred past protocol boundaries. Used during protocol
+		# switching to properly maintain state.
 	"""
+
 	@classmethod
 	def client(Class) -> 'Protocol':
 		return Class(Response)
@@ -789,9 +896,16 @@ class Protocol(object):
 	def server(Class) -> 'Protocol':
 		return Class(Request)
 
+	@property
+	def open_transactions(self):
+		return self.status[libio.FlowControl.initiate] - self.status[libio.FlowControl.terminate]
+
 	def terminate(self, polarity=0):
 		self._termination ^= polarity
 		if self._termination == -2:
+			self.terminated = True
+		elif polarity == 1 and self.open_transactions == 0:
+			# read terminated with no open protocol transactions
 			self.terminated = True
 
 	def __init__(self, Layer:Layer, selected_version=b'HTTP/1.1'):
@@ -805,7 +919,8 @@ class Protocol(object):
 		self.fork = self.input_state.send
 		self.fork(None)
 
-		self.output_state = join()
+		self.status = collections.Counter()
+		self.output_state = join(status=self.status)
 		self.join = self.output_state.send
 		self.join(None)
 
@@ -817,7 +932,7 @@ libio.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
 
 class Client(libio.Mitre):
 	"""
-	Mitre initiating requests for an HTTP Connection.
+	# Mitre initiating requests for an HTTP Connection.
 	"""
 	Protocol = Protocol.client
 
@@ -828,9 +943,10 @@ class Client(libio.Mitre):
 
 	def process(self, events, source=None):
 		"""
-		Received a set of response initiations. Join with requests, and
-		execute the receiver provided to &m_request.
+		# Received a set of response initiations. Join with requests, and
+		# execute the receiver provided to &m_request.
 		"""
+
 		self.m_responses.extend(events)
 		signal_count = min(len(self.m_responses), len(self.m_requests))
 
@@ -848,17 +964,17 @@ class Client(libio.Mitre):
 			flow:libio.Flow=None
 		):
 		"""
-		Emit an HTTP request. The corresponding response will be joined to form a
-		&ProtocolTransaction instance.
+		# Emit an HTTP request. The corresponding response will be joined to form a
+		# &ProtocolTransaction instance.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/receiver
-			The callback to be performed when a response for the request is received.
-		/layer
-			The request layer context. &Request.
-		/flow
-			The request body to be emittted. &None if there is no body to send.
+		# /receiver
+			# The callback to be performed when a response for the request is received.
+		# /layer
+			# The request layer context. &Request.
+		# /flow
+			# The request body to be emittted. &None if there is no body to send.
 		"""
 
 		layer, connect = self.f_emit((layer,), self)[0]
@@ -867,7 +983,7 @@ class Client(libio.Mitre):
 
 class Server(libio.Mitre):
 	"""
-	Mitre managing incoming server connections for HTTP.
+	# Mitre managing incoming server connections for HTTP.
 	"""
 	Protocol = Protocol.server
 
@@ -875,26 +991,42 @@ class Server(libio.Mitre):
 		self.m_reference = ref
 		self.m_route = router
 
-	def process(self, events, source=None):
+	def _init_xacts(self, events):
 		"""
-		Accept HTTP &Request's from the remote end and pair them with &Response's.
+		# Reserve respone slots and yield the constructed &ProtocolTransaction instances.
 		"""
-
-		global ProtocolTransaction
-		global Response
 
 		cxn = self.controller
+		px = None
 		# Reserve response slot and acquire connect callback.
 		responses = self.f_emit([Response() for i in range(len(events))], self)
 
 		for req, res in zip(events, responses):
+			ts = libtime.now()
 			px = ProtocolTransaction((
 				cxn, req[0], res[0], req[1], res[1], self.m_reference
 			))
+
+			datetime = ts.select('rfc').encode('utf-8')
 			px.response.add_headers([
-				(b'Date', libtime.now().select('rfc').encode('utf-8')),
+				(b'Date', datetime),
 			])
 			if req[0].terminal:
 				res[0].header_sequence.append((b'Connection', b'close'))
 
+			yield px
+
+	def process(self, events, source=None):
+		"""
+		# Accept HTTP &Request's from the remote end and pair them with &Response's.
+		"""
+
+		cxn = self.controller
+		px = None
+
+		xacts = list(self._init_xacts(events))
+		for px in xacts:
 			self.m_route(cxn, px)
+
+		if px and px.request.terminal:
+			self.terminate(by=px)

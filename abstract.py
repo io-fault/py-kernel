@@ -335,7 +335,7 @@ class Flow(Processor, metaclass=abc.ABCMeta):
 		"""
 
 	@abc.abstractmethod
-	def drain(self, callback=None):
+	def f_drain(self, callback=None):
 		"""
 		Instruct the &Transformer sequence to drain any retained events.
 
@@ -344,20 +344,20 @@ class Flow(Processor, metaclass=abc.ABCMeta):
 		"""
 
 	@abc.abstractmethod
-	def watch(self, obstructed, cleared):
+	def f_watch(self, obstructed, cleared):
 		"""
 		Register callbacks to be executed whenever an obstruction is placed and cleared.
 		"""
 
 	@abc.abstractmethod
-	def obstruct(self, obstruction, signal=None, condition=None):
+	def f_obstruct(self, obstruction, signal=None, condition=None):
 		"""
 		Note an obstruction on the &Flow signalling any callbacks registered
 		by &watch.
 		"""
 
 	@abc.abstractmethod
-	def clear(self, obstruction):
+        def f_clear(self, obstruction):
 		"""
 		Clear the cited &obstruction.
 
