@@ -1,36 +1,36 @@
 """
-Root process for service management and scheduled processes.
+# Root process for service management and scheduled processes.
 
-libroot provides the primary support for &.bin.rootd which manages a scheduling daemon,
-a set of service processes and a set of service Sectors assigned to a particular
-group with its own configurable concurrency level.
+# libroot provides the primary support for &.bin.rootd which manages a scheduling daemon,
+# a set of service processes and a set of service Sectors assigned to a particular
+# group with its own configurable concurrency level.
+# 
+# Multiple instances of faultd may exist, but usually only one per-user is necessary.
+# The (system:directory)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
+# line parameter. The daemon directory supplies all the necessary configuration,
+# so few options are available from system invocation.
+# 
+# It is important that the faultd directory exist on the same partition as the
+# Python executable. Hardlinks are used in order to provide accurate process names.
+# 
+# The daemon directory structure is a set of service directories managed by the instance with
+# "scheduled" and "root" reserved for the management of the administrative scheduler
+# and the spawning daemon itself.
+# 
+# /root/
+	# Created automatically to represent the faultd process.
+	# All files are instantiated as if it were a regular service.
+	# state is always ON
+	# invocation.xml written every boot to reflect its invocation
 
-Multiple instances of faultd may exist, but usually only one per-user is necessary.
-The (system:directory)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
-line parameter. The daemon directory supplies all the necessary configuration,
-so few options are available from system invocation.
-
-It is important that the faultd directory exist on the same partition as the
-Python executable. Hardlinks are used in order to provide accurate process names.
-
-The daemon directory structure is a set of service directories managed by the instance with
-"scheduled" and "root" reserved for the management of the administrative scheduler
-and the spawning daemon itself.
-
-/root/
-	Created automatically to represent the faultd process.
-	All files are instantiated as if it were a regular service.
-	state is always ON
-	invocation.xml written every boot to reflect its invocation
-
-/root/
-	type: sectors | daemon | command | root (reserved for libroot)
-	actuates: True or False (whether or not its to be spawned)
-	status: run state (executed|terminated|exception)
-	invocation.xml: command and environment for service
-	if/: directory of sockets; 0 refers to the master
-		0-n
-		Only guaranteed to be available for sectord and control types.
+# /root/
+	# type: sectors | daemon | command | root (reserved for libroot)
+	# actuates: True or False (whether or not its to be spawned)
+	# status: run state (executed|terminated|exception)
+	# invocation.xml: command and environment for service
+	# if/: directory of sockets; 0 refers to the master
+		# 0-n
+		# Only guaranteed to be available for sectord and control types.
 """
 
 import os
@@ -57,9 +57,9 @@ class HumanInterfaceSupport(libhttpd.Index):
 
 class Commands(libhttpd.Index):
 	"""
-	HTTP Control API used by control (Host) connections.
+	# HTTP Control API used by control (Host) connections.
 
-	GET Retrieves documentation, POST performs.
+	# GET Retrieves documentation, POST performs.
 	"""
 
 	def __init__(self, services, managed):
@@ -69,7 +69,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def sleep(self, resource, parameters) -> (str, str):
 		"""
-		Send a stop signal associated with a timer to pause the process group.
+		# Send a stop signal associated with a timer to pause the process group.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -84,7 +84,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def enable(self, resource, parameters) -> typing.Tuple[str, str]:
 		"""
-		Enable the service, but do not start it.
+		# Enable the service, but do not start it.
 		"""
 
 		service = self.services[parameters['service']]
@@ -96,7 +96,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def disable(self, resource, parameters):
 		"""
-		Disable the service, but do not change its status.
+		# Disable the service, but do not change its status.
 		"""
 
 		service = self.services[parameters['service']]
@@ -108,7 +108,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def signal(self, resource, parameters):
 		"""
-		Send the given signal to the process.
+		# Send the given signal to the process.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -124,7 +124,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def stop(self, resource, parameters):
 		"""
-		Signal the service to stop and inhibit it from being restarted if enabled.
+		# Signal the service to stop and inhibit it from being restarted if enabled.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -145,7 +145,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def restart(self, resource, parameters):
 		"""
-		Signal the service to stop (SIGTERM) and allow it to restart.
+		# Signal the service to stop (SIGTERM) and allow it to restart.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -162,7 +162,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def reload(self, resource, parameters):
 		"""
-		Send a SIGHUP to the service.
+		# Send a SIGHUP to the service.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -188,8 +188,8 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def start(self, resource, parameters):
 		"""
-		Start the daemon unless it's already running; explicit starts ignore
-		&libservice.Service.actuates.
+		# Start the daemon unless it's already running; explicit starts ignore
+		# &libservice.Service.actuates.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -210,10 +210,10 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def normalize(self, resource, parameters):
 		"""
-		Normalize the set of services by shutting down any running
-		disabled services and starting any enabled services.
+		# Normalize the set of services by shutting down any running
+		# disabled services and starting any enabled services.
 
-		Command services are ignored by &normalize.
+		# Command services are ignored by &normalize.
 		"""
 
 		for name, service in self.services.items():
@@ -227,7 +227,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def execute(self, resource, parameters):
 		"""
-		Execute the command associated with the service. Only applies to command types.
+		# Execute the command associated with the service. Only applies to command types.
 		"""
 
 		managed = self.managed[parameters['service']]
@@ -261,7 +261,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def list(self, resource, parameters):
 		"""
-		List the set of configured services.
+		# List the set of configured services.
 		"""
 
 		# list all if no filter
@@ -271,7 +271,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def create(self, resource, parameters):
 		"""
-		Create a service.
+		# Create a service.
 		"""
 
 		name = parameters['service']
@@ -279,7 +279,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def void(self, resource, parameters):
 		"""
-		Terminate the service and destroy it's stored configuration.
+		# Terminate the service and destroy it's stored configuration.
 		"""
 
 		name = parameters['service']
@@ -293,7 +293,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def interface(self, resource, parameters):
 		"""
-		Add a set of interfaces.
+		# Add a set of interfaces.
 		"""
 
 		name = parameters['service']
@@ -302,29 +302,29 @@ class Commands(libhttpd.Index):
 
 class ServiceManager(libio.Processor):
 	"""
-	Service daemon state and interface.
+	# Service daemon state and interface.
 
-	Manages the interactions to daemons and commands.
+	# Manages the interactions to daemons and commands.
 
-	ServiceManager processors do not exit unless the service is *completely* removed
-	by an administrative instruction; disabling a service does not remove it.
-	They primarily respond to events in order to keep the daemon running.
-	Secondarily, it provides the administrative interface.
+	# ServiceManager processors do not exit unless the service is *completely* removed
+	# by an administrative instruction; disabling a service does not remove it.
+	# They primarily respond to events in order to keep the daemon running.
+	# Secondarily, it provides the administrative interface.
 
-	! WARNING:
-		There is no exclusion primitive used to protect read or write operations,
-		so there are race conditions.
+	# ! WARNING:
+		# There is no exclusion primitive used to protect read or write operations,
+		# so there are race conditions.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/minimum_runtime
-		Identifies the minimum time required to identify a successful start.
+	# /minimum_runtime
+		# Identifies the minimum time required to identify a successful start.
 
-	/minimum_wait
-		Identifies the minimum wait time before trying again.
+	# /minimum_wait
+		# Identifies the minimum wait time before trying again.
 
-	/maximum_wait
-		Identifies the maximum wait time before trying again.
+	# /maximum_wait
+		# Identifies the maximum wait time before trying again.
 	"""
 
 	# delay before faultd perceives the daemon as running
@@ -378,8 +378,8 @@ class ServiceManager(libio.Processor):
 
 	def invoke(self):
 		"""
-		Invoke the service daemon or command.
-		Does nothing if &status is `'executed'`.
+		# Invoke the service daemon or command.
+		# Does nothing if &status is `'executed'`.
 		"""
 
 		if self.service.type == 'root':
@@ -414,7 +414,7 @@ class ServiceManager(libio.Processor):
 
 	def again(self):
 		"""
-		Called when a non-command service exits.
+		# Called when a non-command service exits.
 		"""
 
 		r = self.rate()
@@ -425,7 +425,7 @@ class ServiceManager(libio.Processor):
 
 	def rate(self):
 		"""
-		Average exits per second.
+		# Average exits per second.
 		"""
 
 		et = self.exit_events
@@ -459,9 +459,10 @@ class ServiceManager(libio.Processor):
 
 	def sm_update(self):
 		"""
-		Create or Update the KInvocation instance.
-		Used to initiate the Invocation and after command and environment changes.
+		# Create or Update the KInvocation instance.
+		# Used to initiate the Invocation and after command and environment changes.
 		"""
+
 		# KInvocation used to run the command.
 		service = self.service
 		command_def = service.execution()
@@ -498,16 +499,17 @@ class ServiceManager(libio.Processor):
 
 class Set(libio.Interface):
 	"""
-	The (io.path)`/control` sector of the root daemon (faultd)
-	managing a set of services.
+	# The (io.path)`/control` sector of the root daemon (faultd)
+	# managing a set of services.
 
-	Executes the managed services inside (io.path)`/bin/*`; ignores
-	natural exit signals as it waits for administrative termination
-	signal.
+	# Executes the managed services inside (io.path)`/bin/*`; ignores
+	# natural exit signals as it waits for administrative termination
+	# signal.
 
-	! DEVELOPER: TODO
-		Operation set for dispatched processes. Provides instropection
-		to the operation status, and any blocking operations.
+	# [ Engineering ]
+
+	# Operation set for dispatched processes. Provides instropection
+	# to the operation status, and any blocking operations.
 	"""
 
 	def halt(self, source):
@@ -521,9 +523,9 @@ class Set(libio.Interface):
 
 	def actuate(self):
 		"""
-		Create the faultd context if it does not exist.
-		This is performed in actuate because it is desirable
-		to trigger a &libsys.Panic when an exception occurs.
+		# Create the faultd context if it does not exist.
+		# This is performed in actuate because it is desirable
+		# to trigger a &libsys.Panic when an exception occurs.
 		"""
 		super().actuate()
 
@@ -561,7 +563,7 @@ class Set(libio.Interface):
 
 	def manage_service(self, unit, srv:libservice.Service):
 		"""
-		Install the service's manager for execution.
+		# Install the service's manager for execution.
 		"""
 
 		S = libio.Sector()
@@ -578,13 +580,13 @@ class Set(libio.Interface):
 
 	def forget_service(self, s:libservice.Service):
 		"""
-		Remove the service from the managed list and the service set.
+		# Remove the service from the managed list and the service set.
 		"""
 		raise Exception('not implemented')
 
 	def boot(self):
 		"""
-		Start all the *actuating* services and mention all the disabled ones.
+		# Start all the *actuating* services and mention all the disabled ones.
 		"""
 
 		unit = self.context.association()
@@ -599,7 +601,7 @@ class Set(libio.Interface):
 	@classmethod
 	def rs_initialize(Class, sector):
 		"""
-		sectord entry point for initializing the application sector.
+		# sectord entry point for initializing the application sector.
 		"""
 		rset = Class()
 		sector.dispatch(rset)

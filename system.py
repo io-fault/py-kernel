@@ -1,19 +1,17 @@
 """
-Process management classes.
+# Process management classes.
 
-Implements the thread management and process representation management necessary
-to work with a set of &.library.Unit instances. &Context instances are indirectly
-associated with the &.library.Unit instances in order to allow &.library.Processor
-instances to cache access to &Context.enqueue.
+# Implements the thread management and process representation management necessary
+# to work with a set of &.library.Unit instances. &Context instances are indirectly
+# associated with the &.library.Unit instances in order to allow &.library.Processor
+# instances to cache access to &Context.enqueue.
 
-[ Properties ]
-
-/__process_index__
-	Indirect association of &Representation and &Context
-
-/__traffic_index__
-	Indirect association of Logical Process objects and traffic Interchanges.
-	Interchange holds references back to the process.
+# [ Properties ]
+# /__process_index__
+	# Indirect association of &Proces and &Context
+# /__traffic_index__
+	# Indirect association of Logical Process objects and traffic Interchanges.
+	# Interchange holds references back to the process.
 """
 
 import os
@@ -41,23 +39,23 @@ __traffic_index__ = dict()
 
 class Context(object):
 	"""
-	Execution context class providing access to per-context resource acquisition.
+	# Execution context class providing access to per-context resource acquisition.
 
-	Manages allocation of kernel provided resources, system command execution, threading,
-	I/O connections.
+	# Manages allocation of kernel provided resources, system command execution, threading,
+	# I/O connections.
 
-	Contexts are the view to the &Process and the Kernel of the system running
-	the process. Subcontexts can be created to override the default functionality
-	and provide a different environment.
+	# Contexts are the view to the &Process and the Kernel of the system running
+	# the process. Subcontexts can be created to override the default functionality
+	# and provide a different environment.
 
-	Contexts are associated with every &.library.Resource.
+	# Contexts are associated with every &.library.Resource.
 	"""
 
 	inheritance = ('environment',)
 
 	def __init__(self, process, *api):
 		"""
-		Initialize a &Context instance with the given &process.
+		# Initialize a &Context instance with the given &process.
 		"""
 
 		self.process = process
@@ -70,13 +68,13 @@ class Context(object):
 
 	def associate(self, resource, Ref=weakref.ref):
 		"""
-		Associate the context with a particular &.library.Resource object, &resource.
+		# Associate the context with a particular &.library.Resource object, &resource.
 
-		Only one association may exist and implies that the context will be destroyed
-		after the object is deleted.
+		# Only one association may exist and implies that the context will be destroyed
+		# after the object is deleted.
 
-		Generally used by &.library.Sector instances that are augmenting the execution
-		context for subprocessors.
+		# Generally used by &.library.Sector instances that are augmenting the execution
+		# context for subprocessors.
 		"""
 
 		self.association = Ref(resource)
@@ -84,7 +82,7 @@ class Context(object):
 	@property
 	def unit(self):
 		"""
-		The &Unit of the association.
+		# The &Unit of the association.
 		"""
 		global Unit
 
@@ -96,18 +94,18 @@ class Context(object):
 
 	def faulted(self, resource):
 		"""
-		Notify the controlling &Unit instance of the fault.
+		# Notify the controlling &Unit instance of the fault.
 		"""
 
 		return self.unit.faulted(resource)
 
 	def defer(self, measure, task, maximum=6000, seconds=libtime.Measure.of(second=2)):
 		"""
-		Schedule the task for execution after the period of time &measure elapses.
+		# Schedule the task for execution after the period of time &measure elapses.
 
-		&.library.Scheduler instances will resubmit a task if there is a substantial delay
-		remaining. When large duration defers are placed, the seconds unit are used
-		and decidedly inexact, so resubmission is used with a finer grain.
+		# &.library.Scheduler instances will resubmit a task if there is a substantial delay
+		# remaining. When large duration defers are placed, the seconds unit are used
+		# and decidedly inexact, so resubmission is used with a finer grain.
 		"""
 
 		# select the granularity based on the measure
@@ -132,21 +130,21 @@ class Context(object):
 
 	def cancel(self, task):
 		"""
-		Cancel a scheduled task.
+		# Cancel a scheduled task.
 		"""
 
 		return self.process.kernel.cancel(task)
 
 	def inherit(self, context):
 		"""
-		Inherit the exports from the given &context.
+		# Inherit the exports from the given &context.
 		"""
 
 		raise Exception("not implemented")
 
 	def _sys_traffic_cycle(self):
 		"""
-		Signal the &Process that I/O occurred for this context.
+		# Signal the &Process that I/O occurred for this context.
 		"""
 
 		self.process.interchange.force(id=self.association())
@@ -172,8 +170,8 @@ class Context(object):
 
 	def interfaces(self, processor):
 		"""
-		Iterator producing the stack of &Interface instances associated
-		with the sector ancestry.
+		# Iterator producing the stack of &Interface instances associated
+		# with the sector ancestry.
 		"""
 		sector_scan = processor.controller
 		while not isinstance(sector_scan, Unit):
@@ -183,22 +181,22 @@ class Context(object):
 
 	def enqueue(self, *tasks):
 		"""
-		Enqueue the tasks for subsequent processing; used by threads to synchronize their effect.
+		# Enqueue the tasks for subsequent processing; used by threads to synchronize their effect.
 		"""
 
 		self.process.enqueue(*tasks)
 
 	def execute(self, controller, function, *parameters):
 		"""
-		Execute the given function in a thread associated with the specified controller.
+		# Execute the given function in a thread associated with the specified controller.
 		"""
 
 		return self.process.fabric.execute(controller, function, *parameters)
 
 	def environ(self, identifier):
 		"""
-		Access the environment from the perspective of the context.
-		Context overrides may hide process environment variables.
+		# Access the environment from the perspective of the context.
+		# Context overrides may hide process environment variables.
 		"""
 
 		if identifier in self.environment:
@@ -208,9 +206,9 @@ class Context(object):
 
 	def override(self, identifier, value):
 		"""
-		Override an environment variable for the execution context.
+		# Override an environment variable for the execution context.
 
-		Child processes spawned relative to the context will inherit the overrides.
+		# Child processes spawned relative to the context will inherit the overrides.
 		"""
 
 		if self.environment:
@@ -221,11 +219,10 @@ class Context(object):
 
 	def bindings(self, *allocs, transmission = 'sockets'):
 		"""
-		Allocate leaked listening interfaces.
+		# Allocate leaked listening interfaces.
 
-		Returns a sequence of file descriptors that can later be acquired by traffic.
+		# Returns a sequence of file descriptors that can later be acquired by traffic.
 		"""
-		global traffic
 
 		alloc = traffic.allocate
 		unit = self.association()
@@ -248,22 +245,22 @@ class Context(object):
 
 	def connect_subflows_using(self, interface, endpoint, mitre, *protocols):
 		"""
-		Given an endpoint and a transport stack, return the series used to
-		manage the connection's I/O from the given &interface.
+		# Given an endpoint and a transport stack, return the series used to
+		# manage the connection's I/O from the given &interface.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/interface
-			The &.library.Endpoint instance describing the interface to use for the
-			connection.
+		# /interface
+			# The &.library.Endpoint instance describing the interface to use for the
+			# connection.
 
-		/endpoint
-			The &.library.Endpoint instance describing the target of the connection.
+		# /endpoint
+			# The &.library.Endpoint instance describing the target of the connection.
 
-		/protocols
-			A sequence of transport layers to use with the &.library.Transport instances.
-			A &.library.Transport pair will be created even if &protocols is empty.
-			This parameter might be merged into the mitre.
+		# /protocols
+			# A sequence of transport layers to use with the &.library.Transport instances.
+			# A &.library.Transport pair will be created even if &protocols is empty.
+			# This parameter might be merged into the mitre.
 		"""
 
 		transits = traffic.allocate(
@@ -274,18 +271,18 @@ class Context(object):
 
 	def connect_subflows(self, endpoint, mitre, *protocols):
 		"""
-		Given an endpoint and a transport stack, return the series used to
-		manage the connection's I/O.
+		# Given an endpoint and a transport stack, return the series used to
+		# manage the connection's I/O.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/endpoint
-			The &.library.Endpoint instance describing the target of the connection.
+		# /endpoint
+			# The &.library.Endpoint instance describing the target of the connection.
 
-		/protocols
-			A sequence of transport layers to use with the &.library.Transport instances.
-			A &.library.Transport pair will be created even if &protocols is empty.
-			This parameter might be merged into the mitre.
+		# /protocols
+			# A sequence of transport layers to use with the &.library.Transport instances.
+			# A &.library.Transport pair will be created even if &protocols is empty.
+			# This parameter might be merged into the mitre.
 		"""
 
 		transits = traffic.allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
@@ -293,18 +290,16 @@ class Context(object):
 
 	def accept_subflows(self, fd, mitre, *protocols):
 		"""
-		Given a file descriptor and a transport stack, return the series used to
-		manage the connection's I/O.
+		# Given a file descriptor and a transport stack, return the series used to
+		# manage the connection's I/O.
 
-		[ Parameters ]
-
-		/fd
-			The &.library.Endpoint instance describing the target of the connection.
-
-		/protocols
-			A sequence of transport layers to use with the &.library.Transport instances.
-			A &.library.Transport pair will be created even if &protocols is empty.
-			This parameter might be merged into the mitre.
+		# [ Parameters ]
+		# /fd
+			# The &.library.Endpoint instance describing the target of the connection.
+		# /protocols
+			# A sequence of transport layers to use with the &.library.Transport instances.
+			# A &.library.Transport pair will be created even if &protocols is empty.
+			# This parameter might be merged into the mitre.
 		"""
 
 		transits = traffic.allocate('octets://acquire/socket', fd)
@@ -312,22 +307,22 @@ class Context(object):
 
 	def read_file(self, path):
 		"""
-		Open a set of files for reading through a &.library.KernelPort.
+		# Open a set of files for reading through a &.library.KernelPort.
 		"""
 
 		return self._input(traffic.allocate('octets://file/read', path))
 
 	def append_file(self, path):
 		"""
-		Open a set of files for appending through a &.library.KernelPort.
+		# Open a set of files for appending through a &.library.KernelPort.
 		"""
 
 		return self._output(traffic.allocate('octets://file/append', path))
 
 	def update_file(self, path, offset, size):
 		"""
-		Allocate a transit for overwriting data at the given offset of
-		the designated file.
+		# Allocate a transit for overwriting data at the given offset of
+		# the designated file.
 		"""
 
 		t = traffic.allocate(('octets', 'file', 'overwrite'), path)
@@ -337,10 +332,10 @@ class Context(object):
 
 	def listen(self, interfaces):
 		"""
-		On POSIX systems, this performs (system:manual)`bind` *and*
-		(system:manual)`listen` system calls for receiving socket connections.
+		# On POSIX systems, this performs (system:manual)`bind` *and*
+		# (system/manual)`listen` system calls for receiving socket connections.
 
-		Returns a generator producing (interface, Flow) pairs.
+		# Returns a generator producing (interface, Flow) pairs.
 		"""
 
 		alloc = traffic.allocate
@@ -351,17 +346,17 @@ class Context(object):
 
 	def acquire_listening_sockets(self, kports):
 		"""
-		Acquire the transits necessary for the set of &kports, file descriptors,
-		and construct a pair of &KernelPort instances to represent them inside a &Flow.
+		# Acquire the transits necessary for the set of &kports, file descriptors,
+		# and construct a pair of &KernelPort instances to represent them inside a &Flow.
 
-		[ Parameters ]
-		/kports
-			An iterable consisting of file descriptors referring to sockets.
+		# [ Parameters ]
+		# /kports
+			# An iterable consisting of file descriptors referring to sockets.
 
-		[ Returns ]
-		/&Type
-			Iterable of pairs. First item of each pair being the interface's local endpoint,
-			and the second being the &KernelPort instance.
+		# [ Returns ]
+		# /&Type
+			# Iterable of pairs. First item of each pair being the interface's local endpoint,
+			# and the second being the &KernelPort instance.
 		"""
 
 		alloc = traffic.allocate
@@ -372,25 +367,25 @@ class Context(object):
 
 	def connect_output(self, fd):
 		"""
-		Allocate &..traffic Transit instances for the given sequence
-		of file descriptors.
+		# Allocate &..traffic Transit instances for the given sequence
+		# of file descriptors.
 		"""
 
 		return self._output(traffic.allocate('octets://acquire/output', fd))
 
 	def connect_input(self, fd):
 		"""
-		Allocate &..traffic Transit instances for the given sequence
-		of file descriptors.
+		# Allocate &..traffic Transit instances for the given sequence
+		# of file descriptors.
 		"""
 
 		return self._input(traffic.allocate('octets://acquire/input', fd))
 
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
 		"""
-		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
+		# Execute the &..system.library.KInvocation instance with stdin and stdout closed.
 
-		Returns the process identifier and standard error's file descriptor as a tuple.
+		# Returns the process identifier and standard error's file descriptor as a tuple.
 		"""
 
 		stdout = stdin = stderr = ()
@@ -420,13 +415,13 @@ class Context(object):
 
 	def daemon_stderr(self, stderr, invocation, close=os.close):
 		"""
-		Execute the &..system.library.KInvocation instance with stdin and stdout closed.
-		The &stderr parameter will be passed in as the standard error file descriptor,
-		and then *closed* before returning.
+		# Execute the &..system.library.KInvocation instance with stdin and stdout closed.
+		# The &stderr parameter will be passed in as the standard error file descriptor,
+		# and then *closed* before returning.
 
-		Returns a &Subprocess instance containing a single Process-Id.
+		# Returns a &Subprocess instance containing a single Process-Id.
 
-		Used to launch a daemon with a specific standard error for monitoring purposes.
+		# Used to launch a daemon with a specific standard error for monitoring purposes.
 		"""
 
 		stdout = stdin = ()
@@ -450,31 +445,28 @@ class Context(object):
 
 	def system_execute(self, invocation:libsys.KInvocation):
 		"""
-		Execute the &..system.library.KInvocation inheriting standard input, output, and error.
+		# Execute the &..system.library.KInvocation inheriting standard input, output, and error.
 
-		This is used almost exclusively by shell-type processes where the calling process
-		suspends TTY I/O until the child exits.
+		# This is used almost exclusively by shell-type processes where the calling process
+		# suspends TTY I/O until the child exits.
 		"""
 
-		global Subprocess
 		return Subprocess(invocation())
 
 	def stream_shared_segments(self, path:str, range:tuple, *_, Segments=libmemory.Segments):
 		"""
-		Construct a new Flow with an initial Iterate Transformer
-		flowing shared memory segments from the memory mapped file.
+		# Construct a new Flow with an initial Iterate Transformer
+		# flowing shared memory segments from the memory mapped file.
 
-		Returns a pair, the new Flow and a callable that causes the Flow to begin
-		transferring memory segments.
+		# Returns a pair, the new Flow and a callable that causes the Flow to begin
+		# transferring memory segments.
 
-		[ Parameters ]
-
-		/path
-			Local filesystem path to read from.
-
-		/range
-			A triple, (start, stop, size), or &None if the entire file should be used.
-			Where size is the size of the memory slices to emit.
+		# [ Parameters ]
+		# /path
+			# Local filesystem path to read from.
+		# /range
+			# A triple, (start, stop, size), or &None if the entire file should be used.
+			# Where size is the size of the memory slices to emit.
 		"""
 		global Iteration, Flow
 
@@ -483,7 +475,7 @@ class Context(object):
 
 class Fabric(object):
 	"""
-	Thread manager for processes; thread pool with capacity to manage dedicated threads.
+	# Thread manager for processes; thread pool with capacity to manage dedicated threads.
 	"""
 
 	def __init__(self, process, proxy=weakref.proxy):
@@ -492,33 +484,33 @@ class Fabric(object):
 
 	def void(self):
 		"""
-		Normally used after a process fork in the child.
+		# Normally used after a process fork in the child.
 		"""
 
 		self.threading.clear()
 
 	def execute(self, controller, callable, *args):
 		"""
-		Create a dedicated thread and execute the given callable within it.
+		# Create a dedicated thread and execute the given callable within it.
 		"""
 
 		self.spawn(weakref.ref(controller), callable, args)
 
 	def critical(self, controller, context, callable, *args):
 		"""
-		Create a dedicated thread that is identified as a critical resource where exceptions
-		trigger &libsys.Panic exceptions in the main thread.
+		# Create a dedicated thread that is identified as a critical resource where exceptions
+		# trigger &libsys.Panic exceptions in the main thread.
 
-		The additional &context parameter is an arbitrary object describing the resource;
-		often the object whose method is considered critical.
+		# The additional &context parameter is an arbitrary object describing the resource;
+		# often the object whose method is considered critical.
 		"""
 
 		self.spawn(weakref.ref(controller), libsys.critical, (context, callable) + args)
 
 	def spawn(self, controller, callable, args, create_thread = libsys.create_thread):
 		"""
-		Add a thread to the fabric.
-		This expands the "parallel" capacity of a &Process.
+		# Add a thread to the fabric.
+		# This expands the "parallel" capacity of a &Process.
 		"""
 
 		tid = create_thread(self.thread, (controller, (callable, args)))
@@ -526,7 +518,7 @@ class Fabric(object):
 
 	def thread(self, *parameters, gettid = libsys.identify_thread):
 		"""
-		Manage the execution of a thread.
+		# Manage the execution of a thread.
 		"""
 		global signal
 
@@ -553,35 +545,35 @@ class Fabric(object):
 
 	def executing(self, tid):
 		"""
-		Whether or not the given thread [identifier] is executing in this Fabric instance.
+		# Whether or not the given thread [identifier] is executing in this Fabric instance.
 		"""
 
 		return tid in self.threading
 
 class Process(object):
 	"""
-	The representation of the system process running Python. Usually referred
-	to as `process` by &Context and other classes.
+	# The representation of the system process running Python. Usually referred
+	# to as `process` by &Context and other classes.
 
-	Usually only one &Representation is active per-process, but it can be reasonable to launch multiple
-	in order to perform operations that would otherwise expect its own space.
+	# Usually only one &Representation is active per-process, but it can be reasonable to launch multiple
+	# in order to perform operations that would otherwise expect its own space.
 
-	[ System Events ]
+	# [ System Events ]
 
-	The &system_event_connect and &system_event_disconnect methods
-	are the mechanisms used to respond to child process exits signals.
+	# The &system_event_connect and &system_event_disconnect methods
+	# are the mechanisms used to respond to child process exits signals.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/fabric
-		The &Fabric instance managing the threads controlled by the process.
+	# /fabric
+		# The &Fabric instance managing the threads controlled by the process.
 	"""
 
 	@staticmethod
 	def current(tid = libsys.identify_thread):
 		"""
-		Resolve the current logical process based on the thread's identifier.
-		&None is returned if the thread was not created by a &Process.
+		# Resolve the current logical process based on the thread's identifier.
+		# &None is returned if the thread was not created by a &Process.
 		"""
 
 		x = tid()
@@ -591,7 +583,7 @@ class Process(object):
 
 	def primary(self) -> bool:
 		"""
-		Return the primary &.library.Unit instance associated with the process.
+		# Return the primary &.library.Unit instance associated with the process.
 		"""
 
 		return __process_index__[self][None]
@@ -599,8 +591,8 @@ class Process(object):
 	@classmethod
 	def spawn(Class, invocation, Unit, units, identity='root', critical=libsys.critical):
 		"""
-		Construct a booted &Process using the given &invocation
-		with the specified &Unit.
+		# Construct a booted &Process using the given &invocation
+		# with the specified &Unit.
 		"""
 
 		proc = Class(identity, invocation = invocation)
@@ -619,9 +611,9 @@ class Process(object):
 
 	def log(self, data):
 		"""
-		Append only access to a *critical* process log. Usually points to &sys.stderr and
-		primarily used for process related issues. Normally inappropriate for &Unit
-		instances.
+		# Append only access to a *critical* process log. Usually points to &sys.stderr and
+		# primarily used for process related issues. Normally inappropriate for &Unit
+		# instances.
 		"""
 
 		self._logfile.write(data)
@@ -629,8 +621,8 @@ class Process(object):
 
 	def fork(self, *tasks):
 		"""
-		Fork the process and enqueue the given tasks in the child.
-		Returns a &.library.Subprocess instance referring to the Process-Id.
+		# Fork the process and enqueue the given tasks in the child.
+		# Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
 
 		return libsys.Fork.dispatch(self.boot, *tasks)
@@ -643,10 +635,10 @@ class Process(object):
 
 	def boot(self, main_thread_calls, *tasks):
 		"""
-		Boot the Context with the given tasks enqueued in the Task queue.
+		# Boot the Context with the given tasks enqueued in the Task queue.
 
-		Only used inside the main thread for the initialization of the
-		controlling processor.
+		# Only used inside the main thread for the initialization of the
+		# controlling processor.
 		"""
 		global libsys
 
@@ -663,7 +655,7 @@ class Process(object):
 
 	def main(self):
 		"""
-		The main task loop executed by a dedicated thread created by &boot.
+		# The main task loop executed by a dedicated thread created by &boot.
 		"""
 
 		# Normally
@@ -676,7 +668,7 @@ class Process(object):
 
 	def terminate(self, exit = None):
 		"""
-		Terminate the context. If no contexts remain, exit the process.
+		# Terminate the context. If no contexts remain, exit the process.
 		"""
 		self._exit_stack.__exit__(None, None, None)
 
@@ -692,13 +684,13 @@ class Process(object):
 
 	def __init__(self, identity, invocation = None):
 		"""
-		Initialize the &Representation instance using the designated &identity.
-		The identity is essentially arbitrary, but must be hashable as it's
-		used to distinguish one &Representation from another. However,
-		usually there is only one process, so "root" or "main" is often used.
+		# Initialize the Process instance using the designated &identity.
+		# The identity is essentially arbitrary, but must be hashable as it's
+		# used to distinguish one &Representation from another. However,
+		# usually there is only one process, so "root" or "main" is often used.
 
-		Normally, &execute is used to manage the construction of the
-		&Representation instance.
+		# Normally, &execute is used to manage the construction of the
+		# &Process instance.
 		"""
 
 		# Context Wide Resources
@@ -748,15 +740,15 @@ class Process(object):
 	@property
 	def interchange(self):
 		"""
-		The &..traffic.library.Interchange instance managing the I/O file descriptors used
-		by the &Process.
+		# The &..traffic.library.Interchange instance managing the I/O file descriptors used
+		# by the &Process.
 		"""
 		return __traffic_index__[self]
 
 	def void(self):
 		"""
-		Tear down the existing logical process state. Usually used internally after a
-		physical process fork.
+		# Tear down the existing logical process state. Usually used internally after a
+		# physical process fork.
 		"""
 
 		# normally called in fork
@@ -770,7 +762,7 @@ class Process(object):
 
 	def report(self, target=sys.stderr):
 		"""
-		Report a snapshot of the process' state to the given &target.
+		# Report a snapshot of the process' state to the given &target.
 		"""
 
 		target.write("[%s]\n" %(libtime.now().select('iso'),))
@@ -815,7 +807,7 @@ class Process(object):
 
 	def maintain(self, task):
 		"""
-		Add a task that is repeatedly executed after each task cycle.
+		# Add a task that is repeatedly executed after each task cycle.
 		"""
 
 		if task in self._tq_maintenance:
@@ -825,9 +817,9 @@ class Process(object):
 
 	def error(self, context, exception, title = "Unspecified Execution Area"):
 		"""
-		Exception handler for the &Representation instance.
+		# Exception handler for the &Representation instance.
 
-		This handler is called for unhandled exceptions.
+		# This handler is called for unhandled exceptions.
 		"""
 
 		exc = exception
@@ -851,8 +843,8 @@ class Process(object):
 
 	def loop(self, len=len, partial=functools.partial, BaseException=BaseException):
 		"""
-		Internal loop that processes the task queue. Executed by &boot in a thread
-		managed by &fabric.
+		# Internal loop that processes the task queue. Executed by &boot in a thread
+		# managed by &fabric.
 		"""
 
 		time_snapshot = libtime.now
@@ -890,7 +882,7 @@ class Process(object):
 			# This appears undesirable, but the alternative
 			# is to run force for each process local I/O event.
 			# Presuming that some I/O has occurred while processing
-			# the queue is not actually much of a stretch.
+			# the queue is not terribly inaccurate.
 			ix.activity()
 
 			events = ()
@@ -951,15 +943,15 @@ class Process(object):
 
 	def system_event_connect(self, event, resource, callback):
 		"""
-		Connect the given callback to system event, &event.
-		System events are given string identifiers.
+		# Connect the given callback to system event, &event.
+		# System events are given string identifiers.
 		"""
 
 		self.system_event_connections[event] = (resource, callback)
 
 	def system_event_disconnect(self, event):
 		"""
-		Disconnect the given callback from the system event.
+		# Disconnect the given callback from the system event.
 		"""
 
 		if event not in self.system_event_connections:
@@ -973,11 +965,11 @@ class Process(object):
 
 	def cut(self, *tasks):
 		"""
-		Impose the tasks by prepending them to the next working queue.
+		# Impose the tasks by prepending them to the next working queue.
 
-		Used to enqueue tasks with "high" priority. Subsequent cuts will
-		precede the earlier ones, so it is not appropriate to use in cases were
-		order is significant.
+		# Used to enqueue tasks with "high" priority. Subsequent cuts will
+		# precede the earlier ones, so it is not appropriate to use in cases were
+		# order is significant.
 		"""
 
 		self.loading_queue.extendleft(tasks)
@@ -985,7 +977,7 @@ class Process(object):
 
 	def enqueue(self, *tasks):
 		"""
-		Enqueue a task to be ran.
+		# Enqueue a task to be ran.
 		"""
 
 		self.loading_queue.extend(tasks)

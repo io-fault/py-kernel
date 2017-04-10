@@ -1,8 +1,8 @@
 """
-System Command Execution of a &.library.Unit.
+# System Command Execution of a &.library.Unit.
 
-Provides the construction of &.library.Unit instance for an
-application that is to be ran as a system command.
+# Provides the construction of &.library.Unit instance for an
+# application that is to be ran as a system command.
 """
 
 import sys
@@ -13,10 +13,9 @@ from . import library as libio
 
 def initialize(unit, main=None):
 	"""
-	Initialize the unit with a new sector running the command's main.
-	If main is a generator, it will be invoked as a coroutine.
+	# Initialize the unit with a new sector running the command's main.
+	# If main is a generator, it will be invoked as a coroutine.
 	"""
-	global libio
 
 	# main/only sector; no (daemon) control interfaces
 	s = libio.Sector()
@@ -41,9 +40,9 @@ def initialize(unit, main=None):
 
 def execute(name='__main__'):
 	"""
-	Ran by scripts and executable modules depending on libcommand:
+	# Ran by scripts and executable modules depending on libcommand:
 
-	#!/pl/python
+	# #!/pl/python
 		if __name__ == '__main__':
 			libcommand.execute()
 	"""

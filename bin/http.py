@@ -1,13 +1,13 @@
 """
-HTTP client designed for low-level analysis of HTTP transactions; &.bin.http
-is not a user agent as it will not follow redirects, manage cookies, or
-generate appropriate Content-Length headers for requests with content.
+# HTTP client designed for low-level analysis of HTTP transactions; &.bin.http
+# is not a user agent as it will not follow redirects, manage cookies, or
+# generate appropriate Content-Length headers for requests with content.
 
-If the submitted request has content, standard input will be written to
-the remote host after writing the headers.
+# If the submitted request has content, standard input will be written to
+# the remote host after writing the headers.
 
-The headers submitted and received will be written to standard error, and
-the body will be written to standard out, if any.
+# The headers submitted and received will be written to standard error, and
+# the body will be written to standard out, if any.
 """
 
 import sys
@@ -23,7 +23,7 @@ from .. import libcommand
 
 def output_thread(transformer, queue, file):
 	"""
-	Thread transformer function receiving display transactions and writing to the terminal.
+	# Thread transformer function receiving display transactions and writing to the terminal.
 	"""
 	write = file.write
 	flush = file.flush
@@ -44,7 +44,7 @@ def output_thread(transformer, queue, file):
 
 def input_thread(transformer, queue, file, partial=functools.partial):
 	"""
-	Thread transformer function translating input to Character events for &Console.
+	# Thread transformer function translating input to Character events for &Console.
 	"""
 	enqueue = transformer.context.enqueue
 	emit = transformer.emit

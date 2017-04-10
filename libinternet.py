@@ -1,7 +1,7 @@
 """
-Internet support for io applications.
+# Internet support for io applications.
 
-Provides DNS resolvers and endpoint construction facilities.
+# Provides DNS resolvers and endpoint construction facilities.
 """
 
 import socket # getaddrinfo
@@ -12,7 +12,7 @@ from ..internet import library as libi
 
 class DNS(libio.Sector):
 	"""
-	Library managing the dispatch of DNS queries.
+	# Library managing the dispatch of DNS queries.
 	"""
 
 	def query(self, callback, domain):
@@ -41,13 +41,13 @@ def service(service_name):
 
 def endpoint(url, scheme=None, parse=libri.parse):
 	"""
-	Parse a URL using internet.libri.parse and resolve its endpoint.
-	Resolves a default port if one is not provided and notes the
-	service (scheme) if the endpoint is a domain name.
+	# Parse a URL using internet.libri.parse and resolve its endpoint.
+	# Resolves a default port if one is not provided and notes the
+	# service (scheme) if the endpoint is a domain name.
 
-	Returns the pair: (struct, endpoint)
-	Where struct is the parsed Resource Indicator, and endpoint
-	is a &..internet.library.Endpoint or &..internet.library.Reference.
+	# Returns the pair: (struct, endpoint)
+	# Where struct is the parsed Resource Indicator, and endpoint
+	# is a &..internet.library.Endpoint or &..internet.library.Reference.
 	"""
 
 	struct = parse(url)

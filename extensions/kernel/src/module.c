@@ -1,5 +1,5 @@
 /**
-	Kernel interfaces for process invocation and system signal management.
+	// Kernel interfaces for process invocation and system signal management.
 */
 #include <errno.h>
 #include <unistd.h>
@@ -32,14 +32,14 @@ typedef struct kevent kevent_t; /* kernel event description */
 	FLAG(EV_EOF) \
 	FLAG(EV_ERROR)
 
-/*
- * Signals that kernel.Interface will listen for automatically.
- *
- * SIGINT is handled fork.library.control() with signal.signal.
- * SIGUSR2 is *explicitly* used to trigger interjections.
- *
- * *All* Kernel instances will receive signals.
- */
+/**
+	// Signals that kernel.Interface will listen for automatically.
+
+	// SIGINT is handled fork.library.control() with signal.signal.
+	// SIGUSR2 is *explicitly* used to trigger interjections.
+
+	// *All* Kernel instances will receive signals.
+*/
 #define KQ_SIGNALS() \
 	SIGNAME(SIGTERM) \
 	SIGNAME(SIGCONT) \
@@ -50,18 +50,18 @@ typedef struct kevent kevent_t; /* kernel event description */
 	SIGNAME(SIGURG)
 
 /*
- * SIGPOLL is POSIX+XSI and is apparently ignored on Darwin.
- * SIGURG is apparently widely available.
- * SIGIO doesn't exist on Linux.
- * SIGINFO is only available on Darwin and BSD.
- */
+	// SIGPOLL is POSIX+XSI and is apparently ignored on Darwin.
+	// SIGURG is apparently widely available.
+	// SIGIO doesn't exist on Linux.
+	// SIGINFO is only available on Darwin and BSD.
+*/
 
 /*
- * SIGNAME(SIGUSR2)
- *
- * SIGUSR2 is used to interrupt the main thread. This is used
- * to allow system.interject() to operate while in a system call.
- */
+	// SIGNAME(SIGUSR2)
+
+	// SIGUSR2 is used to interrupt the main thread. This is used
+	// to allow system.interject() to operate while in a system call.
+*/
 
 #ifndef HAVE_STDINT_H
 	/* relying on Python's checks */
@@ -85,8 +85,8 @@ typedef struct kevent kevent_t; /* kernel event description */
 #endif
 
 /*
- * Manage retry state for limiting the number of times we'll accept EINTR.
- */
+	// Manage retry state for limiting the number of times we'll accept EINTR.
+*/
 #define _RETRY_STATE _avail_retries
 #define RETRY_STATE_INIT int _RETRY_STATE = CONFIG_SYSCALL_RETRY
 #define LIMITED_RETRY() do { \
@@ -123,9 +123,9 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 	if (r >= 0)
 	{
 		/*
-		 * EV_ERROR is used in cases where kevent(2) fails after it already processed
-		 * some events. In these cases, the EV_ERROR flag is used to note the case.
-		 */
+			// EV_ERROR is used in cases where kevent(2) fails after it already processed
+			// some events. In these cases, the EV_ERROR flag is used to note the case.
+		*/
 		if (r > 0 && events[r-1].flags & EV_ERROR)
 		{
 			--r;
@@ -140,16 +140,16 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 	else
 	{
 		/*
-		 * Complete failure. Probably an interrupt or EINVAL.
-		 */
+			// Complete failure. Probably an interrupt or EINVAL.
+		*/
 		*out = 0;
 
 		switch (errno)
 		{
 			case EINTR:
 				/*
-				 * The caller can designate whether or not retry will occur.
-				 */
+					// The caller can designate whether or not retry will occur.
+				*/
 				switch (retry)
 				{
 					case -1:
@@ -162,10 +162,10 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 
 					case 0:
 						/*
-						 * Purposefully allow it to fall through. Usually a signal occurred.
-						 * For nucleus, falling through is appropriate as it usually means
-						 * processing an empty task queue.
-						 */
+							// Purposefully allow it to fall through. Usually a signal occurred.
+							// Falling through is appropriate as it usually means
+							// processing an empty task queue.
+						*/
 						*out = 0;
 						return(1);
 					break;
@@ -194,9 +194,9 @@ interface_repr(PyObj self)
 }
 
 /*
- * Relay to the generated transit alloc functions.
- * See the preproc blackmagic at the bottom of the file.
- */
+	// Relay to the generated transit alloc functions.
+	// See the preproc blackmagic at the bottom of the file.
+*/
 
 static int
 interface_init(Interface kif)
@@ -213,8 +213,8 @@ interface_init(Interface kif)
 	}
 
 	/*
-	 * Init USER filter for wait() interruptions.
-	 */
+		// Init USER filter for wait() interruptions.
+	*/
 	kev.udata = (void *) kif;
 	kev.ident = (uintptr_t) kif;
 	kev.flags = EV_ADD|EV_RECEIPT|EV_CLEAR;
@@ -252,11 +252,11 @@ interface_init(Interface kif)
 	return(1);
 }
 
-/*
- * Interface.void()
- *
- * Close the kqueue FD, and release references.
- */
+/**
+	// Interface.void()
+
+	// Close the kqueue FD, and release references.
+*/
 static PyObj
 interface_void(PyObj self)
 {
@@ -299,9 +299,9 @@ acquire_kernel_ref(Interface kif, PyObj link)
 	return(PySet_Add(kif->kif_kset, link));
 }
 
-/*
- * Interface.track()
- */
+/**
+	// Interface.track()
+*/
 static PyObj
 interface_track(PyObj self, PyObj args)
 {
@@ -535,8 +535,8 @@ interface_recur(PyObj self, PyObj args, PyObj kw)
 	int note;
 
 	/*
-	 * (link_object, period, unit)
-	 */
+		// (link_object, period, unit)
+	*/
 	if (!PyArg_ParseTupleAndKeywords(args, kw, "Ok|C", (char **) kwlist, &link, &l, &unit))
 		return(NULL);
 
@@ -576,8 +576,8 @@ interface_cancel(PyObj self, PyObj link)
 		}
 
 		/*
-		 * Add to cancellation *after* successful kevent()
-		 */
+			// Add to cancellation *after* successful kevent()
+		*/
 		if (PySet_Add(kif->kif_cancellations, link) < 0)
 			return(NULL);
 	}
@@ -650,8 +650,8 @@ interface_exit(PyObj self, PyObj args)
 }
 
 /*
- * interface_wait() - collect and process kqueue events
- */
+	// interface_wait() - collect and process kqueue events
+*/
 static PyObj
 interface_wait(PyObj self, PyObj args)
 {
@@ -668,8 +668,8 @@ interface_wait(PyObj self, PyObj args)
 		return(NULL);
 
 	/*
-	 * *Negative* numbers signal indefinite.
-	 */
+		// *Negative* numbers signal indefinite.
+	*/
 	if (sleeptime >= 0)
 		waittime.tv_sec = sleeptime;
 	else
@@ -689,8 +689,8 @@ interface_wait(PyObj self, PyObj args)
 	}
 
 	/*
-	 * Process the collected events.
-	 */
+		// Process the collected events.
+	*/
 	rob = PyList_New(0);
 	if (rob == NULL)
 		return(NULL);
@@ -774,15 +774,15 @@ interface_wait(PyObj self, PyObj args)
 
 			case EVFILT_USER:
 				/*
-				 * event from force() method
-				 */
+					// event from force() method
+				*/
 				continue;
 			break;
 
 			default:
 				/*
-				 * unknown event, throw warning
-				 */
+					// unknown event, throw warning
+				*/
 				continue;
 			break;
 		}
@@ -796,8 +796,8 @@ interface_wait(PyObj self, PyObj args)
 	}
 
 	/*
-	 * Complete timer cancellations.
-	 */
+		// Complete timer cancellations.
+	*/
 	if (PySet_GET_SIZE(kif->kif_cancellations) > 0)
 	{
 		PyObj r = PyObject_CallMethod(kif->kif_kset, "difference_update", "O", kif->kif_cancellations);
@@ -1068,6 +1068,3 @@ INIT(PyDoc_STR("Kernel interfaces for supporting nucleus based process managemen
 		DROP_MODULE(mod);
 		return(NULL);
 }
-/*
- * vim: ts=3:sw=3:noet:
- */

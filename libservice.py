@@ -1,45 +1,45 @@
 """
-faultd service management interfaces.
+# faultd service management interfaces.
 
-Manages the service state stored on disk.
+# Manages the service state stored on disk.
 
-[ Properties ]
+# [ Properties ]
 
-/environment
-	The environment variable that will be referenced in order
-	to identify the default service directory override.
+# /environment
+	# The environment variable that will be referenced in order
+	# to identify the default service directory override.
 
-/default_route
-	A &routes.library.File instance pointing to the default route
-	relative to the user's home directory. (~/.fault)
+# /default_route
+	# A &routes.library.File instance pointing to the default route
+	# relative to the user's home directory. (~/.fault)
 
-[ Service Types ]
+# [ Service Types ]
 
-The types of services that are managed by a faultd instance.
+# The types of services that are managed by a faultd instance.
 
-/daemon
-	An invocation that is expected to maintain its running state.
+# /daemon
+	# An invocation that is expected to maintain its running state.
 
-/sectors
-	A daemon that is specialized for fault.io sectord executions.
-	This includes &.libroot processes.
+# /sectors
+	# A daemon that is specialized for fault.io sectord executions.
+	# This includes &.libroot processes.
 
-/command
-	Exclusive command execution; guarantees that only a configured
-	number of invocations can be running at a given moment.
+# /command
+	# Exclusive command execution; guarantees that only a configured
+	# number of invocations can be running at a given moment.
 
-/processor
-	A variant of &command where faultd maintains a set of invocations
-	where they are expected to exit when their allotted duration
-	has expired.
+# /processor
+	# A variant of &command where faultd maintains a set of invocations
+	# where they are expected to exit when their allotted duration
+	# has expired.
 
-/root
-	Service representation of the faultd instance. Provides
-	global environment configuration.
+# /root
+	# Service representation of the faultd instance. Provides
+	# global environment configuration.
 
-/unspecified
-	Placeholder type used when a created service has not been given
-	a type. Unspecified services may be removed arbitrarily.
+# /unspecified
+	# Placeholder type used when a created service has not been given
+	# a type. Unspecified services may be removed arbitrarily.
 """
 
 import os
@@ -69,7 +69,7 @@ xml_namespaces = {
 
 def identify_route(override=None):
 	"""
-	Return the service directory route.
+	# Return the service directory route.
 	"""
 
 	global libroutes
@@ -86,7 +86,7 @@ def identify_route(override=None):
 
 def service_routes(route=default_route):
 	"""
-	Collect the routes to the set of services in the directory.
+	# Collect the routes to the set of services in the directory.
 	"""
 
 	# Only interested in directories.
@@ -98,8 +98,8 @@ _actuation_map = {'enabled':True, 'disabled':False, True:'enabled', False:'disab
 
 def configure_root_service(srv):
 	"""
-	Given a &Service selecting an uninitialized file system path,
-	configure the path as a root sector daemon.
+	# Given a &Service selecting an uninitialized file system path,
+	# configure the path as a root sector daemon.
 	"""
 	srv.create('root')
 	srv.executable = sys.executable # reveal original executable
@@ -129,10 +129,10 @@ def configure_root_service(srv):
 
 class Service(object):
 	"""
-	faultd service states manager.
+	# faultd service states manager.
 
-	Represents the faultd service stored on disk. The load and store methods are used
-	to perform the necessary updates to or from disk.
+	# Represents the faultd service stored on disk. The load and store methods are used
+	# to perform the necessary updates to or from disk.
 	"""
 
 	def libexec(self, recreate=False, root=None):
@@ -161,7 +161,7 @@ class Service(object):
 
 	def prepare(self):
 		"""
-		Create the service directory and any type specific subnodes.
+		# Create the service directory and any type specific subnodes.
 		"""
 
 		typ = self.type
@@ -176,18 +176,18 @@ class Service(object):
 
 	def void(self):
 		"""
-		Destroy the service directory.
+		# Destroy the service directory.
 		"""
 
 		self.route.void()
 
 	def __init__(self, route:libroutes.File, identifier:str, type='unspecified'):
 		"""
-		Initialize the Service structure selecting the &route as its
-		storage location. The &route may not exist upon instantiation
-		as it may be the first use in which the user may choose to
-		initialize a directory or merely check for whether it is
-		a service at all.
+		# Initialize the Service structure selecting the &route as its
+		# storage location. The &route may not exist upon instantiation
+		# as it may be the first use in which the user may choose to
+		# initialize a directory or merely check for whether it is
+		# a service at all.
 		"""
 		self.route = route
 		self.identifier = identifier
@@ -202,8 +202,8 @@ class Service(object):
 
 	def critical(self, message):
 		"""
-		Log a critical message. Usually used by &.bin.rootd and
-		&.bin.sectord.
+		# Log a critical message. Usually used by &.bin.rootd and
+		# &.bin.sectord.
 		"""
 
 		logfile = self.route / "critical.log"
@@ -214,17 +214,17 @@ class Service(object):
 
 	def trim(self):
 		"""
-		Trim the critical log in the service's directory.
+		# Trim the critical log in the service's directory.
 
-		! PENDING:
-			Not implemented.
+		# ! PENDING:
+			# Not implemented.
 		"""
 
 		pass
 
 	def execution(self):
 		"""
-		Return a tuple consisting of the executable and the parameters.
+		# Return a tuple consisting of the executable and the parameters.
 		"""
 
 		if self.type == 'root':
@@ -239,14 +239,14 @@ class Service(object):
 
 	def execute(self):
 		"""
-		Execute the service replacing the process image. &execute does not return.
+		# Execute the service replacing the process image. &execute does not return.
 
-		Environment variables will be updated by the running process,
-		the current working directory will be switched to service's directory,
-		&route, and the service with be executed according to the current
-		working settings assigned to &self.
+		# Environment variables will be updated by the running process,
+		# the current working directory will be switched to service's directory,
+		# &route, and the service with be executed according to the current
+		# working settings assigned to &self.
 
-		A call to &load prior to running this is often reasonable.
+		# A call to &load prior to running this is often reasonable.
 		"""
 		global os
 
@@ -259,22 +259,22 @@ class Service(object):
 
 	def create(self, type, types=types):
 		"""
-		Create the service directory and initialize many of the configuration files.
+		# Create the service directory and initialize many of the configuration files.
 
-		There are three types that may be created: "command", "daemon", and "sectors".
+		# There are three types that may be created: "command", "daemon", and "sectors".
 
-		"command" types are simple commands that are executed exclusively. The
-		faultd process provides the necessary synchronization to avoid concurrent invocations.
-		Any requests to run the command while it's running will induce no effect.
+		# "command" types are simple commands that are executed exclusively. The
+		# faultd process provides the necessary synchronization to avoid concurrent invocations.
+		# Any requests to run the command while it's running will induce no effect.
 
-		"daemon" types are daemon processes spawned to remain within the process tree.
-		Additional retry logic is used to manage daemons in order to guarantee that a reasonable
-		attempt was made to start them.
+		# "daemon" types are daemon processes spawned to remain within the process tree.
+		# Additional retry logic is used to manage daemons in order to guarantee that a reasonable
+		# attempt was made to start them.
 
-		"sectors" is a daemon, but understood to be a fault.io based process. Configuration
-		changes to the process will sometimes be dynamically modified without restart
-		or reload operations as the root process will provide a control interface that can
-		be used to propagate changes.
+		# "sectors" is a daemon, but understood to be a fault.io based process. Configuration
+		# changes to the process will sometimes be dynamically modified without restart
+		# or reload operations as the root process will provide a control interface that can
+		# be used to propagate changes.
 		"""
 
 		if type not in types:
@@ -289,14 +289,14 @@ class Service(object):
 
 	def exists(self):
 		"""
-		Whether or not the service directory exists.
+		# Whether or not the service directory exists.
 		"""
 
 		return self.route.exists()
 
 	def load(self):
 		"""
-		Load the service definition from the filesystem.
+		# Load the service definition from the filesystem.
 		"""
 
 		self.load_actuation()
@@ -304,7 +304,7 @@ class Service(object):
 
 	def store(self):
 		"""
-		Store the service definition to the filesystem.
+		# Store the service definition to the filesystem.
 		"""
 
 		self.store_invocation()
@@ -359,10 +359,10 @@ class Service(object):
 	@property
 	def actuates(self) -> bool:
 		"""
-		Manage the actuation state of the service. &True means the
-		actuation.txt file contain `'enabled'`, &False means the
-		file contains `'disabled'`. Updating the property stores
-		the state to the file.
+		# Manage the actuation state of the service. &True means the
+		# actuation.txt file contain `'enabled'`, &False means the
+		# file contains `'disabled'`. Updating the property stores
+		# the state to the file.
 		"""
 		global _actuation_map
 		return _actuation_map.get(self.actuation, False)
@@ -388,7 +388,7 @@ class Service(object):
 	@property
 	def status(self):
 		"""
-		Get and set the contents of the status file in the Service directory.
+		# Get and set the contents of the status file in the Service directory.
 		"""
 
 		return (self.route / "status").load().decode('utf-8').strip()

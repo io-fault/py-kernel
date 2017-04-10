@@ -1,15 +1,15 @@
 """
-Service management daemon, &.libroot.Set, for &..io based applications.
+# Service management daemon, &.libroot.Set, for &..io based applications.
 
-By default, this executable resolves the root service from the
-(system:environment)`FAULT_DAEMON_DIRECTORY` environment variable. A parameter
-may be provided to override that setting and the default (system:path)`~/.fault`.
+# By default, this executable resolves the root service from the
+# (system:environment)`FAULT_DAEMON_DIRECTORY` environment variable. A parameter
+# may be provided to override that setting and the default (system:path)`~/.fault`.
 
-This module is intended for use with system invocation only.
+# This module is intended for use with system invocation only.
 
-! WARNING:
-	If the selected daemon directory does not exist, it will be created
-	and initialized for use as a root sector daemon.
+# ! WARNING:
+	# If the selected daemon directory does not exist, it will be created
+	# and initialized for use as a root sector daemon.
 """
 import os
 import sys

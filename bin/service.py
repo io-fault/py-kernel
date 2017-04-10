@@ -1,8 +1,8 @@
 """
-faultd service interface for automating configuration management during daemon downtime.
+# faultd service interface for automating configuration management during daemon downtime.
 
-Deals directly with the file system and should only be used while faultd is not running.
-Invoking without arguments displays help to standard error.
+# Deals directly with the file system and should only be used while faultd is not running.
+# Invoking without arguments displays help to standard error.
 """
 
 import os
@@ -129,7 +129,7 @@ def command_execute(srv):
 
 def command_update(srv):
 	"""
-	Recreate the hardlink for root and sectors.
+	# Recreate the hardlink for root and sectors.
 	"""
 
 	srv.load()

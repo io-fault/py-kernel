@@ -1,42 +1,42 @@
 """
-Sector Daemon management library.
+# Sector Daemon management library.
+#
+# In order to manage a daemon's execution, control interfaces must be supported to manage
+# initialization and termination sequences. &.libdaemon provides access to these control
+# interfaces so that the implementation can focus on regular operations.
 
-In order to manage a daemon's execution, control interfaces must be supported to manage
-initialization and termination sequences. &.libdaemon provides access to these control
-interfaces so that the implementation can focus on regular operations.
+# &.libdaemon also provides a message bus for message passing and synchronization primitives
+# among process forks. Given appropriate configuration, groups outside the daemon's set
+# can be specified to allow message passing and synchronization across sites.
 
-&.libdaemon also provides a message bus for message passing and synchronization primitives
-among process forks. Given appropriate configuration, groups outside the daemon's set
-can be specified to allow message passing and synchronization across sites.
+# [ Features ]
 
-[ Features ]
+	# - Set of forked processes or one if distribution is one.
+	# - Arbitration for fork-local synchronization.
 
-	- Set of forked processes or one if distribution is one.
-	- Arbitration for fork-local synchronization.
+# /sys - Control Signalling Interface
+	# /interrupt
+		# Interrupt the application sectors causing near immediate shutdown.
+	# /terminate
+		# Terminate the application sectors allowing exant work to complete.
+	# /inject
+		# Introspection Interface; debugging; profiling
 
-/sys - Control Signalling Interface
-	/interrupt
-		Interrupt the application sectors causing near immediate shutdown.
-	/terminate
-		Terminate the application sectors allowing exant work to complete.
-	/inject
-		Introspection Interface; debugging; profiling
+	# /circulate - Broadcasting Interface
+		# /coprocess
+			# Channel to other Processes in the daemon. (maybe virtual/implicit)
+		# /site
+			# System Sets are closely connected (same system or network)
+		# /application
+			# Set of sites; the entire graph
 
-	/circulate - Broadcasting Interface
-		/coprocess
-			Channel to other Processes in the daemon. (maybe virtual/implicit)
-		/site
-			System Sets are closely connected (same system or network)
-		/application
-			Set of sites; the entire graph
-
-	/message - Direct Messaging
-		/fork-id
-			.
-		/site/machine-id/fork-id
-			.
-		/graph/site-id/machine-id/fork-id
-			.
+	# /message - Direct Messaging
+		# /fork-id
+			# .
+		# /site/machine-id/fork-id
+			# .
+		# /graph/site-id/machine-id/fork-id
+			# .
 """
 
 import os
@@ -63,10 +63,11 @@ xml_namespaces = {
 
 def restrict_stdio(route):
 	"""
-	Initialize the file descriptors used for standard I/O
-	to point to (system:path)`/dev/null`, and standard error
-	to the file selected by the given &route.
+	# Initialize the file descriptors used for standard I/O
+	# to point to (system:path)`/dev/null`, and standard error
+	# to the file selected by the given &route.
 	"""
+
 	# rootd logs stderr to critical.log in case of fatal errors.
 	with route.open('ab') as f:
 		os.dup2(f.fileno(), 2)
@@ -76,7 +77,7 @@ def restrict_stdio(route):
 
 class Commands(libhttpd.Index):
 	"""
-	HTTP Control API used by control (Host) connections.
+	# HTTP Control API used by control (Host) connections.
 	"""
 
 	def __init__(self):
@@ -85,7 +86,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def inject(self, resource, parameters) -> str:
 		"""
-		Inject arbitrary code for introspective purposes.
+		# Inject arbitrary code for introspective purposes.
 		"""
 
 		return None
@@ -93,7 +94,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def report(self, resource, parameters):
 		"""
-		Build a report describing the process.
+		# Build a report describing the process.
 		"""
 
 		return '\n'.join([
@@ -108,14 +109,14 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def timestamp(self, resource, parameters):
 		"""
-		Return the faultd's perception of time.
+		# Return the faultd's perception of time.
 		"""
 		return libtime.now().select("iso")
 
 	@libhttpd.Resource.method()
 	def interrupt(self, resource, parameters):
 		"""
-		Issue an &Sector.interrupt to all the execution sectors.
+		# Issue an &Sector.interrupt to all the execution sectors.
 		"""
 
 		for units in libio.system.__process_index__.values():
@@ -131,7 +132,7 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def terminate(self, resource, parameters):
 		"""
-		Issue &Unit.terminate after the Connection's Sector exits.
+		# Issue &Unit.terminate after the Connection's Sector exits.
 		"""
 
 		for units in libio.system.__process_index__.values():
@@ -149,10 +150,9 @@ class Commands(libhttpd.Index):
 
 def rt_load_unit_sector(unit, sector_import, Sector=None, location=('bin',)):
 	"""
-	Load a sector into (iri)`rt://unit/bin` named by the module's full name
-	and the following attribute path.
+	# Load a sector into (iri)`rt://unit/bin` named by the module's full name
+	# and the following attribute path.
 	"""
-	global libio, libroutes, importlib
 
 	# Path to SectorModules
 	sr, attpath = libroutes.Import.from_attributes(sector_import)
@@ -171,9 +171,8 @@ def rt_load_unit_sector(unit, sector_import, Sector=None, location=('bin',)):
 
 def rt_load_argument_sectors(unit):
 	"""
-	Load the initialization selections from the system arguments as sectors.
+	# Load the initialization selections from the system arguments as sectors.
 	"""
-	global libio, libroutes, rt_load_unit_sector
 
 	inv = unit.context.process.invocation
 	args = inv.parameters['system']['arguments']
@@ -182,8 +181,6 @@ def rt_load_argument_sectors(unit):
 		yield rt_load_unit_sector(unit, sectors_module)
 
 def extract_sectors_config(document):
-	global xml_namespaces
-
 	xr = xmllib.XML(document)
 	find = lambda x: xr.find(x, xml_namespaces)
 	findall = lambda x: xr.findall(x, xml_namespaces)
@@ -277,16 +274,14 @@ def serialize_sectors(struct,
 
 class Control(libio.Interface):
 	"""
-	Control processor that manages the concurrency of an IO process and the control
-	interfaces thereof.
+	# Control processor that manages the concurrency of an IO process and the control
+	# interfaces thereof.
 
-	&Control handles both the controlling process and the workers
-	created with (system:manual)&fork calls.
+	# &Control handles both the controlling process and the workers
+	# created with (system/manual)&fork calls.
 	"""
 
 	def __init__(self):
-		super().__init__()
-
 		self.fork_id = None # > 0 in slaves
 		self.fork_id_to_subprocess = {}
 		self.subprocess_to_fork_id = {}
@@ -374,7 +369,7 @@ class Control(libio.Interface):
 
 	def ctl_sectors_exit(self, unit):
 		"""
-		Remove the control's interface socket before exiting the process.
+		# Remove the control's interface socket before exiting the process.
 		"""
 
 		# Clean up file system socket on exit.
@@ -383,7 +378,7 @@ class Control(libio.Interface):
 
 	def ctl_fork_exit(self, sub):
 		"""
-		Called when a fork's exit has been received by the controlling process.
+		# Called when a fork's exit has been received by the controlling process.
 		"""
 
 		fid = self.subprocess_to_fork_id.pop(sub)
@@ -398,7 +393,7 @@ class Control(libio.Interface):
 
 	def ctl_fork(self, fid, initial=False):
 		"""
-		Fork the process using the given &fid as its identifier.
+		# Fork the process using the given &fid as its identifier.
 		"""
 		assert self.fork_id == 0 # should only be called by master
 
@@ -428,8 +423,8 @@ class Control(libio.Interface):
 
 	def ctl_forked(self, fork_id, initial=False):
 		"""
-		Initial invocation of a newly forked process.
-		Indirectly invoked by &ctl_fork through &.system.Process.fork.
+		# Initial invocation of a newly forked process.
+		# Indirectly invoked by &ctl_fork through &.system.Process.fork.
 		"""
 
 		self.fork_id = fork_id
@@ -469,11 +464,11 @@ class Control(libio.Interface):
 
 	def ctl_install_control(self, fid:int):
 		"""
-		Setup the HTTP interface for controlling and monitoring the daemon.
+		# Setup the HTTP interface for controlling and monitoring the daemon.
 
-		[ Parameters ]
-		/fid
-			The fork-id; the number associated with the fork.
+		# [ Parameters ]
+		# /fid
+			# The fork-id; the number associated with the fork.
 		"""
 
 		sector = self.controller
@@ -509,19 +504,19 @@ class Control(libio.Interface):
 
 	def ctl_system_terminate(self):
 		"""
-		Received termination request from system.
+		# Received termination signal from system.
 		"""
 		pass
 
 	def ctl_system_interrupt(self):
 		"""
-		Received interrupt request from system.
+		# Received interrupt signal from system.
 		"""
 		pass
 
 class ServiceCommands(object):
 	"""
-	Commands for manipulating a sectors.xml file.
+	# Commands for manipulating a sectors.xml file.
 	"""
 
 	report = \
@@ -541,7 +536,7 @@ class ServiceCommands(object):
 	@staticmethod
 	def set_concurrency(srv, level):
 		"""
-		Number of forks to create when spawning sectord based services.
+		# Number of forks to create when spawning sectord based services.
 		"""
 
 		srv.concurrency = int(level)
@@ -549,7 +544,7 @@ class ServiceCommands(object):
 	@staticmethod
 	def libraries_delta(srv, *reqs):
 		"""
-		Remove the given parameters from the list of libraries.
+		# Remove the given parameters from the list of libraries.
 		"""
 		for k, v in zip(pairs[::2], pairs[1::2]):
 			srv.libraries[k] = v
@@ -560,7 +555,7 @@ class ServiceCommands(object):
 	@staticmethod
 	def interface_delta(srv, slot, atype, *binds):
 		"""
-		Add a set of interface bindings to the selected slot.
+		# Add a set of interface bindings to the selected slot.
 		"""
 
 		bind_set = srv.interfaces.setdefault(slot, set())

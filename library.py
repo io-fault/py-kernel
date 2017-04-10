@@ -808,28 +808,34 @@ class Device(Resource):
 @collections.abc.Awaitable.register
 class Processor(Resource):
 	"""
-	A resource that maintains an abstract computational state. Processors are
-	awaitable and can be used by coroutines. The product assigned to the
-	Processor is the object by await.
+	# A resource that maintains an abstract computational state. Processors are
+	# awaitable and can be used by coroutines. The product assigned to the
+	# Processor is the object by await.
 
-	Processor resources essentially manage state machines and provide an
-	abstraction for initial and terminal states that are often used.
+	# Processor resources essentially manage state machines and provide an
+	# abstraction for initial and terminal states that are often used.
 
-	Core State Transition Sequence.
+	# Core State Transition Sequence.
 
-		# Instantiate
-		# Actuate
-		# Functioning
-		# Terminating
-		# Terminated
-		# Interrupted
+		# # Instantiate
+		# # Actuate
+		# # Functioning
+		# # Terminating
+		# # Terminated
+		# # Interrupted
 
-	Where the functioning state designates that the implementation specific state
-	has been engaged. Often, actuation and termination intersect with implementation states.
+	# Where the functioning state designates that the implementation specific state
+	# has been engaged. Often, actuation and termination intersect with implementation states.
 
-	The interrupted state is special; its used as a frozen state of the machine and is normally
-	associated with an exception. The term interrupt is used as it is nearly analogous with UNIX
-	process interrupts (unix.signal)`SIGINT`.
+	# The interrupted state is special; its used as a frozen state of the machine and is normally
+	# associated with an exception. The term interrupt is used as it is nearly analogous with UNIX
+	# process interrupts (unix.signal)`SIGINT`.
+
+	# [ Properties ]
+
+	# /terminating
+		# Whether the Processor is in a termination state. &None if
+		# the Processor was never terminating.
 	"""
 
 	actuated = False
@@ -849,22 +855,22 @@ class Processor(Resource):
 	@property
 	def functioning(self):
 		"""
-		Whether or not the Processor is functioning.
+		# Whether or not the Processor is functioning.
 
-		Indicates that the processor was actuated and is neither terminated nor interrupted.
+		# Indicates that the processor was actuated and is neither terminated nor interrupted.
 
-		! NOTE:
-			Processors are functioning *during* termination; instances where
-			`Processor.terminating == True`.
-			Termination may cause limited access to functionality, but
-			are still considered functional.
+		# ! NOTE:
+			# Processors are functioning *during* termination; instances where
+			# `Processor.terminating == True`.
+			# Termination may cause limited access to functionality, but
+			# are still considered functional.
 		"""
 
 		return self.actuated and not (self.terminated or self.interrupted)
 
 	def controlled(self, subprocessor):
 		"""
-		Whether or not the given &Processor is directly controlled by &self.
+		# Whether or not the given &Processor is directly controlled by &self.
 		"""
 
 		# Generic Processor has no knowledge of subresources.
@@ -872,21 +878,21 @@ class Processor(Resource):
 
 	def requisite(self):
 		"""
-		Configure any necessary requisites prior to actuation.
-		Preferred over creation arguments in order to allow the use of prebuilt structures.
+		# Configure any necessary requisites prior to actuation.
+		# Preferred over creation arguments in order to allow the use of prebuilt structures.
 
-		Subclasses should not call superclass implementations; rather, users of complex
-		implementations need to be aware that multiple requisite invocations will be necessary
-		in order for actuation to succeed.
+		# Subclasses should not call superclass implementations; rather, users of complex
+		# implementations need to be aware that multiple requisite invocations will be necessary
+		# in order for actuation to succeed.
 
-		Base class &requisite is a no-op.
+		# Base class &requisite is a no-op.
 		"""
 
 		pass
 
 	def actuate(self):
 		"""
-		Note the processor as actuated by setting &actuated to &True.
+		# Note the processor as actuated by setting &actuated to &True.
 		"""
 
 		self.actuated = True
@@ -894,16 +900,16 @@ class Processor(Resource):
 
 	def process(self, event):
 		"""
-		Base class implementation merely discarding the event.
+		# Base class implementation merely discarding the event.
 
-		Subclasses may override this to formally support messaging.
+		# Subclasses may override this to formally support messaging.
 		"""
 
 		pass
 
 	def terminate(self, by=None):
 		"""
-		Note the Processor as terminating.
+		# Note the Processor as terminating.
 		"""
 
 		if not self.functioning or self.terminating:
@@ -915,12 +921,12 @@ class Processor(Resource):
 
 	def interrupt(self, by=None):
 		"""
-		Note the processor as being interrupted.
+		# Note the processor as being interrupted.
 
-		Subclasses must perform any related resource releases after
-		calling the superclass's implementation.
+		# Subclasses must perform any related resource releases after
+		# calling the superclass's implementation.
 
-		Only &Sector interrupts cause exits.
+		# Only &Sector interrupts cause exits.
 		"""
 
 		if self.interrupted:
@@ -932,9 +938,9 @@ class Processor(Resource):
 
 	def fault(self, exception, association=None):
 		"""
-		Note the given exception as an error on the &Processor.
+		# Note the given exception as an error on the &Processor.
 
-		Exceptions identified as errors cause the &Processor to exit.
+		# Exceptions identified as errors cause the &Processor to exit.
 		"""
 
 		if self.exceptions is None:
@@ -951,32 +957,34 @@ class Processor(Resource):
 
 	def ctx_enqueue_task(self, task, partial=functools.partial, trap=_fio_fault_trap):
 		"""
-		Enqueue a task associated with the sector so that exceptions cause the sector to
-		fault. This is the appropriate way for &Processor instances controlled by a sector
-		to sequence processing.
+		# Enqueue a task associated with the sector so that exceptions cause the sector to
+		# fault. This is the appropriate way for &Processor instances controlled by a sector
+		# to sequence processing.
 		"""
 		self.context.enqueue(partial(trap, self, task))
 	del _fio_fault_trap
 
 	def exit(self):
 		"""
-		Exit the processor by signalling the controlling processor that termination
-		has completed.
+		# Exit the processor by signalling the controlling processor that termination
+		# has completed.
 		"""
+		assert self.terminated or self.interrupted
+
 		return self.controller.exited(self)
 
 	def atexit(self, exit_callback):
 		"""
-		Register a callback to be executed when the Processor has been unlinked from
-		the Resource hierarchy.
+		# Register a callback to be executed when the Processor has been unlinked from
+		# the Resource hierarchy.
 
-		The given callback is called after termination is complete and the Processor's
-		reference has been released by the controller. However, the controller backref
-		should still be available at this time.
+		# The given callback is called after termination is complete and the Processor's
+		# reference has been released by the controller. However, the controller backref
+		# should still be available at this time.
 
-		The callback is registered on the *controlling resource* which must be a &Processor.
+		# The callback is registered on the *controlling resource* which must be a &Processor.
 
-		The &exit_callback will **not** be called if the &Processor was interrupted.
+		# The &exit_callback will **not** be called if the &Processor was interrupted.
 		"""
 
 		if self.terminated:
@@ -986,19 +994,19 @@ class Processor(Resource):
 
 	def final(self):
 		"""
-		Identify the &Processor as being final in that the exit of the processor
-		causes the sector to *terminate*. The &Sector will, in turn, invoke termination
-		on the remaining processors and exit when all of the processors have exited.
+		# Identify the &Processor as being final in that the exit of the processor
+		# causes the sector to *terminate*. The &Sector will, in turn, invoke termination
+		# on the remaining processors and exit when all of the processors have exited.
 		"""
 		self.controller.final = self
 		self.atexit(lambda final: final.controller.terminate())
 
 	def __await__(self):
 		"""
-		Coroutine interface support. Await the exit of the processor.
-		Awaiting the exit of a processor will never raise exceptions with
-		exception to internal (Python) errors. This is one of the notable
-		contrasts between Python's builtin Futures and fault.io Processors.
+		# Coroutine interface support. Await the exit of the processor.
+		# Awaiting the exit of a processor will never raise exceptions with
+		# exception to internal (Python) errors. This is one of the notable
+		# contrasts between Python's builtin Futures and fault.io Processors.
 		"""
 
 		# Never signalled.
@@ -1032,7 +1040,7 @@ class Processor(Resource):
 
 	def exit_event_emit(self, processor, partial=functools.partial):
 		"""
-		Called when an exit occurs to emit exit events to any connected callbacks.
+		# Called when an exit occurs to emit exit events to any connected callbacks.
 		"""
 
 		eec = self.exit_event_connections
@@ -1043,7 +1051,7 @@ class Processor(Resource):
 
 	def structure(self):
 		"""
-		Provides the structure stack with at-exit callbacks.
+		# Provides the structure stack with at-exit callbacks.
 		"""
 
 		props = []
@@ -1071,53 +1079,53 @@ class Processor(Resource):
 
 	def placement(self):
 		"""
-		Define the set index to use when dispatched by a &Sector.
+		# Define the set index to use when dispatched by a &Sector.
 
-		By default, &Sector instances place &Processor instances into
-		&set objects that stored inside a dictionary. The index used
-		for placement is allowed to be overridden in order to optimize
-		the groups and allow better runtime introspection.
+		# By default, &Sector instances place &Processor instances into
+		# &set objects that stored inside a dictionary. The index used
+		# for placement is allowed to be overridden in order to optimize
+		# the groups and allow better runtime introspection.
 		"""
 
 		return self.__class__
 
 	def substitute(self, processor):
 		"""
-		Terminate the processor &self, but reassign the exit hooks to be performed
-		when the given &processor exits. &processor will be dispatched into the controlling
-		sector.
+		# Terminate the processor &self, but reassign the exit hooks to be performed
+		# when the given &processor exits. &processor will be dispatched into the controlling
+		# sector.
 		"""
 		raise NotImplemented
 
 class Call(Processor):
 	"""
-	A single call represented as a Processor.
+	# A single call represented as a Processor.
 
-	The callable is executed by process and signals its exit after completion.
+	# The callable is executed by process and signals its exit after completion.
 
-	Used as an abstraction to explicit enqueues, and trigger faults in Sectors.
+	# Used as an abstraction to explicit enqueues, and trigger faults in Sectors.
 	"""
 
 	@classmethod
 	def partial(Class, call:collections.abc.Callable, *args, **kw):
 		"""
-		Create a call applying the arguments to the callable upon actuation.
-		The positional arguments will follow the &Sector instance passed as
-		the first argument.
+		# Create a call applying the arguments to the callable upon actuation.
+		# The positional arguments will follow the &Sector instance passed as
+		# the first argument.
 		"""
 		global functools
 		return Class(functools.partial(call, *args, **kw))
 
 	def __init__(self, call:functools.partial):
 		"""
-		The partial application to the callable to perform.
-		Usually, instantiating from &partial is preferrable;
-		however, given the presence of a &functools.partial instance,
-		direct initialization is better.
+		# The partial application to the callable to perform.
+		# Usually, instantiating from &partial is preferrable;
+		# however, given the presence of a &functools.partial instance,
+		# direct initialization is better.
 
-		[ Parameters ]
-		/call
-			The callable to enqueue during actuation of the &Processor.
+		# [ Parameters ]
+		# /call
+			# The callable to enqueue during actuation of the &Processor.
 		"""
 		self.source = call
 
@@ -1141,11 +1149,11 @@ class Call(Processor):
 
 class Coroutine(Processor):
 	"""
-	Processor for coroutines.
+	# Processor for coroutines.
 
-	Manages the generator state in order to signal the containing &Sector of its
-	exit. Generator coroutines are the common method for serializing the dispatch of
-	work to relevant &Sector instances.
+	# Manages the generator state in order to signal the containing &Sector of its
+	# exit. Generator coroutines are the common method for serializing the dispatch of
+	# work to relevant &Sector instances.
 	"""
 
 	def __init__(self, coroutine):
@@ -1162,11 +1170,11 @@ class Coroutine(Processor):
 	@types.coroutine
 	def container(self):
 		"""
-		! INTERNAL:
-			Private Method.
+		# ! INTERNAL:
+			# Private Method.
 
-		Container for the coroutine's execution in order
-		to map completion to processor exit.
+		# Container for the coroutine's execution in order
+		# to map completion to processor exit.
 		"""
 		try:
 			yield None
@@ -1178,7 +1186,7 @@ class Coroutine(Processor):
 
 	def actuate(self, partial=functools.partial):
 		"""
-		Start the coroutine.
+		# Start the coroutine.
 		"""
 
 		state = self.container()
@@ -1189,7 +1197,7 @@ class Coroutine(Processor):
 
 	def terminate(self):
 		"""
-		Force the coroutine to close.
+		# Force the coroutine to close.
 		"""
 		if not super().terminate():
 			return False
@@ -1201,16 +1209,16 @@ class Coroutine(Processor):
 
 class Unit(Processor):
 	"""
-	An asynchronous logical process. Unit instances are the root level objects
-	associated with the &Process instance. There can be a set of &Unit instances
-	per process, but usually only one exists.
+	# An asynchronous logical process. Unit instances are the root level objects
+	# associated with the &Process instance. There can be a set of &Unit instances
+	# per process, but usually only one exists.
 
-	Units differ from most &Processor classes as it provides some additional
-	interfaces for managing exit codes and assigned standard I/O interfaces
-	provided as part of the system process.
+	# Units differ from most &Processor classes as it provides some additional
+	# interfaces for managing exit codes and assigned standard I/O interfaces
+	# provided as part of the system process.
 
-	Units are constructed from a set of roots that build out the &Sector instances
-	within the runtime tree which looks similar to an in memory filesystem.
+	# Units are constructed from a set of roots that build out the &Sector instances
+	# within the runtime tree which looks similar to an in memory filesystem.
 	"""
 
 	@staticmethod
@@ -1243,7 +1251,7 @@ class Unit(Processor):
 	@property
 	def ports(self):
 		"""
-		(io.location)`/dev/ports` accessor
+		# (io.location)`/dev/ports` accessor
 		"""
 
 		return self.u_index[('dev','ports')]
@@ -1251,14 +1259,14 @@ class Unit(Processor):
 	@property
 	def scheduler(self):
 		"""
-		(io.location)`/dev/scheduler` accessor
+		# (io.location)`/dev/scheduler` accessor
 		"""
 
 		return self.u_index[('dev','scheduler')]
 
 	def load_ports_device(self):
 		"""
-		Load the &Ports 'device'. Usually used by daemon processes.
+		# Load the &Ports 'device'. Usually used by daemon processes.
 		"""
 
 		ports = Ports()
@@ -1267,7 +1275,7 @@ class Unit(Processor):
 
 	def device(self, entry:str):
 		"""
-		Return the device resource placed at the given &entry.
+		# Return the device resource placed at the given &entry.
 		"""
 
 		return self.u_index.get(('dev', entry))
@@ -1275,17 +1283,17 @@ class Unit(Processor):
 	@property
 	def faults(self):
 		"""
-		The (rt:path)`/dev/faults` resource.
+		# The (rt:path)`/dev/faults` resource.
 		"""
 		return self.device('faults')
 
 	def faulted(self, resource:Resource, path=None) -> None:
 		"""
-		Place the sector into the faults directory using the hex identifier
-		as its name.
+		# Place the sector into the faults directory using the hex identifier
+		# as its name.
 
-		If the path, a sequence of strings, is provided, qualify the identity
-		with the string representation of the path, `'/'.join(path)`.
+		# If the path, a sequence of strings, is provided, qualify the identity
+		# with the string representation of the path, `'/'.join(path)`.
 		"""
 
 		faultor = resource.sector
@@ -1329,11 +1337,11 @@ class Unit(Processor):
 
 	def __init__(self):
 		"""
-		Initialze the &Unit instance with the an empty hierarchy.
+		# Initialze the &Unit instance with the an empty hierarchy.
 
-		&Unit instances maintain state and it is inappropriate to call
-		the initialization function during its use. New instances should
-		always be created.
+		# &Unit instances maintain state and it is inappropriate to call
+		# the initialization function during its use. New instances should
+		# always be created.
 		"""
 		global Libraries
 		super().__init__()
@@ -1374,8 +1382,8 @@ class Unit(Processor):
 			process=None, context=None, Context=None
 		):
 		"""
-		Ran to finish &Unit initialization; extends the sequences of roots used
-		to initialize the root sectors.
+		# Ran to finish &Unit initialization; extends the sequences of roots used
+		# to initialize the root sectors.
 		"""
 
 		self.identity = identity
@@ -1394,13 +1402,13 @@ class Unit(Processor):
 
 	def atexit(self, callback):
 		"""
-		Add a callback to be executed *prior* to the Unit exiting.
+		# Add a callback to be executed *prior* to the Unit exiting.
 		"""
 		self.u_exit.add(callback)
 
 	def exited(self, processor:Processor):
 		"""
-		Processor exit handler. Register faults and check for &Unit exit condition.
+		# Processor exit handler. Register faults and check for &Unit exit condition.
 		"""
 
 		addr = self.u_reverse_index.pop(processor)
@@ -1440,12 +1448,11 @@ class Unit(Processor):
 
 	def actuate(self):
 		"""
-		Execute the Unit by enqueueing the initialization functions.
+		# Execute the Unit by enqueueing the initialization functions.
 
-		This should only be called by the controller of the program.
-		Normally, it is called automatically when the program is loaded by the process.
+		# This should only be called by the controller of the program.
+		# Normally, it is called automatically when the program is loaded by the process.
 		"""
-		global Scheduler
 		super().actuate()
 
 		# Allows the roots to perform scheduling.
@@ -1485,7 +1492,7 @@ class Unit(Processor):
 
 	def place(self, obj:collections.abc.Hashable, *destination):
 		"""
-		Place the given resource in the process unit at the specified location.
+		# Place the given resource in the process unit at the specified location.
 		"""
 
 		self.u_index[destination] = obj
@@ -1508,7 +1515,7 @@ class Unit(Processor):
 
 	def delete(self, *address):
 		"""
-		Remove a &Sector from the index and tree.
+		# Remove a &Sector from the index and tree.
 		"""
 
 		obj = self.u_index[address]
@@ -1517,8 +1524,8 @@ class Unit(Processor):
 
 	def listdir(self, *address, list=list):
 		"""
-		List the contents of an address.
-		This only includes subdirectories.
+		# List the contents of an address.
+		# This only includes subdirectories.
 		"""
 
 		p = self.u_hierarchy
@@ -1535,40 +1542,39 @@ class Unit(Processor):
 
 	def report(self, target=sys.stderr):
 		"""
-		Send an overview of the logical process state to the given target.
+		# Send an overview of the logical process state to the given target.
 		"""
 
-		global format
 		target.writelines(x+'\n' for x in format(self.identity, self))
 		target.write('\n')
 		target.flush()
 
 class Sector(Processor):
 	"""
-	A processing sector; manages a set of &Processor resources according to their class.
-	Termination of a &Sector is solely dependent whether or not there are any
-	&Processor instances within the &Sector.
+	# A processing sector; manages a set of &Processor resources according to their class.
+	# Termination of a &Sector is solely dependent whether or not there are any
+	# &Processor instances within the &Sector.
 
-	Sectors are the primary &Processor class and have protocols for managing projections
-	of entities (users) and their authorizing credentials.
+	# Sectors are the primary &Processor class and have protocols for managing projections
+	# of entities (users) and their authorizing credentials.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/projection
-		Determines the entity that is being represented by the process.
+	# /projection
+		# Determines the entity that is being represented by the process.
 
-	/processors
-		A divided set of abstract processors currently running within a sector.
-		The sets are divided by their type inside a &collections.defaultdict.
+	# /processors
+		# A divided set of abstract processors currently running within a sector.
+		# The sets are divided by their type inside a &collections.defaultdict.
 
-	/scheduler
-		The Sector local schduler instance for managing recurrences and alarms
-		configured by subresources. The exit of the Sector causes scheduled
-		events to be dismissed.
+	# /scheduler
+		# The Sector local schduler instance for managing recurrences and alarms
+		# configured by subresources. The exit of the Sector causes scheduled
+		# events to be dismissed.
 
-	/exits
-		Set of Processors that are currently exiting.
-		&None if nothing is currently exiting.
+	# /exits
+		# Set of Processors that are currently exiting.
+		# &None if nothing is currently exiting.
 	"""
 
 	projection = None
@@ -1602,14 +1608,14 @@ class Sector(Processor):
 
 	def actuate(self):
 		"""
-		Actuate the Sector by actuating its processors.
-		There is no guarantee to the order in which the controlled
-		processors are actuated.
+		# Actuate the Sector by actuating its processors.
+		# There is no guarantee to the order in which the controlled
+		# processors are actuated.
 
-		Exceptions that occur during actuation fault the Sector causing
-		the *controlling sector* to exit. If faults should not cause
-		the parent to be interrupted, they *must* be dispatched after
-		&self has been actuated.
+		# Exceptions that occur during actuation fault the Sector causing
+		# the *controlling sector* to exit. If faults should not cause
+		# the parent to be interrupted, they *must* be dispatched after
+		# &self has been actuated.
 		"""
 
 		try:
@@ -1623,7 +1629,7 @@ class Sector(Processor):
 
 	def scheduling(self):
 		"""
-		Initialize the &scheduler for the &Sector.
+		# Initialize the &scheduler for the &Sector.
 		"""
 		self.scheduler = Scheduler()
 		self.scheduler.subresource(self)
@@ -1631,15 +1637,15 @@ class Sector(Processor):
 
 	def eject(self, processor):
 		"""
-		Remove the processor from the Sector without performing termination.
-		Used by &Resource.relocate.
+		# Remove the processor from the Sector without performing termination.
+		# Used by &Resource.relocate.
 		"""
 
 		self.processors[processor.__class__].discard(processor)
 
 	def acquire(self, processor):
 		"""
-		Add a process to the Sector; the processor is assumed to have been actuated.
+		# Add a process to the Sector; the processor is assumed to have been actuated.
 		"""
 
 		processor.subresource(self)
@@ -1647,7 +1653,7 @@ class Sector(Processor):
 
 	def process(self, events):
 		"""
-		Load the sequence of &Processor instances into the Sector and actuate them.
+		# Load the sequence of &Processor instances into the Sector and actuate them.
 		"""
 
 		structs = self.processors
@@ -1676,8 +1682,8 @@ class Sector(Processor):
 
 	def interrupt(self, by=None):
 		"""
-		Interrupt the Sector by interrupting all of the subprocessors.
-		The order of interruption is random, and *should* be insignificant.
+		# Interrupt the Sector by interrupting all of the subprocessors.
+		# The order of interruption is random, and *should* be insignificant.
 		"""
 
 		if self.interrupted:
@@ -1696,7 +1702,7 @@ class Sector(Processor):
 
 	def exited(self, processor, set=set):
 		"""
-		Sector structure exit handler.
+		# Sector structure exit handler.
 		"""
 
 		if self.exits is None:
@@ -1707,11 +1713,11 @@ class Sector(Processor):
 
 	def dispatch(self, processor:Processor):
 		"""
-		Dispatch the given &processor inside the Sector.
-		Assigns the processor as a subresource of the
-		instance, affixes it, and actuates it.
+		# Dispatch the given &processor inside the Sector.
+		# Assigns the processor as a subresource of the
+		# instance, affixes it, and actuates it.
 
-		Returns the result of actuation, the &processor.
+		# Returns the result of actuation, the &processor.
 		"""
 
 		processor.subresource(self)
@@ -1722,7 +1728,7 @@ class Sector(Processor):
 
 	def coroutine(self, gf):
 		"""
-		Dispatches an arbitrary coroutine returning function as a &Coroutine instance.
+		# Dispatches an arbitrary coroutine returning function as a &Coroutine instance.
 		"""
 
 		global Coroutine
@@ -1769,9 +1775,9 @@ class Sector(Processor):
 
 	def reaped(self):
 		"""
-		Called once the set of exited processors has been reaped
-		in order to identify if the Sector should notify the
-		controlling Sector of an exit event..
+		# Called once the set of exited processors has been reaped
+		# in order to identify if the Sector should notify the
+		# controlling Sector of an exit event..
 		"""
 
 		# reap/reaped is not used in cases of interrupts.
@@ -1794,8 +1800,8 @@ class Sector(Processor):
 
 	def placement(self):
 		"""
-		Use &Interface.if_sector_placement if the sector has an Interface.
-		Otherwise, &Sector.
+		# Use &Interface.if_sector_placement if the sector has an Interface.
+		# Otherwise, &Sector.
 		"""
 		global Interface
 		for if_proc in self.processors.get(Interface, ()):
@@ -1806,14 +1812,19 @@ class Sector(Processor):
 
 class Extension(Sector):
 	"""
-	A &Sector that extends the containing &Sector so that faults are inherited by
-	the container. Faults that occur in extensions of extensions are inherited by
-	a responsible &Sector instance.
+	# A Processor defined as providing the primary functionality of
+	# a Transaction.
+
+	# Usually used by &System Transactions, a Core processor usually
+	# manages the state of a System and provides the primitive methods
+	# for performing system specific tasks.
 	"""
 
 	def fault(self, exception, association=None):
 		"""
-		Assign the exception and fault the responsible &Sector.
+		# Whether the System has running Interface processors.
+
+		# A closed is not running to provide services to local Processors.
 		"""
 		global SectorExtension
 
@@ -1830,9 +1841,10 @@ class Extension(Sector):
 
 class Subprocess(Processor):
 	"""
-	A Processor that represents a *set* of Unix subprocesses.
-	Primarily exists to map process exit events to processor exits and
-	management of subprocessor metadata such as the Process-Id of the child.
+	# A Processor that represents a *set* of Unix subprocesses.
+
+	# Primarily exists to map process exit events to processor exits and
+	# management of subprocessor metadata such as the Process-Id of the child.
 	"""
 
 	def __init__(self, *pids):
@@ -1851,7 +1863,7 @@ class Subprocess(Processor):
 	@property
 	def only(self):
 		"""
-		The exit event of the only Process-Id. &None or the pair (pid, exitcode).
+		# The exit event of the only Process-Id. &None or the pair (pid, exitcode).
 		"""
 
 		for i in self.process_exit_events:
@@ -1876,23 +1888,25 @@ class Subprocess(Processor):
 
 	def sp_signal(self, signo, send_signal=os.kill):
 		"""
-		Send the given signal number (os.kill) to the active processes
-		being managed by the instance.
+		# Send the given signal number (os.kill) to the active processes
+		# being managed by the instance.
 		"""
+
 		for pid in self.active_processes:
 			send_signal(pid, signo)
 	signal = sp_signal # REMOVE
 
 	def signal_process_group(self, signo, send_signal=os.kill):
 		"""
-		Like &signal, but send the signal to the process group instead of the exact process.
+		# Like &signal, but send the signal to the process group instead of the exact process.
 		"""
+
 		for pid in self.active_processes:
 			send_signal(-pid, signo)
 
 	def actuate(self):
 		"""
-		Initialize the system event callbacks for receiving process exit events.
+		# Initialize the system event callbacks for receiving process exit events.
 		"""
 
 		proc = self.context.process
@@ -1931,9 +1945,12 @@ class Subprocess(Processor):
 
 class Recurrence(Processor):
 	"""
-	Timer maintenance for recurring tasks.
+	# Timer maintenance for recurring tasks.
 
-	Usually used for short term recurrences such as animations and human status updates.
+	# Usually used for short term recurrences such as animations and human status updates.
+	# Recurrences work by deferring the execution of the configured target after
+	# each occurrence. This overhead means that &Recurrence is not well suited for
+	# high frequency executions.
 	"""
 
 	def __init__(self, target):
@@ -1941,37 +1958,50 @@ class Recurrence(Processor):
 
 	def actuate(self):
 		"""
-		Enqueue the initial execution of the recurrence.
+		# Enqueue the initial execution of the recurrence.
 		"""
 
 		super().actuate()
-		self.context.enqueue(self.occur)
+		self.ctx_enqueue_task(self.occur)
+
+	def recur_execute(self):
+		assert self.functioning
+
+		try:
+			return self.target()
+		except BaseException as exc:
+			self.fault(exc)
 
 	def occur(self):
 		"""
-		Invoke a recurrence and use its return to schedule its next iteration.
+		# Invoke a recurrence and use its return to schedule its next iteration.
 		"""
 
 		if self.terminating:
 			self.terminated = True
-			self.sector.exited(self)
+			self.exit()
+		elif self.terminated or self.interrupted:
+			pass
 		else:
-			next_delay = self.target()
-			if next_delay is not None:
+			next_delay = self.recur_execute()
+
+			if next_delay is None:
+				self.terminated = True
+				self.exit()
+			else:
 				self.controller.scheduler.defer(next_delay, self.occur)
 
 class Scheduler(Processor):
 	"""
-	Delayed execution of arbitrary callables.
+	# Time delayed execution of arbitrary callables.
 
-	Manages the set alarms and &Recurrence's used by a &Sector.
-	Normally, only one Scheduler exists per and each &Scheduler
-	instance chains from an ancestor creating a tree of heap queues.
+	# Manages the set of alarms and &Recurrence's used by a &Sector.
+	# Normally, only one Scheduler exists per and each Scheduler
+	# instance chains from an ancestor creating a tree of heap queues.
 	"""
 
 	scheduled_reference = None
 	x_ops = None
-	# XXX: need proper weakref handling of scheduled tasks
 
 	def structure(self):
 		sr = ()
@@ -2026,10 +2056,8 @@ class Scheduler(Processor):
 
 	def update(self):
 		"""
-		Update the scheduled transition callback.
+		# Update the scheduled transition callback.
 		"""
-
-		# Method is being passed to ancestor, so use weakmethod.
 
 		nr = weakref.WeakMethod(self.transition)
 		if self.scheduled_reference is not None:
@@ -2040,7 +2068,7 @@ class Scheduler(Processor):
 
 	def schedule(self, pit:libtime.Timestamp, *tasks, now=libtime.now):
 		"""
-		Schedule the &tasks to be executed at the specified Point In Time, &pit.
+		# Schedule the &tasks to be executed at the specified Point In Time, &pit.
 		"""
 
 		measure = now().measure(pit)
@@ -2048,7 +2076,7 @@ class Scheduler(Processor):
 
 	def defer(self, measure, *tasks):
 		"""
-		Defer the execution of the given &tasks by the given &measure.
+		# Defer the execution of the given &tasks by the given &measure.
 		"""
 
 		p = self.state.period()
@@ -2066,16 +2094,16 @@ class Scheduler(Processor):
 
 	def cancel(self, task):
 		"""
-		Cancel the execution of the given task scheduled by this instance.
+		# Cancel the execution of the given task scheduled by this instance.
 		"""
 
 		self.state.cancel(task)
 
 	def recurrence(self, callback):
 		"""
-		Allocate a &Recurrence and dispatch it in the same &Sector as the &Scheduler
-		instance. The target will be executed immediately allowing it to identify
-		the appropriate initial delay.
+		# Allocate a &Recurrence and dispatch it in the same &Sector as the &Scheduler
+		# instance. The target will be executed immediately allowing it to identify
+		# the appropriate initial delay.
 		"""
 
 		r = Recurrence(callback)
@@ -2084,9 +2112,9 @@ class Scheduler(Processor):
 
 	def transition(self):
 		"""
-		Execute the next task given that the period has elapsed.
-		If the period has not elapsed, reschedule &transition in order to achieve
-		finer granularity.
+		# Execute the next task given that the period has elapsed.
+		# If the period has not elapsed, reschedule &transition in order to achieve
+		# finer granularity.
 		"""
 
 		if not self.functioning:
@@ -2122,7 +2150,7 @@ class Scheduler(Processor):
 
 	def process(self, event, Point=libtime.core.Point, Measure=libtime.core.Measure):
 		"""
-		Schedule the set of tasks.
+		# Schedule the set of tasks.
 		"""
 
 		schedule = self.state.put
@@ -2182,7 +2210,7 @@ class Libraries(object):
 
 class Thread(Processor):
 	"""
-	A &Processor that runs a callable in a dedicated thread.
+	# A &Processor that runs a callable in a dedicated thread.
 	"""
 
 	@classmethod
@@ -2212,44 +2240,43 @@ class Thread(Processor):
 
 	def actuate(self):
 		"""
-		Execute the dedicated thread for the transformer.
+		# Execute the dedicated thread for the transformer.
 		"""
+
 		super().actuate()
 		self.context.execute(self, self.trap)
 		return self
 
 	def process(self):
 		"""
-		No-op as the thread exists to emit side-effects.
+		# No-op as the thread exists to emit side-effects.
 		"""
 		pass
 
 class Interface(Processor):
 	"""
-	A &Processor that is identified as a source of work for the process.
-	Significant in that, if all &Interface instances are terminated, the process
-	itself should eventually terminate as well.
+	# A &Processor that is identified as a source of work for a Sector.
+	# Significant in that if all &Interface instances are terminated, the Sector
+	# itself should eventually terminate as well.
 	"""
 
 	def placement(self):
 		"""
-		Returns &Interface. Constant placement for subclasses so
-		that &Interface instances may be quickly identified in &Sector processor sets.
+		# Returns &Interface. Constant placement for subclasses so
+		# that &Interface instances may be quickly identified in &Sector processor sets.
 		"""
 		return Interface
 
 class System(Interface):
 	"""
-	An Interface used to manage the set of system listening interfaces and
-	connect accept events to an appropriate handler. The interface actuates
-	by creating the &Terminal and the connecting source flows that allocate
-	sockets.
+	# An Interface used to manage the set of system listening interfaces and
+	# connect accept events to an appropriate controller.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/if_slot
-		The set of interfaces that will source connections to be processed by
-		this interface.
+	# /if_slot
+		# The set of interfaces that will source connections to be processed by
+		# this interface.
 	"""
 
 	if_slot = None
@@ -2262,12 +2289,12 @@ class System(Interface):
 
 	def __init__(self, mitre, ref, router, transports, slot=None):
 		"""
-		Select the &Ports slot to acquire listening sockets from.
+		# Select the &Ports slot to acquire listening sockets from.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/slot
-			The slot to acquire from the &Ports instance assigned to "/dev/ports".
+		# /slot
+			# The slot to acquire from the &Ports instance assigned to "/dev/ports".
 		"""
 		super().__init__()
 		self.if_transports = transports
@@ -2307,9 +2334,9 @@ class System(Interface):
 
 	def if_source_exhausted(self, sector):
 		"""
-		Callback ran when the sockets sector exits.
+		# Callback ran when the sockets sector exits.
 
-		This handles cases where all the listening sockets are closed.
+		# This handles cases where all the listening sockets are closed.
 		"""
 		pass
 
@@ -2317,19 +2344,19 @@ class System(Interface):
 			chain=itertools.chain.from_iterable,
 		):
 		"""
-		Spawn connections from the socket file descriptors sent from the upstream.
+		# Spawn connections from the socket file descriptors sent from the upstream.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/packet
-			The sequence of sequences containing Kernel Port references (file descriptors).
-		/transports
-			The transport layers to configure &Transports transformers with.
+		# /packet
+			# The sequence of sequences containing Kernel Port references (file descriptors).
+		# /transports
+			# The transport layers to configure &Transports transformers with.
 
-		[ Effects ]
+		# [ Effects ]
 
-		Dispatches &Connection instances associated with the accepted file descriptors
-		received from the upstream.
+		# Dispatches &Connection instances associated with the accepted file descriptors
+		# received from the upstream.
 		"""
 		sector = self.controller
 		ctx_accept = self.context.accept_subflows
@@ -2345,29 +2372,28 @@ class System(Interface):
 
 class Condition(object):
 	"""
-	A *reference* to a logical expression or logical function.
+	# A *reference* to a logical expression or logical function.
 
-	Conditional references are constructed from a subject object, attribute path, and parameters.
-	Used to clearly describe the objects that participate in a logical conclusion of interest.
+	# Conditional references are constructed from a subject object, attribute path, and parameters.
+	# Used to clearly describe the objects that participate in a logical conclusion of interest.
 
-	Used by &Flow instances to describe the condition in which an obstruction is removed.
-	Conditions provide introspecting utilities the capacity to identify the cause of
-	an obstruction.
+	# Used by &Flow instances to describe the condition in which an obstruction is removed.
+	# Conditions provide introspecting utilities the capacity to identify the cause of
+	# an obstruction.
 	"""
 
 	__slots__ = ('focus', 'path', 'parameter')
 
 	def __init__(self, focus, path, parameter = None):
 		"""
-		[Parameters]
-
-		/focus
-			The root object that is safe to reference
-		/path
-			The sequence of attributes to resolve relative to the &focus.
-		/parameter
-			Determines the condition is a method and should be given this
-			as its sole parameter. &None indicates that the condition is a property.
+		# [Parameters]
+		# /focus
+			# The root object that is safe to reference
+		# /path
+			# The sequence of attributes to resolve relative to the &focus.
+		# /parameter
+			# Determines the condition is a method and should be given this
+			# as its sole parameter. &None indicates that the condition is a property.
 		"""
 		self.focus = focus
 		self.path = path
@@ -2401,9 +2427,9 @@ class Condition(object):
 # Little like an enum, but emphasis on the concept rather than enumeration.
 class FlowControl(object):
 	"""
-	Signal objects used to communicate flow control operations
-	for subflow management. These objects are used by &Catenation and &Distribution
-	to index operations.
+	# Signal objects used to communicate flow control operations
+	# for subflow management. These objects are used by &Catenation and &Distribution
+	# to index operations.
 	"""
 	__slots__ = ()
 
@@ -2440,55 +2466,55 @@ Inexorable = Condition(builtins, ('False',))
 
 class Flow(Processor):
 	"""
-	A Processor consisting of an arbitrary set of operations that
-	can connect to other &Flow instances in order to make a series
-	of transformations.
+	# A Processor consisting of an arbitrary set of operations that
+	# can connect to other &Flow instances in order to make a series
+	# of transformations.
 
-	Flows are the primary mechanism used to stream events; generally,
-	anything that's a stream should be managed by &Flow instances in favor
-	of other event callback mechanisms.
+	# Flows are the primary mechanism used to stream events; generally,
+	# anything that's a stream should be managed by &Flow instances in favor
+	# of other event callback mechanisms.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/f_type
-		The flow type describing what the instance does.
-		This property can be &None at the class level, but should be initialized
-		when an instance is created.
+	# /f_type
+		# The flow type describing what the instance does.
+		# This property can be &None at the class level, but should be initialized
+		# when an instance is created.
 
-		/(id)`source`
-			Flow that primarily emits events for downstream processing.
-		/(id)`terminal`
-			Flow processes events, but emits nothing.
-		/(id)`switch`
-			Flow that takes events and distributes their transformation
-			to a mapping of receiving flows. (Diffusion)
-		/(id)`join`
-			Flow that receives events from a set of sources and combines
-			them into a single stream.
-		/(id)`transformer`
-			Flow emits events strictly in response to processing. Transformers
-			may buffer events as needed.
-		/&None
-			Unspecified type.
+		# /(id)`source`
+			# Flow that primarily emits events for downstream processing.
+		# /(id)`terminal`
+			# Flow processes events, but emits nothing.
+		# /(id)`switch`
+			# Flow that takes events and distributes their transformation
+			# to a mapping of receiving flows. (Diffusion)
+		# /(id)`join`
+			# Flow that receives events from a set of sources and combines
+			# them into a single stream.
+		# /(id)`transformer`
+			# Flow emits events strictly in response to processing. Transformers
+			# may buffer events as needed.
+		# /&None
+			# Unspecified type.
 
-	/f_obstructions
-		/&None
-			No obstructions present.
-		/&typing.Mapping
-			The objects that are obstructing the &Flow from
-			performing processing associated with the exact
-			condition causing it.
+	# /f_obstructions
+		# /&None
+			# No obstructions present.
+		# /&typing.Mapping
+			# The objects that are obstructing the &Flow from
+			# performing processing associated with the exact
+			# condition causing it.
 
-	/f_monitors
-		The set of callbacks used to signal changes in the flow's
-		&f_obstructed state.
+	# /f_monitors
+		# The set of callbacks used to signal changes in the flow's
+		# &f_obstructed state.
 
-		/&None
-			No monitors watching the flow state.
+		# /&None
+			# No monitors watching the flow state.
 
-	/f_downstream
-		The &Flow instance that receives events emitted by the instance
-		holding the attribute.
+	# /f_downstream
+		# The &Flow instance that receives events emitted by the instance
+		# holding the attribute.
 	"""
 
 	terminating = False
@@ -2501,11 +2527,11 @@ class Flow(Processor):
 
 	def f_connect(self, flow:Processor, partial=functools.partial):
 		"""
-		Connect the Flow to the given object supporting the &Flow interface.
-		Normally used with other Flows, but other objects may be connected.
+		# Connect the Flow to the given object supporting the &Flow interface.
+		# Normally used with other Flows, but other objects may be connected.
 
-		Downstream is *not* notified of upstream obstructions. Events run
-		downstream and obstructions run up.
+		# Downstream is *not* notified of upstream obstructions. Events run
+		# downstream and obstructions run up.
 		"""
 		if self.f_downstream:
 			self.f_disconnect()
@@ -2523,8 +2549,9 @@ class Flow(Processor):
 
 	def f_disconnect(self):
 		"""
-		Disconnect from the downstream and cease emitting events into &f_downstream.
+		# Disconnect from the downstream and cease emitting events into &f_downstream.
 		"""
+
 		flow = self.f_downstream
 		del self.f_downstream
 		flow.f_ignore(self.f_obstruct, self.f_clear)
@@ -2536,7 +2563,7 @@ class Flow(Processor):
 
 	def structure(self):
 		"""
-		Reveal the obstructions and monitors of the Flow.
+		# Reveal the obstructions and monitors of the Flow.
 		"""
 
 		sr = ()
@@ -2551,9 +2578,9 @@ class Flow(Processor):
 
 	def actuate(self):
 		"""
-		Actuate the Transformers placed in the Flow by &requisite.
-		If the &Flow has been connected to another, actuate the &downstream
-		as well.
+		# Actuate the Transformers placed in the Flow by &requisite.
+		# If the &Flow has been connected to another, actuate the &downstream
+		# as well.
 		"""
 		super().actuate()
 
@@ -2562,8 +2589,8 @@ class Flow(Processor):
 
 	def terminate(self, by=None):
 		"""
-		Drain the Flow and finish termination by signalling the controller
-		of its exit.
+		# Drain the Flow and finish termination by signalling the controller
+		# of its exit.
 		"""
 
 		if self.terminated or self.terminating or self.interrupted:
@@ -2577,10 +2604,10 @@ class Flow(Processor):
 
 	def _f_terminated(self):
 		"""
-		Used by subclasses to issue downstream termination and exit.
+		# Used by subclasses to issue downstream termination and exit.
 
-		Subclasses must call this or perform equivalent actions when termination
-		is complete.
+		# Subclasses must call this or perform equivalent actions when termination
+		# is complete.
 		"""
 
 		self.process = self.f_discarding
@@ -2598,7 +2625,7 @@ class Flow(Processor):
 
 	def interrupt(self, by=None):
 		"""
-		Terminate the flow abrubtly.
+		# Terminate the flow abrubtly.
 		"""
 		if not super().interrupt(by):
 			return False
@@ -2620,15 +2647,15 @@ class Flow(Processor):
 
 	def process(self, event, source=None):
 		"""
-		Emit the &event directly to the downstream.
+		# Emit the &event directly to the downstream.
 		"""
 
 		self.f_emit(event, source=self)
 
 	def f_emit(self, event, source=None):
 		"""
-		Method replaced at runtime for selecting the recipient
-		of a processed event.
+		# Method replaced at runtime for selecting the recipient
+		# of a processed event.
 		"""
 
 		pass
@@ -2636,12 +2663,12 @@ class Flow(Processor):
 	@property
 	def f_empty(self):
 		"""
-		Whether the flow is actively performing a transfer.
+		# Whether the flow is actively performing a transfer.
 
-		This property returns &True in cases where the Flow's
-		state is such that it may independently send events downstream.
+		# This property returns &True in cases where the Flow's
+		# state is such that it may independently send events downstream.
 
-		Flows that have buffers *should* implement this method.
+		# Flows that have buffers *should* implement this method.
 		"""
 
 		return True
@@ -2649,7 +2676,7 @@ class Flow(Processor):
 	@property
 	def f_obstructed(self):
 		"""
-		Whether or not the &Flow is obstructed.
+		# Whether or not the &Flow is obstructed.
 		"""
 
 		return self.f_obstructions is not None
@@ -2657,9 +2684,9 @@ class Flow(Processor):
 	@property
 	def f_permanent(self, sum=sum) -> int:
 		"""
-		Whether or not there are Inexorable obstructions present.
-		An integer specifying the number of &Inexorable obstructions or &None
-		if there are no obstructions.
+		# Whether or not there are Inexorable obstructions present.
+		# An integer specifying the number of &Inexorable obstructions or &None
+		# if there are no obstructions.
 		"""
 
 		if self.f_obstructions:
@@ -2667,8 +2694,8 @@ class Flow(Processor):
 
 	def f_obstruct(self, by, signal=None, condition=None):
 		"""
-		Instruct the Flow to signal the cessation of transfers.
-		The cessation may be permanent depending on the condition.
+		# Instruct the Flow to signal the cessation of transfers.
+		# The cessation may be permanent depending on the condition.
 		"""
 
 		if not self.f_obstructions:
@@ -2688,7 +2715,7 @@ class Flow(Processor):
 
 	def f_clear(self, obstruction):
 		"""
-		Clear the obstruction by the key given to &obstruction.
+		# Clear the obstruction by the key given to &obstruction.
 		"""
 
 		cleared = False
@@ -2710,8 +2737,8 @@ class Flow(Processor):
 
 	def f_watch(self, obstructed, cleared):
 		"""
-		Assign the given functions as callbacks to obstruction events.
-		First called when an obstruction occurs and second when its cleared.
+		# Assign the given functions as callbacks to obstruction events.
+		# First called when an obstruction occurs and second when its cleared.
 		"""
 
 		if self.f_monitors is None:
@@ -2723,7 +2750,7 @@ class Flow(Processor):
 
 	def f_ignore(self, obstructed, cleared):
 		"""
-		Stop watching the Flow's obstructed state.
+		# Stop watching the Flow's obstructed state.
 		"""
 
 		if self.f_monitors:
@@ -2731,23 +2758,23 @@ class Flow(Processor):
 
 	def f_discarding(self, event, source = None):
 		"""
-		Assigned to &process and &f_emit after termination and interrupt in order
-		to keep overruns from exercising the Transformations.
+		# Assigned to &process and &f_emit after termination and interrupt in order
+		# to keep overruns from exercising the Transformations.
 		"""
 
 		pass
 
 class Mitre(Flow):
 	"""
-	The joining flow between input and output.
+	# The joining flow between input and output.
 
-	Subclasses of this flow manage the routing of protocol requests.
+	# Subclasses of this flow manage the routing of protocol requests.
 	"""
 	f_type = 'mitre'
 
 	def f_connect(self, flow:Processor):
 		"""
-		Connect the given flow as downstream without inheriting obstructions.
+		# Connect the given flow as downstream without inheriting obstructions.
 		"""
 
 		# Similar to &Flow, but obstruction notifications are not carried upstream.
@@ -2757,7 +2784,7 @@ class Mitre(Flow):
 
 class Sockets(Mitre):
 	"""
-	Mitre for transport flows created by &System in order to accept sockets.
+	# Mitre for transport flows created by &System in order to accept sockets.
 	"""
 	def __init__(self, reference, router):
 		self.m_reference = reference
@@ -2765,7 +2792,7 @@ class Sockets(Mitre):
 
 	def process(self, event, source=None):
 		"""
-		Accept the event, but do nothing as Terminals do not propogate events.
+		# Accept the event, but do nothing as Terminals do not propogate events.
 		"""
 		update = self.m_router((self.m_reference, event))
 		if update:
@@ -2778,7 +2805,7 @@ class Sockets(Mitre):
 
 class Transformation(Flow):
 	"""
-	A flow that performs a transformation on the received events.
+	# A flow that performs a transformation on the received events.
 	"""
 
 	def __init__(self, transform):
@@ -2791,15 +2818,15 @@ class Transformation(Flow):
 
 class Iteration(Flow):
 	"""
-	Flow that emits the contents of an &collections.abc.Iterator until
-	an obstruction occurs or the iterator ends.
+	# Flow that emits the contents of an &collections.abc.Iterator until
+	# an obstruction occurs or the iterator ends.
 	"""
 	f_type = 'source'
 
 	def f_clear(self, *args) -> bool:
 		"""
-		Override of &Flow.f_clear that enqueues an &it_transition call
-		if it's no longer obstructed.
+		# Override of &Flow.f_clear that enqueues an &it_transition call
+		# if it's no longer obstructed.
 		"""
 
 		if super().f_clear(*args):
@@ -2809,8 +2836,8 @@ class Iteration(Flow):
 
 	def it_transition(self):
 		"""
-		Emit the next item in the iterator until an obstruction occurs or
-		the iterator is exhausted.
+		# Emit the next item in the iterator until an obstruction occurs or
+		# the iterator is exhausted.
 		"""
 
 		for x in self.it_iterator:
@@ -2826,10 +2853,10 @@ class Iteration(Flow):
 
 	def __init__(self, iterator):
 		"""
-		[ Parameters ]
+		# [ Parameters ]
 
-		/iterator
-			The iterator that produces events.
+		# /iterator
+			# The iterator that produces events.
 		"""
 
 		self.it_iterator = iter(iterator)
@@ -2841,14 +2868,14 @@ class Iteration(Flow):
 
 	def process(self, it, source=None):
 		"""
-		Raises exception as &Iteration is a source.
+		# Raises exception as &Iteration is a source.
 		"""
 		raise Exception('Iteration only produces')
 
 class Collection(Flow):
 	"""
-	Terminal &Flow collecting the events into a buffer for processing after
-	termination.
+	# Terminal &Flow collecting the events into a buffer for processing after
+	# termination.
 	"""
 	f_type = 'terminal'
 
@@ -2860,8 +2887,8 @@ class Collection(Flow):
 	@classmethod
 	def list(Class):
 		"""
-		Construct a &Collection instance that appends all events into a &list
-		instance.
+		# Construct a &Collection instance that appends all events into a &list
+		# instance.
 		"""
 		l = []
 		return Class(l, l.append)
@@ -2869,13 +2896,14 @@ class Collection(Flow):
 	@classmethod
 	def dict(Class, initial=None):
 		"""
-		Construct a &Collection instance that builds the contents of a
-		mapping from sequences of key-value pairs.
+		# Construct a &Collection instance that builds the contents of a
+		# mapping from sequences of key-value pairs.
 		"""
 		if initial is None:
 			initial = {}
 		def collect_mapping_add(x, collect_mapping_set=initial.__setitem__):
 			collect_mapping_set(*x)
+
 		return Class(initial, collect_mapping_add)
 
 	@classmethod
@@ -2890,8 +2918,8 @@ class Collection(Flow):
 	@classmethod
 	def buffer(Class, initial=None, partial=functools.partial, bytearray=bytearray):
 		"""
-		Construct a &Collection instance that accumulates data from sequences
-		of data into a single &bytearray.
+		# Construct a &Collection instance that accumulates data from sequences
+		# of data into a single &bytearray.
 		"""
 		if initial is None:
 			initial = bytearray()
@@ -2902,25 +2930,20 @@ class Collection(Flow):
 
 class Parallel(Flow):
 	"""
-	A dedicated thread for processing events emitted to the Flow.
+	# A dedicated thread for processing events emitted to the Flow.
 
-	Term Parallel being used as the actual function is ran in parallel to
-	the &Flow in which it is participating in.
+	# Term Parallel being used as the actual function is ran in parallel to
+	# the &Flow in which it is participating in.
 
-	The requisite function should have the following signature:
+	# The requisite function should have the following signature:
 
-	#!/pl/python
+	# #!/pl/python
 		def thread_function(transformer, queue, *optional):
 			...
 
-	The queue provides access to the events that were received by the Transformer,
-	and the &transformer argument allows the thread to cause obstructions by
-	accessing its controller.
-
-	! DEVELOPER:
-		Needs better drain support. Currently,
-		terminal drains are hacked on and regular drains
-		not are supported.
+	# The queue provides access to the events that were received by the Transformer,
+	# and the &transformer argument allows the thread to cause obstructions by
+	# accessing its controller.
 	"""
 
 	def __init__(self, target:typing.Callable, *parameters):
@@ -2935,7 +2958,7 @@ class Parallel(Flow):
 
 	def terminate(self, by=None):
 		"""
-		Initiate termination of the thread.
+		# Initiate termination of the thread.
 		"""
 		if self.terminated or self.terminating or self.interrupted:
 			return False
@@ -2946,7 +2969,7 @@ class Parallel(Flow):
 
 	def trap(self):
 		"""
-		Internal; Trap exceptions in order to map them to faults.
+		# Internal; Trap exceptions in order to map them to faults.
 		"""
 		try:
 			self.pf_target(self, self.pf_queue, *self.pf_parameters)
@@ -2957,15 +2980,15 @@ class Parallel(Flow):
 
 	def process(self, event):
 		"""
-		Send the event to the queue that the Thread is connected to.
-		Injections performed by the thread will be enqueued into the main task queue.
+		# Send the event to the queue that the Thread is connected to.
+		# Injections performed by the thread will be enqueued into the main task queue.
 		"""
 
 		self._pf_put(event)
 
 	def actuate(self):
 		"""
-		Execute the dedicated thread for the transformer.
+		# Execute the dedicated thread for the transformer.
 		"""
 
 		super().actuate()
@@ -2974,38 +2997,38 @@ class Parallel(Flow):
 
 class Transports(Flow):
 	"""
-	Transports represents a stack of protocol layers and manages their
-	initialization and termination so that the outermost layer is
-	terminated before the inner layers, and vice versa for initialization.
+	# Transports represents a stack of protocol layers and manages their
+	# initialization and termination so that the outermost layer is
+	# terminated before the inner layers, and vice versa for initialization.
 
-	Transports are primarily used to manage protocol layers like TLS where
-	the flows are completely dependent on the &Transports.
+	# Transports are primarily used to manage protocol layers like TLS where
+	# the flows are completely dependent on the &Transports.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/tf_termination_index
-		Not Implemented.
+	# /tf_termination_index
+		# Not Implemented.
 
-		/(&int)`x > 0`
-			The lowest index of the stack that has terminated
-			in both directions. When &tf_termination_index is equal
-			to `1`, the transports will reach a terminated
-			state and the connected flows will receive terminate events.
-		/&None
-			No part of the stack has terminated.
+		# /(&int)`x > 0`
+			# The lowest index of the stack that has terminated
+			# in both directions. When &tf_termination_index is equal
+			# to `1`, the transports will reach a terminated
+			# state and the connected flows will receive terminate events.
+		# /&None
+			# No part of the stack has terminated.
 
-	/tf_polarity
-		/`-1`
-			The transport is sending events out.
-		/`+1`
-			The transport is receiving events in.
+	# /tf_polarity
+		# /`-1`
+			# The transport is sending events out.
+		# /`+1`
+			# The transport is receiving events in.
 
-	/tf_operations
-		The operations used to apply the layers for the respective direction.
+	# /tf_operations
+		# The operations used to apply the layers for the respective direction.
 
-	/operation_set
-		Class-wide dictionary containing the functions
-		needed to resolve the transport operations used by a layer.
+	# /operation_set
+		# Class-wide dictionary containing the functions
+		# needed to resolve the transport operations used by a layer.
 	"""
 
 	operation_set = {}
@@ -3013,7 +3036,7 @@ class Transports(Flow):
 	@classmethod
 	def create(Class, transports, Stack=list):
 		"""
-		Create a pair of &Transports instances.
+		# Create a pair of &Transports instances.
 		"""
 		global weakref
 
@@ -3052,16 +3075,16 @@ class Transports(Flow):
 	@property
 	def opposite(self):
 		"""
-		The transformer of the opposite direction for the Transports pair.
+		# The transformer of the opposite direction for the Transports pair.
 		"""
 		return self._tf_opposite()
 
 	def drain(self):
 		"""
-		Drain the transport layer.
+		# Drain the transport layer.
 
-		Buffers are left as empty as possible, so flow termination is the only
-		condition that leaves a requirement for drain completion.
+		# Buffers are left as empty as possible, so flow termination is the only
+		# condition that leaves a requirement for drain completion.
 		"""
 
 		if self.tf_stack:
@@ -3181,7 +3204,7 @@ class Transports(Flow):
 
 	def terminate(self, by=None):
 		"""
-		Initiate the termination the transport stack.
+		# Initiate the termination the transport stack.
 		"""
 
 		if self.terminated or self.terminating or self.interrupted:
@@ -3203,7 +3226,7 @@ class Transports(Flow):
 
 class Kernel(Flow):
 	"""
-	Flow moving data in or out of the system's kernel.
+	# Flow moving data in or out of the system's kernel.
 	"""
 	k_status = None
 
@@ -3274,8 +3297,8 @@ class Kernel(Flow):
 
 	def k_kill(self):
 		"""
-		Called by the controlling &Flow, acquire status information and
-		unlink the transit.
+		# Called by the controlling &Flow, acquire status information and
+		# unlink the transit.
 		"""
 
 		t = self.transit
@@ -3337,9 +3360,9 @@ class Kernel(Flow):
 	@property
 	def k_transferring(self):
 		"""
-		The length of the buffer being transferred into or out of the kernel.
+		# The length of the buffer being transferred into or out of the kernel.
 
-		&None if no transfer is currently taking place.
+		# &None if no transfer is currently taking place.
 		"""
 		x = self.transit
 		if x is not None:
@@ -3351,7 +3374,7 @@ class Kernel(Flow):
 
 class KInput(Kernel):
 	"""
-	Flow that continually allocates memory for a transit transferring data into the process.
+	# Flow that continually allocates memory for a transit transferring data into the process.
 	"""
 
 	allocate_integer_array = (array.array("i", [-1]).__mul__, 24)
@@ -3360,7 +3383,7 @@ class KInput(Kernel):
 	@classmethod
 	def sockets(Class, transit):
 		"""
-		Allocate a &KInput instance for transferring accepted sockets.
+		# Allocate a &KInput instance for transferring accepted sockets.
 		"""
 		return Class(transit, allocate=Class.allocate_integer_array)
 
@@ -3410,7 +3433,7 @@ class KInput(Kernel):
 
 	def k_transition(self):
 		"""
-		Transition in the next buffer provided that the Flow was not obstructed.
+		# Transition in the next buffer provided that the Flow was not obstructed.
 		"""
 
 		if self.f_obstructed:
@@ -3423,7 +3446,7 @@ class KInput(Kernel):
 
 	def process(self, event, source=None):
 		"""
-		Normally ignored, but will induce a transition if no transfer is occurring.
+		# Normally ignored, but will induce a transition if no transfer is occurring.
 		"""
 
 		if self.transit.resource is None:
@@ -3431,11 +3454,11 @@ class KInput(Kernel):
 
 class KOutput(Kernel):
 	"""
-	Flow that transfers emitted events to be transferred into the kernel.
+	# Flow that transfers emitted events to be transferred into the kernel.
 
-	The queue is limited to a certain number of items rather than a metadata constraint;
-	for instance, the sum of the length of the buffer entries. This allows the connected
-	Flows to dynamically choose the buffer size by adjusting the size of the events.
+	# The queue is limited to a certain number of items rather than a metadata constraint;
+	# for instance, the sum of the length of the buffer entries. This allows the connected
+	# Flows to dynamically choose the buffer size by adjusting the size of the events.
 	"""
 
 	ko_limit = 16
@@ -3443,7 +3466,7 @@ class KOutput(Kernel):
 	@property
 	def ko_overflow(self):
 		"""
-		Queue entries exceeds limit.
+		# Queue entries exceeds limit.
 		"""
 		return len(self.ko_queue) > self.ko_limit
 
@@ -3476,7 +3499,7 @@ class KOutput(Kernel):
 
 	def process(self, event, source=None, len=len):
 		"""
-		Enqueue a sequence of transfers to be processed by the Transit.
+		# Enqueue a sequence of transfers to be processed by the Transit.
 		"""
 
 		# Events *must* be processed, so extend the queue unconditionally.
@@ -3514,9 +3537,9 @@ ProtocolTransactionEndpoint = typing.Callable[[
 
 class Null(Flow):
 	"""
-	Flow that has no controller, ignores termination, and emits no events.
+	# Flow that has no controller, ignores termination, and emits no events.
 
-	Conceptual equivalent of (system:filepath)`/dev/null`.
+	# Conceptual equivalent of (system:filepath)`/dev/null`.
 	"""
 	controller = None
 	f_type = 'terminal'
@@ -3542,7 +3565,7 @@ class Null(Flow):
 
 	def f_connect(self, downstream:Flow):
 		"""
-		Induces termination in downstream.
+		# Induces termination in downstream.
 		"""
 		downstream.terminate(by=self)
 
@@ -3561,9 +3584,9 @@ null = Null()
 
 class Funnel(Flow):
 	"""
-	A union of events that emits data received from a set of &Flow instances.
+	# A union of events that emits data received from a set of &Flow instances.
 
-	The significant distinction being that termination from &Flow instances are ignored.
+	# The significant distinction being that termination from &Flow instances are ignored.
 	"""
 
 	def terminate(self, by=None):
@@ -3574,25 +3597,21 @@ class Funnel(Flow):
 			super().terminate(by=by)
 
 class Traces(Flow):
-	"""
-	return KInput(transit)
-	"""
-
 	def __init__(self):
 		super().__init__()
 		self.monitors = dict()
 
 	def monitor(self, identity, callback):
 		"""
-		Assign a monitor to the Meta Reflection.
+		# Assign a monitor to the Meta Reflection.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/identity
-			Arbitrary hashable used to refer to the callback.
+		# /identity
+			# Arbitrary hashable used to refer to the callback.
 
-		/callback
-			Unary callable that receives all events processed by Trace.
+		# /callback
+			# Unary callable that receives all events processed by Trace.
 		"""
 
 		self.monitors[identity] = callback
@@ -3607,7 +3626,7 @@ class Traces(Flow):
 	@staticmethod
 	def log(event, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
 		"""
-		Trace monitor for printing events.
+		# Trace monitor for printing events.
 		"""
 		if self.title:
 			trace = ('EVENT TRACE[' + title + ']:' + repr(event)+'\n')
@@ -3625,33 +3644,34 @@ class Traces(Flow):
 
 class Catenation(Flow):
 	"""
-	Sequence a set of flows in the enqueued order.
+	# Sequence a set of flows in the enqueued order.
 
-	Emulates parallel operation by facilitating the sequenced delivery of
-	a sequence of flows where the first flow is carried until completion before
-	the following flow may be processed.
+	# Emulates parallel operation by facilitating the sequenced delivery of
+	# a sequence of flows where the first flow is carried until completion before
+	# the following flow may be processed.
 
-	Essentially, this is a buffer array that uses Flow termination signals
-	to manage the current working flow and queues to buffer the events to be emitted.
+	# Essentially, this is a buffer array that uses Flow termination signals
+	# to manage the current working flow and queues to buffer the events to be emitted.
 
-	[ Untested ]
+	# [ Untested ]
 
-		- Recursive transition() calls.
+		# - Recursive transition() calls.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/cat_order
-		Queue of &Layer instances dictating the order of the flows.
-	/cat_connections
-		Mapping of connected &Flow instances to their corresponding
-		queue, &Layer, and termination state.
-	/cat_flows
-		Connection identifier mapping to a connected &Flow.
+	# /cat_order
+		# Queue of &Layer instances dictating the order of the flows.
+	# /cat_connections
+		# Mapping of connected &Flow instances to their corresponding
+		# queue, &Layer, and termination state.
+	# /cat_flows
+		# Connection identifier mapping to a connected &Flow.
 	"""
 	f_type = 'join'
 
 	def __init__(self, Queue=collections.deque):
 		self.cat_order = Queue() # order of flows deciding next in line
+
 		# TODO: Likely need a weakkeydict here for avoiding cycles.
 		self.cat_connections = dict() # Flow -> (Queue, Layer, Termination)
 		self.cat_flows = dict() # Layer -> Flow
@@ -3659,7 +3679,7 @@ class Catenation(Flow):
 
 	def cat_overflowing(self, flow):
 		"""
-		Whether the given flow's queue has too many items.
+		# Whether the given flow's queue has too many items.
 		"""
 
 		q = self.cat_connections[flow][0]
@@ -3674,7 +3694,7 @@ class Catenation(Flow):
 
 	def cat_transfer(self, events, source, fc_xfer = FlowControl.transfer):
 		"""
-		Emit point for Sequenced Flows
+		# Emit point for Sequenced Flows
 		"""
 
 		# Look up layer for protocol join downstream.
@@ -3728,7 +3748,7 @@ class Catenation(Flow):
 
 	def cat_flush(self):
 		"""
-		Flush the accumulated events downstream.
+		# Flush the accumulated events downstream.
 		"""
 		events = self.cat_events
 		self.cat_events = [] # Reset before emit in case of re-enqueue.
@@ -3740,15 +3760,15 @@ class Catenation(Flow):
 
 	def cat_reserve(self, layer):
 		"""
-		Reserve a position in the sequencing of the flows. The given &layer is the reference
-		object used by &cat_connect in order to actually connect flows.
+		# Reserve a position in the sequencing of the flows. The given &layer is the reference
+		# object used by &cat_connect in order to actually connect flows.
 		"""
 
 		self.cat_order.append(layer)
 
 	def cat_connect(self, layer, flow, fc_init=FlowControl.initiate, Queue=collections.deque):
 		"""
-		Connect the flow to the given layer signalling that its ready to process events.
+		# Connect the flow to the given layer signalling that its ready to process events.
 		"""
 
 		assert bool(self.cat_order) is True # Presume layer enqueued.
@@ -3776,8 +3796,8 @@ class Catenation(Flow):
 
 	def cat_drain(self, fc_init=FlowControl.initiate, fc_xfer=FlowControl.transfer):
 		"""
-		Drain the new head of line emitting any queued events and
-		updating its entry in &cat_connections to immediately send events.
+		# Drain the new head of line emitting any queued events and
+		# updating its entry in &cat_connections to immediately send events.
 		"""
 
 		assert bool(self.cat_order) is True # Presume  layer enqueued.
@@ -3806,8 +3826,8 @@ class Catenation(Flow):
 
 	def cat_transition(self, fc_terminate=FlowControl.terminate, exiting_flow=None, getattr=getattr):
 		"""
-		Move the first enqueued flow to the front of the line;
-		flush out the buffer and remove ourselves as an obstruction.
+		# Move the first enqueued flow to the front of the line;
+		# flush out the buffer and remove ourselves as an obstruction.
 		"""
 
 		assert bool(self.cat_order) is True
@@ -3832,12 +3852,12 @@ class Catenation(Flow):
 
 class Division(Flow):
 	"""
-	Coordination of the routing of a protocol's layer content.
+	# Coordination of the routing of a protocol's layer content.
 
-	Protocols consisting of a series of requests, HTTP for instance,
-	need to control where the content of a request goes. &QueueProtocolInput
-	manages the connections to actual &Flow instances that delivers
-	the transformed application level events.
+	# Protocols consisting of a series of requests, HTTP for instance,
+	# need to control where the content of a request goes. &QueueProtocolInput
+	# manages the connections to actual &Flow instances that delivers
+	# the transformed application level events.
 	"""
 	f_type = 'fork'
 
@@ -3851,8 +3871,8 @@ class Division(Flow):
 
 	def process(self, events, source=None):
 		"""
-		Direct the given events to their corresponding action in order to
-		map protocol stream events to &Flow instances.
+		# Direct the given events to their corresponding action in order to
+		# map protocol stream events to &Flow instances.
 		"""
 
 		ops = self.div_operations.__getitem__
@@ -3866,7 +3886,7 @@ class Division(Flow):
 
 	def interrupt(self, by=None, fc_terminate=FlowControl.terminate):
 		"""
-		Interruptions on distributions translates to termination.
+		# Interruptions on distributions translates to termination.
 		"""
 
 		if not super().interrupt(by=by):
@@ -3884,9 +3904,9 @@ class Division(Flow):
 
 	def div_initiate(self, fc, layer, getattr=getattr, partial=functools.partial):
 		"""
-		Initiate a subflow using the given &layer as its identity.
-		The &layer along with a callable performing &div_connect will be emitted
-		to the &Flow.f_connect downstream.
+		# Initiate a subflow using the given &layer as its identity.
+		# The &layer along with a callable performing &div_connect will be emitted
+		# to the &Flow.f_connect downstream.
 		"""
 
 		self.div_flows[layer] = None
@@ -3897,12 +3917,12 @@ class Division(Flow):
 
 	def div_connect(self, layer:Layer, flow:Flow, fc_terminate=FlowControl.terminate):
 		"""
-		Associate the &flow with the &layer allowing transfers into the flow.
+		# Associate the &flow with the &layer allowing transfers into the flow.
 
-		Drains the queue that was collecting events associated with the &layer,
-		and feeds them into the flow before destroying the queue. Layer connections
-		without queues are the head of the line, and actively receiving transfers
-		and control events.
+		# Drains the queue that was collecting events associated with the &layer,
+		# and feeds them into the flow before destroying the queue. Layer connections
+		# without queues are the head of the line, and actively receiving transfers
+		# and control events.
 		"""
 
 		if flow is None:
@@ -3930,7 +3950,7 @@ class Division(Flow):
 
 	def div_transfer(self, fc, layer, subflow_transfer):
 		"""
-		Enqueue or transfer the events to the flow associated with the layer context.
+		# Enqueue or transfer the events to the flow associated with the layer context.
 		"""
 
 		flow = self.div_flows[layer] # KeyError when no FlowControl.initiate occurred.
@@ -3944,7 +3964,7 @@ class Division(Flow):
 
 	def div_terminate(self, fc, layer, fc_terminate=FlowControl.terminate):
 		"""
-		End of Layer context content. Flush queue and remove entries.
+		# End of Layer context content. Flush queue and remove entries.
 		"""
 
 		if layer in self.div_flows:
@@ -3976,10 +3996,10 @@ def Encoding(
 		gie=codecs.getincrementalencoder,
 	):
 	"""
-	Encoding Transformation Generator.
+	# Encoding Transformation Generator.
 
-	Used with &Generator flows to create a transformation that performs
-	incremental encoding of &Flow throughput.
+	# Used with &Generator flows to create a transformation that performs
+	# incremental encoding of &Flow throughput.
 	"""
 
 	emit = transformer.f_emit
@@ -4000,17 +4020,17 @@ def Encoding(
 
 class Ports(Device):
 	"""
-	Ports manages the set of listening sockets used by a &Unit.
-	Ports consist of a mapping of a set identifiers and the set of actual listening
-	sockets.
+	# Ports manages the set of listening sockets used by a &Unit.
+	# Ports consist of a mapping of a set identifiers and the set of actual listening
+	# sockets.
 
-	In addition to acquisition, &Ports inspects the environment for inherited
-	port sets. This is used to communicate socket inheritance across &/unix/man/2/exec calls.
+	# In addition to acquisition, &Ports inspects the environment for inherited
+	# port sets. This is used to communicate socket inheritance across &/unix/man/2/exec calls.
 
-	The environment variables used to inherit interfaces across &/unix/man/2/exec
-	starts at &/env/FIOD_DEVICE_PORTS; it contains a list of slots used to hold the set
-	of listening sockets used to support the slot. Often, daemons will use
-	multiple slots in order to distinguish between secure and insecure.
+	# The environment variables used to inherit interfaces across &/unix/man/2/exec
+	# starts at &/env/FIOD_DEVICE_PORTS; it contains a list of slots used to hold the set
+	# of listening sockets used to support the slot. Often, daemons will use
+	# multiple slots in order to distinguish between secure and insecure.
 	"""
 
 	actuated = True
@@ -4032,7 +4052,7 @@ class Ports(Device):
 
 	def discard(self, slot):
 		"""
-		Close the file descriptors associated with the given slot.
+		# Close the file descriptors associated with the given slot.
 		"""
 
 		close = os.close
@@ -4043,7 +4063,7 @@ class Ports(Device):
 
 	def bind(self, slot, *endpoints):
 		"""
-		Bind the given endpoints and add them to the set identified by &slot.
+		# Bind the given endpoints and add them to the set identified by &slot.
 		"""
 
 		add = self.sets[slot].__setitem__
@@ -4065,7 +4085,7 @@ class Ports(Device):
 
 	def close(self, slot, *endpoints):
 		"""
-		Close the file descriptors associated with the given slot and endpoint.
+		# Close the file descriptors associated with the given slot and endpoint.
 		"""
 
 		sd = self.sets[slot]
@@ -4077,28 +4097,28 @@ class Ports(Device):
 
 	def acquire(self, slot:collections.abc.Hashable):
 		"""
-		Acquire a set of listening &Transformer instances.
-		Each instance should be managed by a &Flow that constructs
-		the I/O &Transformer instances from the received socket connections.
+		# Acquire a set of listening &Transformer instances.
+		# Each instance should be managed by a &Flow that constructs
+		# the I/O &Transformer instances from the received socket connections.
 
-		Internal endpoints are usually managed as a simple transparent relay
-		where the constructed Relay instances are simply passed through.
+		# Internal endpoints are usually managed as a simple transparent relay
+		# where the constructed Relay instances are simply passed through.
 		"""
 
 		return self.sets[slot]
 
 	def associate(self, slot, processor):
 		"""
-		Associate a slot with a particular processor in order to document
-		the user of the slot.
+		# Associate a slot with a particular processor in order to document
+		# the user of the slot.
 		"""
 
 		self.users[slot] = processor
 
 	def replace(self, slot, *endpoints):
 		"""
-		Given a new set of interface bindings, update the slot in &sets so
-		they match. Interfaces not found in the new set will be closed.
+		# Given a new set of interface bindings, update the slot in &sets so
+		# they match. Interfaces not found in the new set will be closed.
 		"""
 
 		current_endpoints = set(self.sets[slot])
@@ -4115,9 +4135,9 @@ class Ports(Device):
 
 	def load(self, route):
 		"""
-		Load the Ports state from the given file.
+		# Load the Ports state from the given file.
 
-		Used by &.bin.rootd and &.bin.sectord to manage inplace restarts.
+		# Used by &.bin.rootd and &.bin.sectord to manage inplace restarts.
 		"""
 
 		with route.open('rb') as f:
@@ -4125,9 +4145,9 @@ class Ports(Device):
 
 	def store(self, route):
 		"""
-		Store the Ports state from the given file.
+		# Store the Ports state from the given file.
 
-		Used by &.bin.rootd and &.bin.sectord to manage inplace restarts.
+		# Used by &.bin.rootd and &.bin.sectord to manage inplace restarts.
 		"""
 
 		with route.open('wb') as f:
@@ -4135,10 +4155,10 @@ class Ports(Device):
 
 def context(max_depth=None):
 	"""
-	Finds the &Processor instance that caused the function to be invoked.
+	# Finds the &Processor instance that caused the function to be invoked.
 
-	Used to discover the execution context when it wasn't explicitly
-	passed forward.
+	# Used to discover the execution context when it wasn't explicitly
+	# passed forward.
 	"""
 	global sys
 
@@ -4154,15 +4174,15 @@ def context(max_depth=None):
 
 def pipeline(sector, kpipeline, input=None, output=None):
 	"""
-	Execute a &..system.library.KPipeline object building an IO instance
-	from the input and output file descriptors associated with the
-	first and last processes as described by its &..system.library.Pipeline.
+	# Execute a &..system.library.KPipeline object building an IO instance
+	# from the input and output file descriptors associated with the
+	# first and last processes as described by its &..system.library.Pipeline.
 
-	Additionally, a mapping of standard errors will be produced.
-	Returns a tuple, `(input, output, stderrs)`.
+	# Additionally, a mapping of standard errors will be produced.
+	# Returns a tuple, `(input, output, stderrs)`.
 
-	Where stderrs is a sequence of file descriptors of the standard error of each process
-	participating in the pipeline.
+	# Where stderrs is a sequence of file descriptors of the standard error of each process
+	# participating in the pipeline.
 	"""
 
 	ctx = sector.context
@@ -4183,16 +4203,16 @@ def pipeline(sector, kpipeline, input=None, output=None):
 
 def execute(*identity, **units):
 	"""
-	Initialize a &process.Representation to manage the invocation from the (operating) system.
-	This is the appropriate way to invoke a &..io process from an executable module that
-	wants more control over the initialization process than what is offered by
-	&.libcommand.
+	# Initialize a &process.Representation to manage the invocation from the (operating) system.
+	# This is the appropriate way to invoke a &..io process from an executable module that
+	# wants more control over the initialization process than what is offered by
+	# &.libcommand.
 
 	#!/pl/python
 		libio.execute(unit_name = (unit_initialization,))
 
-	Creates a &Unit instance that is passed to the initialization function where
-	its hierarchy is then populated with &Sector instances.
+	# Creates a &Unit instance that is passed to the initialization function where
+	# its hierarchy is then populated with &Sector instances.
 	"""
 
 	if identity:
@@ -4210,17 +4230,16 @@ _parallel_lock = libsys.create_lock()
 @contextlib.contextmanager
 def parallel(*tasks, identity='parallel'):
 	"""
-	Allocate a logical process assigned to the stack for parallel operation.
-	Primarily used by blocking programs looking to leverage &.io functionality.
+	# Allocate a logical process assigned to the stack for parallel operation.
+	# Primarily used by blocking programs looking to leverage &.io functionality.
 
-	A context manager that waits for completion in order to exit.
+	# A context manager that waits for completion in order to exit.
 
-	! WARNING:
-		Tentative interface: This will be replaced with a safer implementation.
-		Concurrency is not properly supported and the shutdown process needs to be
-		handled gracefully.
+	# ! WARNING:
+		# Tentative interface: This will be replaced with a safer implementation.
+		# Concurrency is not properly supported and the shutdown process needs to be
+		# handled gracefully.
 	"""
-	global _parallel_lock
 
 	_parallel_lock.acquire()
 	unit = None

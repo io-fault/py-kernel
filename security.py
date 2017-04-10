@@ -1,9 +1,9 @@
 """
-&.library.Transports support for PKI based security layer.
+# &.library.Transports support for PKI based security layer.
 
-Much of the libio security functionality is structured around conditionally
-importing &.security in order to avoid the memory and processing
-overhead involved.
+# Much of the libio security functionality is structured around conditionally
+# importing &.security in order to avoid the memory and processing
+# overhead involved.
 """
 
 from ..cryptography import library as libcrypt
@@ -11,9 +11,9 @@ Transport = libcrypt.pki.Transport
 
 def operations(transport):
 	"""
-	Construct the input and output operations used by &.library.Transports instances.
-	All implementations accessible from &..cryptography expose the same features,
-	so &operations is implementation independent.
+	# Construct the input and output operations used by &.library.Transports instances.
+	# All implementations accessible from &..cryptography expose the same features,
+	# so &operations is implementation independent.
 	"""
 
 	return (
@@ -29,10 +29,10 @@ _public_context = None
 
 def public(certificates=()):
 	"""
-	Initialize and return a TLS security context for use with the publicly available
-	certificates.
+	# Initialize and return a TLS security context for use with the publicly available
+	# certificates.
 
-	This does *not* consider the system's configured certificates.
+	# This does *not* consider the system's configured certificates.
 	"""
 
 	global _public_context
@@ -43,7 +43,7 @@ def public(certificates=()):
 
 def system(certificates=()):
 	"""
-	Initialize and return the system's TLS security context.
-	Operating system dependant; some platforms may refer to &public.
+	# Initialize and return the system's TLS security context.
+	# Operating system dependant; some platforms may refer to &public.
 	"""
 	raise NotImplementedError

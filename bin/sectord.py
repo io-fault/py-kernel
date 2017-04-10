@@ -1,17 +1,17 @@
 """
-Sector daemon used to manage a set of &.library.Sector instances
-that run a daemon process.
+# Sector daemon used to manage a set of &.library.Sector instances
+# that run a daemon process.
 """
 
 def initialize(unit):
 	"""
-	Initialize the sectord process inside the given &unit.
+	# Initialize the sectord process inside the given &unit.
 
-	Load ports from the invocation configuration,
-	setup &.libdaemon.Control for control interfaces and forking.
+	# Load ports from the invocation configuration,
+	# setup &.libdaemon.Control for control interfaces and forking.
 
-	The module paths provided as arguments will be used as sector
-	modules loaded into "/bin".
+	# The module paths provided as arguments will be used as sector
+	# modules loaded into "/bin".
 	"""
 
 	import functools
@@ -41,7 +41,7 @@ def initialize(unit):
 
 def main():
 	"""
-	Execute as a sectord process.
+	# Execute as a sectord process.
 	"""
 	import os
 	from .. import library as libio

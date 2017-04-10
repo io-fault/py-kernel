@@ -1,14 +1,13 @@
 """
-IETF HTTP support for &..io based applications.
+# IETF HTTP support for &..io based applications.
 
-&.libhttp provides foundations for clients and servers. The high-level
-concepts are managed by &..web.libhttpd.
+# &.libhttp provides foundations for clients and servers. The high-level
+# concepts are managed by &..web.libhttpd.
 
-[ Properties ]
-
-/HeaderSequence
-	Type annotation for the header sequence used by &Layer instances,
-	&Layer.header_sequence.
+# [ Properties ]
+# /HeaderSequence
+	# Type annotation for the header sequence used by &Layer instances,
+	# &Layer.header_sequence.
 """
 import typing
 import functools
@@ -38,7 +37,12 @@ def decode_number(string, int=int):
 def ranges(length, range_header):
 	"""
 	# Generator producing the ranges specified by the given Range header.
-	# &length is used to properly normalize the emitted range tuples.
+
+	# [ Parameters ]
+	# /length
+		# The (http/header)`Content-Length` of the entity body being referenced.
+	# /range_header
+		# The (http/header)`Range` to be converted to slices.
 	"""
 	if range_header is None:
 		yield (0, length)
@@ -72,39 +76,18 @@ def ranges(length, range_header):
 
 class ProtocolTransaction(tuple):
 	"""
-	The set of objects associated with a protocol transaction.
+	# The set of objects associated with a protocol transaction.
 
-	&ProtocolTransactions are used for both clients and servers.
-	For servers, &interface and &host should be referenced, whereas
-	for clients, &agent and &context should be referenced.
+	# &ProtocolTransactions are used for both clients and servers.
+	# For servers, &interface and &host should be referenced, whereas
+	# for clients, &agent and &context should be referenced.
 	"""
 	__slots__ = ()
 
-	ig = operator.itemgetter
-
-	# For agent transactions.
-	connection = property(ig(0))
-	request = property(ig(1))
-	response = property(ig(2))
-	connect_input = property(ig(3))
-	connect_output = property(ig(4))
-	host = property(ig(5))
-
-	del ig
-
-	def __lshift__(self, flow):
-		"""
-		# Connect the transaction's input to the flow.
-		"""
-		self.connect_input(flow)
-		return self
-
-	def __rshift__(self, flow):
-		"""
-		# Connect the flow to the transaction's output.
-		"""
-		self.connect_output(flow)
-		return self
+	connection, request, response, \
+	connect_input, connect_output, host = map(
+		lambda x: property(operator.itemgetter(x)), range(6)
+	)
 
 	@property
 	def terminal(self):
@@ -174,9 +157,9 @@ class ProtocolTransaction(tuple):
 
 	def write_output(self, mime:str, data:bytes):
 		"""
-		Send the given &data to the remote end with the given &mime type.
-		If other headers are desired, they *must* be configured before running
-		this method.
+		# Send the given &data to the remote end with the given &mime type.
+		# If other headers are desired, they *must* be configured before running
+		# this method.
 		"""
 
 		self.response.add_headers([
@@ -188,15 +171,15 @@ class ProtocolTransaction(tuple):
 
 	def read_file_into_output(self, path:str, str=str):
 		"""
-		Send the file referenced by &path to the remote end as
-		the (HTTP) entity body.
+		# Send the file referenced by &path to the remote end as
+		# the (HTTP) entity body.
 
-		The response must be properly initialized before invoking this method.
+		# The response must be properly initialized before invoking this method.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/path
-			A string containing the file's path.
+		# /path
+			# A string containing the file's path.
 		"""
 
 		f = libio.Iteration(((x,) for x in libmemory.Segments.open(str(path))))
@@ -207,17 +190,17 @@ class ProtocolTransaction(tuple):
 
 	def read_input_into_coroutine(self):
 		"""
-		Contructs an awaitable iterator that can be used inside
-		a coroutine to read the data sent from the remote endpoint.
+		# Contructs an awaitable iterator that can be used inside
+		# a coroutine to read the data sent from the remote endpoint.
 		"""
 		raise Exception("coroutine support not implemented")
 
 	def read_input_into_buffer(self, callback, limit=None):
 		"""
-		Connect the input Flow to a buffer that executes
-		the given callback when the entity body has been transferred.
+		# Connect the input Flow to a buffer that executes
+		# the given callback when the entity body has been transferred.
 
-		This should only be used when connecting to trusted hosts.
+		# This should only be used when connecting to trusted hosts.
 		"""
 
 		cxn = self.connection
@@ -230,9 +213,9 @@ class ProtocolTransaction(tuple):
 
 	def read_input_into_file(self, route):
 		"""
-		Connect the input Flow's entity body to the given file.
+		# Connect the input Flow's entity body to the given file.
 
-		The file will be truncated and data will be written in append mode.
+		# The file will be truncated and data will be written in append mode.
 		"""
 
 		cxn = self.connection
@@ -244,10 +227,10 @@ class ProtocolTransaction(tuple):
 
 	def write_kport_to_output(self, fd, limit=None):
 		"""
-		Transfer data from the &kport, file descriptor, to the output
-		constrained by the limit.
+		# Transfer data from the &kport, file descriptor, to the output
+		# constrained by the limit.
 
-		The file descriptor will be closed after the transfer is complete.
+		# The file descriptor will be closed after the transfer is complete.
 		"""
 
 		cxn = self.connection
@@ -259,11 +242,11 @@ class ProtocolTransaction(tuple):
 
 	def read_input_into_kport(self, fd, limit=None):
 		"""
-		Connect the input Flow's entity body to the given file descriptor.
-		The state of the open file descriptor will be used to allow inputs
-		to be connected to arbitrary parts of a file.
+		# Connect the input Flow's entity body to the given file descriptor.
+		# The state of the open file descriptor will be used to allow inputs
+		# to be connected to arbitrary parts of a file.
 
-		The file descriptor will be closed after the transfer is complete.
+		# The file descriptor will be closed after the transfer is complete.
 		"""
 
 		cxn = self.connection
@@ -275,9 +258,9 @@ class ProtocolTransaction(tuple):
 
 	def connect_pipeline(self, kpipeline):
 		"""
-		Connect the input and output to a &..system.library.KPipeline.
-		Received data will be sent to the pipeline,
-		and data emitted from the pipeline will be sent to the remote endpoint.
+		# Connect the input and output to a &..system.library.KPipeline.
+		# Received data will be sent to the pipeline,
+		# and data emitted from the pipeline will be sent to the remote endpoint.
 		"""
 
 		cxn = self.connection
@@ -294,30 +277,30 @@ class ProtocolTransaction(tuple):
 
 	def proxy(self, endpoint):
 		"""
-		Fulfill the transaction by transparently proxying the request.
+		# Fulfill the transaction by transparently proxying the request.
 		"""
 		pass
 
 class Layer(libio.Layer):
 	"""
-	The HTTP layer of a connection; superclass of &Request and &Response that provide
-	access to the parameters of a &Transaction.
+	# The HTTP layer of a connection; superclass of &Request and &Response that provide
+	# access to the parameters of a &Transaction.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/cached_headers
-		The HTTP headers that will be available inside a &dict instance
-		as well as the canonical header sequence that preserves order.
+	# /cached_headers
+		# The HTTP headers that will be available inside a &dict instance
+		# as well as the canonical header sequence that preserves order.
 
-	/(&HeaderSequence)`header_sequence`
-		The sequence of headers.
+	# /(&HeaderSequence)`header_sequence`
+		# The sequence of headers.
 
-	/(dict)`headers`
-		The mapping of headers available in the &header_sequence.
+	# /(&dict)`headers`
+		# The mapping of headers available in the &header_sequence.
 
-	/channel
-		The stream identifier. For HTTP/2.0, this identifies channel
-		being used for facilitating the request or response.
+	# /channel
+		# The stream identifier. For HTTP/2.0, this identifies channel
+		# being used for facilitating the request or response.
 	"""
 
 	protocol = 'http'
@@ -327,15 +310,15 @@ class Layer(libio.Layer):
 	@property
 	def content(self):
 		"""
-		Whether the Layer Context is associated with content.
+		# Whether the Layer Context is associated with content.
 		"""
 		return self.length is not None
 
 	@property
 	def length(self):
 		"""
-		The length of the content; positive if exact, &None if no content, and -1 if arbitrary.
-		For HTTP, arbitrary using chunked transfer encoding is used.
+		# The length of the content; positive if exact, &None if no content, and -1 if arbitrary.
+		# For HTTP, arbitrary using chunked transfer encoding is used.
 		"""
 
 		cl = self.headers.get(b'content-length')
@@ -351,7 +334,7 @@ class Layer(libio.Layer):
 
 	def byte_ranges(self, length):
 		"""
-		The byte ranges of the request.
+		# The byte ranges of the request.
 		"""
 
 		range_str = self.headers.get(b'range')
@@ -360,9 +343,9 @@ class Layer(libio.Layer):
 	@property
 	def upgrade_insecure(self):
 		"""
-		The (http/header-id)`Upgrade-Insecure-Requests` header as a boolean.
-		&None if not the header was not present, &True if the header value was
-		(octets)`1` and &False if (octets)`0`.
+		# The (http/header-id)`Upgrade-Insecure-Requests` header as a boolean.
+		# &None if not the header was not present, &True if the header value was
+		# (octets)`1` and &False if (octets)`0`.
 		"""
 
 		x = self.headers.get(b'upgrade-insecure-requests')
@@ -427,7 +410,7 @@ class Layer(libio.Layer):
 	@property
 	def connection(self):
 		"""
-		Return the connection header stripped and lowered or `b''` if no header present.
+		# Return the connection header stripped and lowered or `b''` if no header present.
 		"""
 		return self.headers.get(b'connection', b'').strip().lower()
 
@@ -435,7 +418,7 @@ class Layer(libio.Layer):
 	@functools.lru_cache(32)
 	def media_range_cache(range_data, parse_range=libmedia.Range.from_bytes):
 		"""
-		Cached access to a media range header.
+		# Cached access to a media range header.
 		"""
 
 		if range_data is not None:
@@ -446,7 +429,7 @@ class Layer(libio.Layer):
 	@property
 	def media_range(self):
 		"""
-		Structured form of the Accept header.
+		# Structured form of the Accept header.
 		"""
 
 		return self.media_range_cache(self.headers.get(b'accept'))
@@ -454,7 +437,7 @@ class Layer(libio.Layer):
 	@property
 	def media_type(self) -> libmedia.Type:
 		"""
-		The structured media type extracted from the (http/header-id)`Content-Type` header.
+		# The structured media type extracted from the (http/header-id)`Content-Type` header.
 		"""
 
 		return libmedia.type_from_bytes(self.headers[b'content-type'])
@@ -462,7 +445,7 @@ class Layer(libio.Layer):
 	@property
 	def date(self, parse=libtime.parse_rfc1123) -> libtime.Timestamp:
 		"""
-		Date header timestamp.
+		# Date header timestamp.
 		"""
 
 		if not b'date' in self.headers:
@@ -474,21 +457,21 @@ class Layer(libio.Layer):
 	@property
 	def host(self) -> str:
 		"""
-		Decoded host header.
+		# Decoded host header.
 		"""
 		return self.headers.get(b'host', b'').decode('idna')
 
 	@property
 	def encoding(self) -> str:
 		"""
-		Character encoding of entity content. &None if not applicable.
+		# Character encoding of entity content. &None if not applicable.
 		"""
 		pass
 
 	@property
 	def terminal(self) -> bool:
 		"""
-		Whether this is the last request or response in the connection.
+		# Whether this is the last request or response in the connection.
 		"""
 
 		cxn = self.connection
@@ -501,7 +484,7 @@ class Layer(libio.Layer):
 	@property
 	def substitution(self) -> bool:
 		"""
-		Whether or not the request looking to perform protocol substitution.
+		# Whether or not the request looking to perform protocol substitution.
 		"""
 
 		return self.connection == b'upgrade'
@@ -509,16 +492,17 @@ class Layer(libio.Layer):
 	@property
 	def cookies(self) -> typing.Sequence:
 		"""
-		Cookie sequence for retrieved Cookie headers or Set-Cookie headers.
+		# Cookie sequence for retrieved Cookie headers or Set-Cookie headers.
 		"""
 
 		self.parameters.get('cookies', ())
 
 	def clear(self):
 		"""
-		Clear all structures used to make up the Layer Context;
-		&initiate will need to be called again.
+		# Clear all structures used to make up the Layer Context;
+		# &initiate will need to be called again.
 		"""
+
 		self.parameters.clear()
 		self.headers.clear()
 		self.initiation = None
@@ -537,16 +521,16 @@ class Layer(libio.Layer):
 
 	def initiate(self, rline:typing.Tuple[bytes,bytes,bytes]):
 		"""
-		Define the Request or Response initial line.
+		# Define the Request or Response initial line.
 
-		Called when the request or response was received from a remote endpoint.
+		# Called when the request or response was received from a remote endpoint.
 		"""
 		self.initiation = rline
 
 	def add_headers(self, headers, cookies = False, cache = ()):
 		"""
-		Accept a set of headers from the remote end or extend the sequence to
-		be sent to the remote end..
+		# Accept a set of headers from the remote end or extend the sequence to
+		# be sent to the remote end..
 		"""
 
 		self.header_sequence += headers
@@ -563,13 +547,13 @@ class Layer(libio.Layer):
 
 	def trailer(self, headers):
 		"""
-		Destination of trailer-headers received during chunked transfer encoding.
+		# Destination of trailer-headers received during chunked transfer encoding.
 		"""
 		pass
 
 class Request(Layer):
 	"""
-	Request portion of an HTTP transaction.
+	# Request portion of an HTTP transaction.
 	"""
 
 	@property
@@ -606,55 +590,55 @@ class Request(Layer):
 	@property
 	def GET(self, partial=functools.partial):
 		"""
-		Initialize as a GET request.
+		# Initialize as a GET request.
 		"""
 		return partial(self.declare_without_content, b'GET')
 
 	@property
 	def HEAD(self, partial=functools.partial):
 		"""
-		Initialize as a HEAD request.
+		# Initialize as a HEAD request.
 		"""
 		return partial(self.declare_without_content, b'HEAD')
 
 	@property
 	def DELETE(self, partial=functools.partial):
 		"""
-		Initialize as a DELETE request.
+		# Initialize as a DELETE request.
 		"""
 		return partial(self.declare_without_content, b'DELETE')
 
 	@property
 	def TRACE(self, partial=functools.partial):
 		"""
-		Initialize as a TRACE request.
+		# Initialize as a TRACE request.
 		"""
 		return partial(self.declare_without_content, b'TRACE')
 
 	@property
 	def CONNECT(self, partial=functools.partial):
 		"""
-		Initialize as a CONNECT request.
+		# Initialize as a CONNECT request.
 		"""
 		return partial(self.declare_without_content, b'CONNECT')
 
 	@property
 	def POST(self, partial=functools.partial):
 		"""
-		Initialize as a POST request.
+		# Initialize as a POST request.
 		"""
 		return partial(self.declare_with_content, b'POST')
 
 	@property
 	def PUT(self, partial=functools.partial):
 		"""
-		Initialize as a PUT request.
+		# Initialize as a PUT request.
 		"""
 		return partial(self.declare_with_content, b'PUT')
 
 class Response(Layer):
 	"""
-	Response portion of an HTTP transaction.
+	# Response portion of an HTTP transaction.
 	"""
 
 	@property
@@ -692,7 +676,7 @@ def join(
 		fc_transfer=libio.FlowControl.transfer,
 	):
 	"""
-	Join &libio.Catenate flow events into a proper HTTP stream.
+	# Join &libio.Catenate flow events into a proper HTTP stream.
 	"""
 
 	serializer = libhttp.assembly()
@@ -759,7 +743,7 @@ def fork(
 		fc_transfer=libio.FlowControl.transfer,
 	):
 	"""
-	Split an HTTP stream into flow events for use by &libio.Division.
+	# Split an HTTP stream into flow events for use by &libio.Division.
 	"""
 
 	tokenizer = libhttp.disassembly()
@@ -998,6 +982,7 @@ class Server(libio.Mitre):
 
 		cxn = self.controller
 		px = None
+
 		# Reserve response slot and acquire connect callback.
 		responses = self.f_emit([Response() for i in range(len(events))], self)
 
