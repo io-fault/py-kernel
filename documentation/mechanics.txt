@@ -1,7 +1,10 @@
-[ Actor Model ]
+[ Employed Models ]
 
 fault.io is arguably an implementation of the actor model. However, it adheres
-to no formalities nor does attempt to.
+to no formalities. Most of the interest revolves around &.library.Transaction's
+and their associated &.library.Context. More generic classes exist for classification
+purposes and to handle some edge cases such as anonymous Transactions where the Context
+is implicit.
 
 [ Fundamental Types ]
 
@@ -14,6 +17,8 @@ The &Resource is the base class for any type that is intended to persist within 
 Resource hierarchy of a process.
 
 [ Resources Initialization ]
+
+...
 
 [ Processors Exit ]
 
@@ -37,3 +42,19 @@ Interruption: The destruction
 
 Sectors naturally contain interruptions/exceptions; exiting normally, but noting
 that it was interrupted.
+
+[ Context Parameters ]
+
+Context processors being a focal point of io applications have multiple sources for
+parameters. These parameters are classified in order to differentiate.
+
+/Requisite Parameters
+	Parameters usually given to (python/method)`__init__`. These parameters
+	are implementation specific and are normally (term)`locally defined`.
+
+/Environment Parameters
+	Parameters inherited by the supercontext.
+
+/Configured Parameters
+	Parameters that are *not* defined within the implementation. Usually structured
+	in a way that can be modified dynamically.
