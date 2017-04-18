@@ -951,7 +951,6 @@ class Processor(Resource):
 			self.exceptions = set()
 
 		self.exceptions.add((association, exception))
-		self.controller.exceptions = self.exceptions
 		self.context.faulted(self)
 
 	def _fio_fault_trap(self, trapped_task):
@@ -2924,12 +2923,19 @@ class Flow(Processor):
 		self.ctx_enqueue_task(self._f_terminated)
 		return True
 
+	def f_terminate(self, context=None):
+		"""
+		# Termination signal received when the upstream no longer has
+		# flow transfers for the downstream Flow.
+		"""
+		self.terminate(by=context)
+
 	def _f_terminated(self):
 		"""
 		# Used by subclasses to issue downstream termination and exit.
 
 		# Subclasses must call this or perform equivalent actions when termination
-		# is complete.
+		# of the conceptual flow is complete.
 		"""
 
 		self.process = self.f_discarding
@@ -2940,7 +2946,7 @@ class Flow(Processor):
 
 		if self.f_downstream:
 			self.f_downstream.f_ignore(self.f_obstruct, self.f_clear)
-			self.f_downstream.terminate(by=self)
+			self.f_downstream.f_terminate(context=self)
 
 		if self.controller:
 			self.controller.exited(self)
@@ -2960,7 +2966,7 @@ class Flow(Processor):
 			# notify exit iff the downstream's
 			# controller is functioning.
 			ds = self.f_downstream
-			ds.terminate(self)
+			ds.f_terminate(self)
 			dsc = ds.controller
 			if dsc is not None and dsc.functioning:
 				dsc.exited(ds)
@@ -3122,7 +3128,7 @@ class Sockets(Mitre):
 			self.m_router = update
 
 	def atexit(self, receiver):
-		if receiver != self.f_downstream.terminate:
+		if receiver != self.f_downstream.f_terminate:
 			# Sockets() always sends to null, don't bother with a atexit entry.
 			return super().atexit(receiver)
 
@@ -3552,7 +3558,8 @@ class Transports(Flow):
 
 class Kernel(Flow):
 	"""
-	# Flow moving data in or out of the system's kernel.
+	# Flow moving data in or out of the operating system's kernel.
+	# The &KInput and &KOutput implementations providing for the necessary specializations.
 	"""
 	k_status = None
 
@@ -3841,21 +3848,24 @@ class KOutput(Kernel):
 					Condition(self, ('ko_overflow',))
 				)
 
-	def terminate(self, by=None):
+	def f_terminate(self, context=None):
 		if self.terminated or self.terminating or self.interrupted:
 			return False
 
 		self.terminating = True
-		self.terminator = by
+		self.terminator = context
 
 		if self.f_empty:
-			# Only terminate transit if it's done.
+			# Only terminate transit if it's empty.
 			self.transit.terminate()
 			self.terminating = False
 			self.terminated = True
 			self.exit()
 
 		return True
+
+	def terminate(self, by=None):
+		self.f_terminate(by)
 
 ProtocolTransactionEndpoint = typing.Callable[[
 	Processor, Layer, Layer, typing.Callable[[Flow], None]

@@ -1,5 +1,5 @@
 """
-Support for running tests outside of a &.library.Unit environment.
+# Support for running tests outside of a &.library.Unit environment.
 """
 import collections
 
@@ -10,12 +10,16 @@ class ExitController(object):
 	def __init__(self):
 		self.exits = []
 		self.callbacks = collections.defaultdict(list)
+		self.interrupts = []
 
 	def exited(self, processor):
 		self.exits.append(processor)
 
 	def exit_event_connect(self, subject, cb):
 		self.callbacks[subject].append(cb)
+
+	def interrupt(self, by=None):
+		self.interrupts.append(by)
 
 class Context(object):
 	"""

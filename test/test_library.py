@@ -40,6 +40,7 @@ def sector(count=1):
 		sect.context = ctx
 		x = testlib.ExitController()
 		sect.controller = x
+		sect.CONTROLLER = x
 		sect.actuate()
 		yield sect
 
@@ -470,7 +471,7 @@ def test_KOutput(test):
 
 def test_Catenation(test):
 	"""
-	Flow sequencing tests.
+	# Subflow sequencing tests.
 	"""
 
 	Type = library.Catenation

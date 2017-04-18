@@ -107,7 +107,9 @@ def test_fork(test):
 	test/total_content == b'first\nsecond\n'
 
 def test_join(test):
-	j = library.join()
+	import collections
+	c = collections.Counter()
+	j = library.join(status=c)
 	g = library.fork(library.Request)
 	g.send(None); j.send(None)
 
