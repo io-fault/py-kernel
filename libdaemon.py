@@ -461,15 +461,17 @@ class Control(libio.Context):
 		# Separated from &actuate for process forks.
 		"""
 
-		unit = self.context.association()
 		enqueue = self.context.enqueue
 		enqueue(self.context._sys_traffic_flush)
+		enqueue(self.ctl_actuate_binaries)
 
+	def ctl_actuate_binaries(self):
+		unit = self.context.association()
 		exe_index = unit.u_hierarchy['bin']
 
-		for x in exe_index:
-			exe = unit.u_index[('bin', x)]
-			enqueue(exe.actuate)
+		for exe in [unit.u_index[('bin', x)] for x in exe_index]:
+			exe.actuate()
+			exe.actuated = True
 
 	def ctl_terminate_worker(self):
 		"""

@@ -900,8 +900,7 @@ class Processor(Resource):
 		# Initialize the Processor for use within the designated Sector.
 		"""
 
-		self.actuated = True
-		return self
+		pass
 
 	def process(self, event):
 		"""
@@ -1150,7 +1149,6 @@ class Call(Processor):
 
 	def actuate(self):
 		self.ctx_enqueue_task(self.execution)
-		return super().actuate()
 
 	def execution(self, event=None, source=None):
 		assert self.functioning
@@ -1212,7 +1210,6 @@ class Coroutine(Processor):
 		self.unit.stacks[self] = state
 
 		self.enqueue(state.send)
-		return super().actuate()
 
 	def terminate(self):
 		"""
@@ -1354,6 +1351,12 @@ class Unit(Processor):
 
 		return (p, sr)
 
+	def dispatch(self, path, processor):
+		processor.subresource(self)
+		processor.actuate()
+		processor.actuated = True
+		self.place(processor, *path)
+
 	def __init__(self):
 		"""
 		# Initialze the &Unit instance with the an empty hierarchy.
@@ -1472,17 +1475,17 @@ class Unit(Processor):
 
 		# Allows the roots to perform scheduling.
 		self.actuated = True
+
 		scheduler = Scheduler()
 		scheduler.subresource(self)
 		self.place(scheduler, 'dev', 'scheduler')
 		scheduler.actuate()
+		scheduler.actuated = True
 
 		self.place(self.context.process, 'dev', 'process')
 
 		for sector_init in self.u_roots:
 			sector_init(self)
-
-		return True
 
 	def terminate(self):
 		if self.terminated is not True:
@@ -1615,6 +1618,7 @@ class Sector(Processor):
 				for proc in sset:
 					proc.subresource(self)
 					proc.actuate()
+					proc.actuated = True
 		except BaseException as exc:
 			self.fault(exc)
 
@@ -1624,9 +1628,10 @@ class Sector(Processor):
 		"""
 		# Initialize the &scheduler for the &Sector.
 		"""
-		self.scheduler = Scheduler()
-		self.scheduler.subresource(self)
-		self.scheduler.actuate()
+		sched = self.scheduler = Scheduler()
+		sched.subresource(self)
+		sched.actuate()
+		sched.actuated = True
 
 	def eject(self, processor):
 		"""
@@ -1652,9 +1657,10 @@ class Sector(Processor):
 		structs = self.processors
 
 		for ps in events:
-			structs[ps.__class__].add(ps)
 			ps.subresource(self)
+			structs[ps.__class__].add(ps)
 			ps.actuate()
+			ps.actuated = True
 
 	def _sector_terminated(self):
 		self.terminated = True
@@ -1722,6 +1728,7 @@ class Sector(Processor):
 		processor.subresource(self)
 		self.processors[processor.placement()].add(processor)
 		processor.actuate()
+		processor.actuated = True
 
 		return processor
 
@@ -2006,7 +2013,6 @@ class Transport(Context):
 
 	def actuate(self):
 		self.init_series()
-		self.actuated = True
 
 	def init_series(self):
 		self.controller._flow(self._series)
@@ -2188,8 +2194,6 @@ class Subprocess(Processor):
 				proc.system_event_disconnect(('process', pid))
 				self.sp_exit(pid, libsys.process_delta(pid))
 
-		return super().actuate()
-
 	def terminate(self, by=None):
 		"""
 		# If the process set isn't terminating, issue SIGTERM
@@ -2237,7 +2241,6 @@ class Recurrence(Processor):
 		# Enqueue the initial execution of the recurrence.
 		"""
 
-		super().actuate()
 		self.ctx_enqueue_task(self.occur)
 
 	def recur_execute(self):
@@ -2285,7 +2288,6 @@ class Timeout(Processor):
 
 	def actuate(self):
 		self.ctx_enqueue_task(self.to_schedule)
-		self.actuated = True
 
 	def terminate(self, by=None):
 		"""
@@ -2382,8 +2384,6 @@ class Scheduler(Processor):
 				sched.defer,
 				sched.cancel,
 			)
-
-		return super().actuate()
 
 	@staticmethod
 	def execute_weak_method(weakmethod):
@@ -2544,9 +2544,7 @@ class Thread(Processor):
 		# Execute the dedicated thread for the transformer.
 		"""
 
-		super().actuate()
 		self.context.execute(self, self.trap)
-		return self
 
 	def process(self):
 		"""
@@ -2899,14 +2897,9 @@ class Flow(Processor):
 
 	def actuate(self):
 		"""
-		# Actuate the Transformers placed in the Flow by &requisite.
-		# If the &Flow has been connected to another, actuate the &downstream
-		# as well.
+		# Actuate the Flow for use within the controlling Sector.
 		"""
 		super().actuate()
-
-		if self.f_downstream:
-			self.f_downstream.actuate()
 
 	def terminate(self, by=None):
 		"""
@@ -3580,7 +3573,6 @@ class Kernel(Flow):
 
 	def actuate(self):
 		self.context._sys_traffic_attach(self.transit)
-		super().actuate()
 
 	def k_meta(self):
 		if self.transit:

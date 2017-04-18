@@ -29,4 +29,4 @@ if __name__ == '__main__':
 	rs.load()
 	rs.execute() # For rootd, the replacement will enter .bin.sectord.
 
-	assert False # Should not reach after execl.
+	raise RuntimeError("program reached area after exec")

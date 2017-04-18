@@ -102,3 +102,4 @@ class Root(object):
 		self.processor = proc
 		proc.subresource(self)
 		proc.actuate()
+		proc.actuated = True

@@ -32,9 +32,7 @@ def initialize(unit):
 	root_sector = libio.System.create(ctl)
 
 	# &.libdaemon.Control.actuate does most of the work.
-	unit.place(root_sector, "control")
-	root_sector.subresource(unit)
-	root_sector.actuate()
+	unit.dispatch(('control',), root_sector)
 
 def main():
 	"""
