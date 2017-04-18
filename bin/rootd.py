@@ -2,8 +2,8 @@
 # Service management daemon, &.libroot.Set, for &..io based applications.
 
 # By default, this executable resolves the root service from the
-# (system:environment)`FAULT_DAEMON_DIRECTORY` environment variable. A parameter
-# may be provided to override that setting and the default (system:path)`~/.fault`.
+# (system/environment)`FAULT_DAEMON_DIRECTORY` environment variable. A parameter
+# may be provided to override that setting and the default (system/path)`~/.fault`.
 
 # This module is intended for use with system invocation only.
 

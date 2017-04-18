@@ -832,10 +832,15 @@ class Processor(Resource):
 	# process interrupts (unix.signal)`SIGINT`.
 
 	# [ Properties ]
-
 	# /terminating
 		# Whether the Processor is in a termination state. &None if
 		# the Processor was never terminating.
+
+	# [ Engineering ]
+	# The Processor state is managed using a set of booleans. Considering the
+	# number of processors that will be present in any complex system, condensing
+	# the storage requirements by using a bitmask would help reduce the memory
+	# footprint.
 	"""
 
 	actuated = False
@@ -843,8 +848,8 @@ class Processor(Resource):
 	terminating = None # None means there is no terminating state.
 	interrupted = False
 
+	# Origin of the interrupt or terminate
 	terminator = None
-	interruptor = None
 
 	product = None
 	exceptions = None
@@ -892,7 +897,7 @@ class Processor(Resource):
 
 	def actuate(self):
 		"""
-		# Note the processor as actuated by setting &actuated to &True.
+		# Initialize the Processor for use within the designated Sector.
 		"""
 
 		self.actuated = True
@@ -932,7 +937,6 @@ class Processor(Resource):
 		if self.interrupted:
 			return False
 
-		self.interruptor = by
 		self.interrupted = True
 		return True
 
@@ -947,6 +951,7 @@ class Processor(Resource):
 			self.exceptions = set()
 
 		self.exceptions.add((association, exception))
+		self.controller.exceptions = self.exceptions
 		self.context.faulted(self)
 
 	def _fio_fault_trap(self, trapped_task):
@@ -1070,7 +1075,6 @@ class Processor(Resource):
 		p = [
 			x for x in [
 				('terminator', self.terminator),
-				('interruptor', self.interruptor),
 			] if x[1] is not None
 		]
 		props.extend(p)
@@ -1096,6 +1100,22 @@ class Processor(Resource):
 		# sector.
 		"""
 		raise NotImplemented
+
+class Fatal(Processor):
+	"""
+	# A Processor that faults the controlling Sector upon actuation.
+	"""
+
+	@classmethod
+	def inject(Class, sector, event):
+		fp = Fatal()
+		sector.dispatch(fp)
+
+	def actuate(self):
+		self.ctx_enqueue_task(functools.partial(self.process, None))
+
+	def process(self, event):
+		raise Exception(event)
 
 class Call(Processor):
 	"""
@@ -1192,8 +1212,8 @@ class Coroutine(Processor):
 		state = self.container()
 		self.unit.stacks[self] = state
 
-		super().actuate()
 		self.enqueue(state.send)
+		return super().actuate()
 
 	def terminate(self):
 		"""
@@ -1343,11 +1363,9 @@ class Unit(Processor):
 		# the initialization function during its use. New instances should
 		# always be created.
 		"""
-		global Libraries
 		super().__init__()
 
 		self.identity = self.identifier = None
-		self.libraries = Libraries(self)
 		self.u_exit = set()
 		self.u_faults = dict()
 
@@ -1360,7 +1378,6 @@ class Unit(Processor):
 		# tree containing sectors; navigation access
 		self.u_hierarchy = dict(
 			bin = dict(), # Sectors that determine Unit's continuation
-			lib = dict(), # Library Sectors; terminated when bin/ is empty.
 			libexec = dict(),
 			etc = dict(),
 			dev = dict(faults=self.u_faults),
@@ -1453,9 +1470,9 @@ class Unit(Processor):
 		# This should only be called by the controller of the program.
 		# Normally, it is called automatically when the program is loaded by the process.
 		"""
-		super().actuate()
 
 		# Allows the roots to perform scheduling.
+		self.actuated = True
 		scheduler = Scheduler()
 		scheduler.subresource(self)
 		self.place(scheduler, 'dev', 'scheduler')
@@ -1466,21 +1483,9 @@ class Unit(Processor):
 		for sector_init in self.u_roots:
 			sector_init(self)
 
-	def link(self, **paths):
-		"""
-		Link a set of libraries into the &Unit.
-		"""
-
-		for libname, route in paths.items():
-			continue # Ignore libraries for the time being.
-			lib = Library(route)
-			self.place(lib, 'lib', libname)
-			lib.subresource(self)
-			lib.actuate()
+		return True
 
 	def terminate(self):
-		global __process_index__
-
 		if self.terminated is not True:
 			if self.context.process.primary() is self:
 				if self.u_hierarchy['faults']:
@@ -1560,9 +1565,6 @@ class Sector(Processor):
 
 	# [ Properties ]
 
-	# /projection
-		# Determines the entity that is being represented by the process.
-
 	# /processors
 		# A divided set of abstract processors currently running within a sector.
 		# The sets are divided by their type inside a &collections.defaultdict.
@@ -1577,18 +1579,13 @@ class Sector(Processor):
 		# &None if nothing is currently exiting.
 	"""
 
-	projection = None
-
 	scheduler = None
 	exits = None
 	processors = None
 	product = None
 
 	def structure(self):
-		if self.projection is not None:
-			p = [('projection', self.projection)]
-		else:
-			p = ()
+		p = ()
 
 		sr = [
 			(hex(id(x)), x)
@@ -1598,13 +1595,9 @@ class Sector(Processor):
 		return (p, sr)
 
 	def __init__(self, *processors, Processors=functools.partial(collections.defaultdict,set)):
-		super().__init__()
-
-		# Ready the processors for actuation.
 		sprocs = self.processors = Processors()
 		for proc in processors:
-			sprocs[proc.__class__].add(proc)
-			proc.subresource(self)
+			sprocs[proc.placement()].add(proc)
 
 	def actuate(self):
 		"""
@@ -1621,6 +1614,7 @@ class Sector(Processor):
 		try:
 			for Class, sset in list(self.processors.items()):
 				for proc in sset:
+					proc.subresource(self)
 					proc.actuate()
 		except BaseException as exc:
 			self.fault(exc)
@@ -1663,6 +1657,11 @@ class Sector(Processor):
 			ps.subresource(self)
 			ps.actuate()
 
+	def _sector_terminated(self):
+		self.terminated = True
+		self.terminating = False
+		self.exit()
+
 	def terminate(self, by=None):
 		if not super().terminate(by=by):
 			return False
@@ -1674,9 +1673,7 @@ class Sector(Processor):
 					x.terminate()
 		else:
 			# Nothing to wait for.
-			self.controller.exited(self)
-			self.terminated = True
-			self.terminating = False
+			self._sector_terminated()
 
 		return True
 
@@ -1703,11 +1700,14 @@ class Sector(Processor):
 	def exited(self, processor, set=set):
 		"""
 		# Sector structure exit handler.
+
+		# Called when a Processor has reached termination and should no longer
+		# be contained within the Sector.
 		"""
 
 		if self.exits is None:
 			self.exits = set()
-			self.context.enqueue(self.reap)
+			self.ctx_enqueue_task(self.reap)
 
 		self.exits.add(processor)
 
@@ -1731,7 +1731,6 @@ class Sector(Processor):
 		# Dispatches an arbitrary coroutine returning function as a &Coroutine instance.
 		"""
 
-		global Coroutine
 		gc = Coroutine.from_callable(gf)
 		self.processors[Coroutine].add(gc)
 		gc.subresource(self)
@@ -1749,7 +1748,7 @@ class Sector(Processor):
 
 	def reap(self, set=set):
 		"""
-		Empty the exit set and check for sector completion.
+		# Empty the exit set and check for sector completion.
 		"""
 
 		exits = self.exits
@@ -1783,8 +1782,6 @@ class Sector(Processor):
 		# reap/reaped is not used in cases of interrupts.
 		if not self.processors and not self.interrupted:
 			# no processors remain; exit Sector
-			self.terminated = True
-			self.terminating = False
 
 			if self.scheduler is not None:
 				# After termination has been completed, the scheduler can be stopped.
@@ -1794,50 +1791,313 @@ class Sector(Processor):
 				# that this is performed here.
 				self.scheduler.interrupt()
 
-			controller = self.controller
-			if controller is not None:
-				controller.exited(self)
+			self._sector_terminated()
 
 	def placement(self):
 		"""
 		# Use &Interface.if_sector_placement if the sector has an Interface.
 		# Otherwise, &Sector.
 		"""
-		global Interface
+
 		for if_proc in self.processors.get(Interface, ()):
 			# Use the interface processor's definition if any.
 			return if_proc.sector_placement()
 		else:
 			return self.__class__
 
-class Extension(Sector):
+class Context(Processor):
 	"""
-	# A Processor defined as providing the primary functionality of
-	# a Transaction.
+	# The base class for &Transaction Context processors.
 
-	# Usually used by &System Transactions, a Core processor usually
-	# manages the state of a System and provides the primitive methods
-	# for performing system specific tasks.
+	# Subclasses define the initialization process of a Transaction
+	# and the structures used to provide depending processors with the
+	# necessary information for performing their tasks.
+
+	# [ Namespaces ]
+	# Context Processors employ two hard namespaces in its methods.
+	# The `xact_ctx_` and the `xact_`. Methods and properties
+	# that exist under `xact_ctx_` refer to generic Context operations
+	# whereas `xact_` refers to operations that primary effect the
+	# &Transaction sector containing the context.
+
+	# [ Properties ]
+	# /(&dict)xact_ctx_events
+		# Storage for initialization event completion, and
+		# general storage area for the controlling &Transaction.
+	# /(&bool)xact_ctx_private
+		# Whether the initialized Transaction is directly managing transactions
+		# created from uncontrolled sources.
+		# &None means that context privacy is irrelevant.
 	"""
 
-	def fault(self, exception, association=None):
+	xact_ctx_private = None
+	xact_ctx_events = None
+
+	@property
+	def xact_ctx_contexts(self) -> 'Context':
 		"""
-		# Whether the System has running Interface processors.
-
-		# A closed is not running to provide services to local Processors.
+		# The complete context of the &Transaction.
+		# Ascends the controllers yielding their &Context instances until
+		# the controller is no longer a Transaction.
 		"""
-		global SectorExtension
+		s = self.controller
 
-		if self.exceptions is None:
-			self.exceptions = set()
+		while isinstance(s, Transaction):
+			s = s.controller
+			yield s.xact_context
 
-		self.exceptions.add((association, exception))
+	def xact_dispatch(self, processor:Processor):
+		"""
+		# Dispatch the given &processor into the &Transaction.
+		"""
+		return self.controller.dispatch(processor)
 
-		x = self.controller
-		while isinstance(x, SectorExtension):
-			x = x.controller
+	def xact_ctx_init(self, events:set):
+		"""
+		# Initiailze the set of events that are necessary for initialization to be complete.
+		"""
+		self.xact_ctx_events = {k:None for k in events}
 
-		self.context.faulted(trapping_sector) # fault occurred inside extension
+	def process(self, *events):
+		"""
+		# Note the event with its associated value and terminate initialization
+		# if no further events are needed.
+		"""
+
+		if self.xact_ctx_events is None:
+			self.xact_ctx_events = {}
+
+		self.xact_ctx_events.update(events)
+
+		if None not in set(self.xact_ctx_events.values()):
+			self.terminate()
+
+class Transaction(Sector):
+	"""
+	# A &Sector that manages the processing of a conceptual transaction.
+
+	# Usually found inside a &System instance's processor set,
+	# these Sectors are used and subclassed to clarify the purpose of the Sector.
+
+	# Transactions are sectors with a single &Context instance that is used to manage
+	# the state of the Sector. Regular Sectors exit when all the processors are shutdown,
+	# and Transactions do too. However, when termination is request of the Transaction,
+	# the request is dispatched to the Context in order to make sure that events are
+	# properly sequenced. Essentially, Sectors can be thought of as anonymous Transactions,
+	# as opposed to defining Transactions in terms of a Sector.
+
+	# [ Properties ]
+	# /(&Context)xact_context
+		# The Processor that will be dispatched to initialize the Transaction
+		# Sector and control its effect.
+	"""
+
+	@classmethod
+	def create(Class, xc:Context):
+		"""
+		# Create a &Transaction sector with the given &Context initializaed
+		# as the first Processor to be actuated.
+
+		# This is the appropriate way to instantiate &Transaction instances
+		"""
+
+		xact = Class(xc)
+		xact.xact_context = xc
+
+		return xact
+
+	def terminate(self, by=None):
+		"""
+		# Invoke the &Context.terminate method of the &xact_context property.
+		# The termination of the Transaction is managed entirely by the Context.
+		"""
+
+		return self.xact_context.terminate(by=by)
+
+class System(Transaction):
+	"""
+	# A Sector that is identified as an independent system providing access to functionality
+	# using a set of &Interface instances.
+
+	# Systems are distinct from &Sector instances most notably in that a System will usually
+	# exit from an explicit terminate or a fault. Sectors naturally terminate when all
+	# processors exit and Systems will do the same. However, Systems will almost always
+	# have &Interface processors keeping the System in a functioning state.
+	# Systems also have environment data that can be easily referenced by the running
+	# processors.
+
+	# [ Properties ]
+	# /sys_identifier
+		# URL identifying the System's implementation.
+		# Ideally, a valid URL providing documentation.
+	# /sys_properties
+		# Storage dictionary for System properties.
+		# Usually accessed using &sys_data for automatic initialization of data sets.
+	"""
+
+	@property
+	def sys_closed(self) -> bool:
+		"""
+		# Whether the System has running Interface processors that explicitly
+		# support external interactions.
+		"""
+
+		if Interface in self.processors:
+			if len(self.processors[Interface]) > 0:
+				return False
+
+		return True
+
+	def sys_if(self, Class:type) -> typing.Sequence[type]:
+		"""
+		# Return the set of Interface instances with the given &Class.
+		"""
+
+		return [
+			x for x in self.processors[Interface]
+			if isinstance(x, Class)
+		]
+
+class Transport(Context):
+	"""
+	# Essentially, the Connection class. Transport Contexts manage the I/O
+	# designated for a given Transaction sector.
+
+	# The Transaction Context that manages the stack of protocols
+	# used to facilitate arbitrary I/O streams. For application protocols,
+	# this class should be subclassed to implement protocol specific features
+	# and manage transport stack connectivity.
+
+	# [ Properties ]
+	# /(&bool)transport_contraint
+		# Whether the transport is constrainted to `'input'` or `'output'`.
+		# &None if the transport is bidirectional.
+	# /(&tuple)transport_protocols
+		# The stack of protocols that manage the communications layers.
+		# &None if the stack is not being used with the channel.
+	"""
+
+	transport_constraint = None
+	transport_protocols = None
+
+	def transport_init_protocols(self):
+		"""
+		# Initialize the transport stack and ready the context for
+		# subsequent pushes.
+		"""
+		self.transport_protocols = ()
+
+	def transport_push_protocols(self, *protocols):
+		"""
+		# Push a protocol layer to the stack using the &identifier
+		# to select the protocol and the &implementation to select
+		# a particular class.
+		"""
+		self.transport_protocols = self.transport_protocols + protocols
+
+	def transport_pop_protocol(self):
+		"""
+		# Remove a protocol layer from the stack.
+		"""
+		self.transport_protocols = self.transport_protocols[:-1]
+
+	def __init__(self, series):
+		self._series = series
+		self._exits = 0
+
+	def actuate(self):
+		self.init_series()
+		self.actuated = True
+
+	def init_series(self):
+		self.controller._flow(self._series)
+		self._series[0].process(None) # fix. actuation or Flow.f_initiate()
+		self._series[0].atexit(self.io_exit)
+		self._series[-1].atexit(self.io_exit)
+
+	def io_exit(self, processor):
+		self._exits += 1
+		if self._exits >= 2:
+			self.terminated = True
+			self.terminating = False
+			self.exit()
+
+class Accept(Transport):
+	"""
+	# The Transport Context used to accept sockets from listening interfaces.
+	# Given a set of file descriptors associated with listening sockets,
+	# the Accept Transport will create the set of flows necessary to route
+
+	# [ Engineering ]
+	# In line to replace &Network, Accept is a Transport Context that fills
+	# the same role, but properly identified as a Context, not an Interface.
+	# It is still not certain whether Accept should handle more than one
+	# Flow. sockets://127.0.0.1:8484/tls/http
+	"""
+
+	transport_constraint = 'input'
+
+	def actuate(self):
+		self.at_funnel = Funnel()
+		self.xact_dispatch(self.at_funnel)
+
+	def at_route(self, packet,
+			chain=itertools.chain.from_iterable,
+		):
+		"""
+		# Moving to Sockets. Routing will be handled with flows.
+		"""
+		sector = self.controller
+		ctx_accept = self.context.accept_subflows
+
+		source, event = packet
+		for fd in chain(event):
+			mitre = self.if_mitre(self.if_reference, self.if_router)
+			series = ctx_accept(fd, mitre, mitre.Protocol())
+			cxn = Transaction.create(Transport(series))
+			sector.dispatch(cxn) # actuate and assign the connection
+
+	def at_install(self, *kports):
+		"""
+		# Given file descriptors, install a new set of flows
+		# accepting sockets from the given listening sockets.
+		"""
+		ctx = self.context
+		sector = self.controller
+
+		for listen in ctx.acquire_listening_sockets(kports):
+			x, flow = listen
+			sector.dispatch(flow)
+
+			if_r = (x.interface, x.port)
+			if_t = Sockets(if_r, self.at_route)
+			sector.dispatch(if_t)
+			if_t.f_connect(null)
+
+			flow.f_connect(if_t)
+
+			add(if_r)
+			flow.process(None) # Start allocating file descriptor arrays.
+
+	def at_bind(self, slot):
+		"""
+		# Bind the Kernel Ports associated with the given slot.
+		# Allocates duplicate file descriptors from `/dev/ports`,
+		# and installs them in the Transaction.
+		"""
+		ctx = self.context
+		ports = ctx.association().ports
+
+		fds = ports.acquire(self.if_slot)
+		self.at_install(*fds)
+
+	def terminate(self):
+		if not super().terminate():
+			return False
+		Sector.terminate(self.controller)
+		self.terminated = True
+		self.exit()
+
 
 class Subprocess(Processor):
 	"""
@@ -1880,11 +2140,9 @@ class Subprocess(Processor):
 			self.terminated = True
 			self.terminating = None
 
-			self.product = len(self.process_exit_events)
-
 			# Don't exit if interrupted; maintain position in hierarchy.
 			if not self.interrupted:
-				self.controller.exited(self)
+				self.exit()
 
 	def sp_signal(self, signo, send_signal=os.kill):
 		"""
@@ -1933,15 +2191,33 @@ class Subprocess(Processor):
 
 		return super().actuate()
 
-	def terminate(self, by=None, signal=15):
+	def terminate(self, by=None):
+		"""
+		# If the process set isn't terminating, issue SIGTERM
+		# to all of the currently running processes.
+		"""
+
 		if not self.terminating:
 			super().terminate(by=by)
-			self.signal(signal)
+			self.sp_signal(15)
 
 	def interrupt(self, by=None):
-		# System Events remain connected; still want sp_exit.
-		super().interrupt(by)
-		self.signal(9)
+		"""
+		# Interrupt the running processes by issuing a SIGKILL signal.
+		"""
+
+		r = super().interrupt(by)
+		self.sp_signal(9)
+		return r
+
+	def abort(self, by=None):
+		"""
+		# Interrupt the running processes by issuing a SIGQUIT signal.
+		"""
+
+		r = super().interrupt(by)
+		self.sp_signal(signal.SIGABRT)
+		return r
 
 class Recurrence(Processor):
 	"""
@@ -1950,7 +2226,8 @@ class Recurrence(Processor):
 	# Usually used for short term recurrences such as animations and human status updates.
 	# Recurrences work by deferring the execution of the configured target after
 	# each occurrence. This overhead means that &Recurrence is not well suited for
-	# high frequency executions.
+	# high frequency executions, but useful in cases where it is important
+	# to avoid overlapping calls.
 	"""
 
 	def __init__(self, target):
@@ -1979,6 +2256,7 @@ class Recurrence(Processor):
 
 		if self.terminating:
 			self.terminated = True
+			del self.terminating
 			self.exit()
 		elif self.terminated or self.interrupted:
 			pass
@@ -1991,6 +2269,54 @@ class Recurrence(Processor):
 			else:
 				self.controller.scheduler.defer(next_delay, self.occur)
 
+class Timeout(Processor):
+	"""
+	# Processor managing an adjustable time out for a Transaction or System.
+
+	# Primarily intended for inducing termination of inactive systems,
+	# Timeout manages a scheduled event based on a configured delay,
+	# and the effects for when the event occurs.
+	"""
+
+	def __init__(self, requirement, condition, effect):
+		self.to_count = 0
+		self.to_wait_time = requirement
+		self.to_condition = condition
+		self.to_effect = effect
+
+	def actuate(self):
+		self.ctx_enqueue_task(self.to_schedule)
+		self.actuated = True
+
+	def terminate(self, by=None):
+		"""
+		# Terminate the timeout causing the effect to
+		# not occur given that it hasn't already.
+		"""
+		if not super().terminate(by=by):
+			return False
+		self.controller.scheduler.cancel(self.to_execute)
+		self.terminating = False
+		self.terminated = True
+		self.exit()
+
+	def to_schedule(self):
+		self.controller.scheduler.defer(self.to_wait_time, self.to_execute)
+
+	def to_execute(self):
+		assert self.functioning
+
+		extend_time = None
+		if self.to_condition:
+			try:
+				self.to_effect() # Timeout occurred. [Timeout Effect Faulted]
+				self.ctx_enqueue_task(self.terminate)
+			except BaseException as exc:
+				self.fault(exc)
+		else:
+			# Condition not met, try timeout again later.
+			self.to_schedule()
+
 class Scheduler(Processor):
 	"""
 	# Time delayed execution of arbitrary callables.
@@ -1998,6 +2324,16 @@ class Scheduler(Processor):
 	# Manages the set of alarms and &Recurrence's used by a &Sector.
 	# Normally, only one Scheduler exists per and each Scheduler
 	# instance chains from an ancestor creating a tree of heap queues.
+
+	# [ Engineering ]
+	# The &update method needs to be corrected to avoid the &scheduled_reference
+	# stopgap. Currently, the weakmethod is used to allow the storage of the
+	# scheduled event in case a cancellation is needed. Cancellation works
+	# using a set of events and &Scheduler needs each transition to be unique
+	# in order to perform cancellation at all.
+
+	# The entire management of scheduled &transition events needs to be
+	# rewritten along with some tweaks to chronometry's scheduler.
 	"""
 
 	scheduled_reference = None
@@ -2180,44 +2516,10 @@ class Scheduler(Processor):
 
 		super().interrupt(by)
 
-class Libraries(object):
-	"""
-	Interface object for accessing &Unit libraries.
-
-	Provides attribute based access to the set of libraries and a method to load new ones.
-	"""
-
-	__slots__ = ('_unit', '_access')
-
-	def __init__(self, unit, Ref=weakref.ref):
-		self._unit = Ref(unit)
-		self._access = dict()
-
-	def __getattr__(self, attr):
-		if attr not in self._access:
-			u = self._unit()
-
-			try:
-				sector = u.index[('lib', attr)]
-			except KeyError:
-				raise AttributeError(attr)
-
-			r = self._access[attr] = sector.api()
-		else:
-			r = self._access[attr]
-
-		return r
-
 class Thread(Processor):
 	"""
 	# A &Processor that runs a callable in a dedicated thread.
 	"""
-
-	@classmethod
-	def queueprocessor(Class):
-		raise NotImplementedError
-		t = Class()
-		t.requisite(self._queue_process)
 
 	def requisite(self, callable):
 		self.callable = callable
@@ -2232,11 +2534,11 @@ class Thread(Processor):
 			self.terminated = True
 			self.terminating = False
 			# Must be enqueued to exit.
-			final = functools.partial(self.controller.exited, self)
-		except Exception as exc:
+			final = self.exit
+		except BaseException as exc:
 			final = functools.partial(self.fault, exc)
 
-		self.context.enqueue(final)
+		self.ctx_enqueue_task(final)
 
 	def actuate(self):
 		"""
@@ -2258,7 +2560,20 @@ class Interface(Processor):
 	# A &Processor that is identified as a source of work for a Sector.
 	# Significant in that if all &Interface instances are terminated, the Sector
 	# itself should eventually terminate as well.
+
+	# Subclasses are encouraged to use the (namespace)`if_` prefix to define methods
+	# that are intended for outside use.
+
+	# Methods that are present on interface instances can be used arbitrarily by
+	# dependencies without establishing connections.
+
+	# [ Properties ]
+	# /if_identifier
+		# An identifier for the interface allowing Systems to be queried for particular
+		# interface types.
 	"""
+
+	if_identifier = None
 
 	def placement(self):
 		"""
@@ -2267,7 +2582,18 @@ class Interface(Processor):
 		"""
 		return Interface
 
-class System(Interface):
+	def if_connect(self, *parameters) -> Processor:
+		"""
+		# Establish a formal connection to the System requesting a particular
+		# API set that can be used in conjunction with preserved state.
+
+		# The returned &Processor is constructed to be dispatched in a local sector
+		# which provides access to the functionality of a remote Transaction.
+		"""
+
+		raise NotImplementedError("interface subclass does not provide connections")
+
+class Network(Context):
 	"""
 	# An Interface used to manage the set of system listening interfaces and
 	# connect accept events to an appropriate controller.
@@ -2347,14 +2673,12 @@ class System(Interface):
 		# Spawn connections from the socket file descriptors sent from the upstream.
 
 		# [ Parameters ]
-
 		# /packet
 			# The sequence of sequences containing Kernel Port references (file descriptors).
 		# /transports
 			# The transport layers to configure &Transports transformers with.
 
 		# [ Effects ]
-
 		# Dispatches &Connection instances associated with the accepted file descriptors
 		# received from the upstream.
 		"""
@@ -2365,10 +2689,8 @@ class System(Interface):
 		for fd in chain(event):
 			mitre = self.if_mitre(self.if_reference, self.if_router)
 			series = ctx_accept(fd, mitre, mitre.Protocol())
-			cxn = Sector()
+			cxn = Transaction.create(Transport(series))
 			sector.dispatch(cxn) # actuate and assign the connection
-			cxn._flow(series)
-			series[0].process(None) # fix. actuation or Flow.f_initiate()
 
 class Condition(object):
 	"""
@@ -2786,6 +3108,7 @@ class Sockets(Mitre):
 	"""
 	# Mitre for transport flows created by &System in order to accept sockets.
 	"""
+
 	def __init__(self, reference, router):
 		self.m_reference = reference
 		self.m_router = router
@@ -2973,7 +3296,7 @@ class Parallel(Flow):
 		"""
 		try:
 			self.pf_target(self, self.pf_queue, *self.pf_parameters)
-			self.context.enqueue(self._f_terminated)
+			self.ctx_enqueue_task(self._f_terminated)
 		except BaseException as exc:
 			self.context.enqueue(functools.partial(self.fault, exc))
 			pass # The exception is managed by .fault()
@@ -3029,6 +3352,9 @@ class Transports(Flow):
 	# /operation_set
 		# Class-wide dictionary containing the functions
 		# needed to resolve the transport operations used by a layer.
+
+	# [ Engineering ]
+	# Needs to be renamed in order to avoid confusion with Transport(Context).
 	"""
 
 	operation_set = {}
@@ -3111,7 +3437,7 @@ class Transports(Flow):
 					self.tf_stack[-1].terminate(self.tf_polarity)
 
 					# Send whatever termination signal occurred.
-					self.context.enqueue(self.empty)
+					self.ctx_enqueue_task(self.empty)
 
 					return None
 		else:
@@ -3166,7 +3492,7 @@ class Transports(Flow):
 		if opposite_has_work:
 			# Use recursion on purpose and allow
 			# the maximum stack depth to block an infinite loop.
-			# from a poorly written stack entry.
+			# from a poorly implemented protocol.
 			self.opposite.process(())
 
 		stack = self.tf_stack
@@ -3194,7 +3520,7 @@ class Transports(Flow):
 				if self.terminating:
 					# continue termination.
 					self.tf_stack[-1].terminate(self.tf_polarity)
-					self.context.enqueue(self.terminal)
+					self.ctx_enqueue_task(self.terminal)
 			else:
 				# empty stack. check for terminating conditions.
 				if self.terminating:
@@ -3204,7 +3530,7 @@ class Transports(Flow):
 
 	def terminate(self, by=None):
 		"""
-		# Initiate the termination the transport stack.
+		# Initiate the termination of the transport stack.
 		"""
 
 		if self.terminated or self.terminating or self.interrupted:
@@ -3723,6 +4049,8 @@ class Catenation(Flow):
 			]
 
 	def terminate(self, by=None):
+		if self.interrupted:
+			return False
 		cxn = self.cat_connections.get(by)
 
 		if cxn is None:
@@ -3862,8 +4190,6 @@ class Division(Flow):
 	f_type = 'fork'
 
 	def __init__(self):
-		global collections
-
 		super().__init__()
 		self.div_queues = collections.defaultdict(collections.deque)
 		self.div_flows = dict() # connections
@@ -3902,7 +4228,7 @@ class Division(Flow):
 
 		return True
 
-	def div_initiate(self, fc, layer, getattr=getattr, partial=functools.partial):
+	def div_initiate(self, fc, layer, partial=functools.partial):
 		"""
 		# Initiate a subflow using the given &layer as its identity.
 		# The &layer along with a callable performing &div_connect will be emitted
@@ -4203,12 +4529,12 @@ def pipeline(sector, kpipeline, input=None, output=None):
 
 def execute(*identity, **units):
 	"""
-	# Initialize a &process.Representation to manage the invocation from the (operating) system.
-	# This is the appropriate way to invoke a &..io process from an executable module that
+	# Initialize a &system.Process to manage the invocation from the (operating) system.
+	# This is the low-level means to invoke a &..io process from an executable module that
 	# wants more control over the initialization process than what is offered by
 	# &.libcommand.
 
-	#!/pl/python
+	# #!/pl/python
 		libio.execute(unit_name = (unit_initialization,))
 
 	# Creates a &Unit instance that is passed to the initialization function where

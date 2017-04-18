@@ -28,16 +28,13 @@ def initialize(unit):
 	r = libroutes.File.from_cwd()
 	unit.place(None, "dev", "service")
 
-	root_sector = libio.Sector()
+	ctl = libdaemon.Control()
+	root_sector = libio.System.create(ctl)
 
 	# &.libdaemon.Control.actuate does most of the work.
 	unit.place(root_sector, "control")
-
 	root_sector.subresource(unit)
 	root_sector.actuate()
-
-	ctl = libdaemon.Control()
-	root_sector.dispatch(ctl)
 
 def main():
 	"""

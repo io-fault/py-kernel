@@ -564,7 +564,6 @@ class Process(object):
 	# are the mechanisms used to respond to child process exits signals.
 
 	# [ Properties ]
-
 	# /fabric
 		# The &Fabric instance managing the threads controlled by the process.
 	"""
@@ -778,7 +777,7 @@ class Process(object):
 	interrupted = None
 	def structure(self):
 		"""
-		Structure information for the &Unit device entry.
+		# Structure information for the &Unit device entry.
 		"""
 		sr = ()
 

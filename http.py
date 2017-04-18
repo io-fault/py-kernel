@@ -74,213 +74,6 @@ def ranges(length, range_header):
 
 			yield (decode_number(start), stop)
 
-class ProtocolTransaction(tuple):
-	"""
-	# The set of objects associated with a protocol transaction.
-
-	# &ProtocolTransactions are used for both clients and servers.
-	# For servers, &interface and &host should be referenced, whereas
-	# for clients, &agent and &context should be referenced.
-	"""
-	__slots__ = ()
-
-	connection, request, response, \
-	connect_input, connect_output, host = map(
-		lambda x: property(operator.itemgetter(x)), range(6)
-	)
-
-	@property
-	def terminal(self):
-		"""
-		# Whether the Transaction is the last.
-		"""
-		return self.response.terminal
-
-	def redirect(self, location):
-		"""
-		# Location header redirect.
-		"""
-
-		if self.request.connection in {b'close', None}:
-			self.response.add_headers([(
-				b'Connection', b'close'
-			)])
-
-		self.response.add_headers([(b'Location', location.encode('ascii'))])
-		self.response.initiate((b'HTTP/1.1', b'302', b'Found'))
-		self.write_null()
-
-	def reflect(self):
-		"""
-		# Send the input back to the output. Usually, after configuring the response layer.
-
-		# Primarily used for performance testing.
-		"""
-
-		f = libio.Flow()
-		self.connection.dispatch(f)
-		self.connect_output(f)
-		self.connect_input(f)
-
-	def write_null(self):
-		"""
-		# Used to send a request or a response without a body.
-		# Necessary to emit the headers of the transaction.
-		"""
-		self.connect_output(None)
-
-	def read_null(self):
-		"""
-		# Used to note that no read will occur.
-		# *Must* be used when no body is expected. Usually called by the &Client or &Server.
-
-		# ! FUTURE:
-			# Throws exception or emits error in cases where body is present.
-		"""
-		self.connect_input(None)
-
-	def iterate_output(self, iterator:typing.Iterable):
-		"""
-		# Construct a Flow consisting of a single &libio.Iterate instance
-		# used to stream output to the connection protocol state.
-
-		# The &libio.Flow will be dispatched into the &Connection for proper
-		# fault isolation in cases that the iterator produces an exception.
-		"""
-
-		f = libio.Iteration(iterator)
-		self.connection.dispatch(f)
-		self.response.initiate((self.request.version, b'200', b'OK'))
-		self.connect_output(f)
-
-		return f
-
-	def write_output(self, mime:str, data:bytes):
-		"""
-		# Send the given &data to the remote end with the given &mime type.
-		# If other headers are desired, they *must* be configured before running
-		# this method.
-		"""
-
-		self.response.add_headers([
-			(b'Content-Type', mime.encode('utf-8')),
-			(b'Content-Length', length_string(data)),
-		])
-
-		self.iterate_output([(data,)])
-
-	def read_file_into_output(self, path:str, str=str):
-		"""
-		# Send the file referenced by &path to the remote end as
-		# the (HTTP) entity body.
-
-		# The response must be properly initialized before invoking this method.
-
-		# [ Parameters ]
-
-		# /path
-			# A string containing the file's path.
-		"""
-
-		f = libio.Iteration(((x,) for x in libmemory.Segments.open(str(path))))
-		self.connection.dispatch(f)
-		self.connect_output(f)
-
-		return f
-
-	def read_input_into_coroutine(self):
-		"""
-		# Contructs an awaitable iterator that can be used inside
-		# a coroutine to read the data sent from the remote endpoint.
-		"""
-		raise Exception("coroutine support not implemented")
-
-	def read_input_into_buffer(self, callback, limit=None):
-		"""
-		# Connect the input Flow to a buffer that executes
-		# the given callback when the entity body has been transferred.
-
-		# This should only be used when connecting to trusted hosts.
-		"""
-
-		cxn = self.connection
-		f = libio.Collection.buffer()
-		cxn.dispatch(f)
-		f.atexit(callback)
-		self.connect_input(f)
-
-		return f
-
-	def read_input_into_file(self, route):
-		"""
-		# Connect the input Flow's entity body to the given file.
-
-		# The file will be truncated and data will be written in append mode.
-		"""
-
-		cxn = self.connection
-		f = cxn.context.append_file(str(route))
-		cxn.dispatch(f)
-		self.connect_input(f)
-
-		return f
-
-	def write_kport_to_output(self, fd, limit=None):
-		"""
-		# Transfer data from the &kport, file descriptor, to the output
-		# constrained by the limit.
-
-		# The file descriptor will be closed after the transfer is complete.
-		"""
-
-		cxn = self.connection
-		f = cxn.context.connect_input(fd)
-		cxn.dispatch(f)
-		self.connect_output(f)
-
-		return f
-
-	def read_input_into_kport(self, fd, limit=None):
-		"""
-		# Connect the input Flow's entity body to the given file descriptor.
-		# The state of the open file descriptor will be used to allow inputs
-		# to be connected to arbitrary parts of a file.
-
-		# The file descriptor will be closed after the transfer is complete.
-		"""
-
-		cxn = self.connection
-		f = cxn.context.connect_output(fd)
-		cxn.dispatch(f)
-
-		self.connect_input(f)
-		return f
-
-	def connect_pipeline(self, kpipeline):
-		"""
-		# Connect the input and output to a &..system.library.KPipeline.
-		# Received data will be sent to the pipeline,
-		# and data emitted from the pipeline will be sent to the remote endpoint.
-		"""
-
-		cxn = self.connection
-		with cxn.allocate() as xact:
-			sp, i, o, e = xact.pipeline(kpipeline)
-			fi, fo = self.flows()
-			fi.requisite(i)
-			fo.requisite(o)
-
-		self.connect_input(fi)
-		self.connect_output(fo)
-
-		return f
-
-	def proxy(self, endpoint):
-		"""
-		# Fulfill the transaction by transparently proxying the request.
-		"""
-		pass
-
 class Layer(libio.Layer):
 	"""
 	# The HTTP layer of a connection; superclass of &Request and &Response that provide
@@ -535,7 +328,7 @@ class Layer(libio.Layer):
 
 		self.header_sequence += headers
 
-		for k, v in self.header_sequence:
+		for k, v in headers:
 			k = k.lower()
 			if k in self.cached_headers:
 				self.headers[k] = v
@@ -544,6 +337,13 @@ class Layer(libio.Layer):
 				cookies.append(v)
 			elif k in cache:
 				self.headers[k] = v
+
+	def add_header(self, header, value):
+		"""
+		# Add a single header to the sequence.
+		# Only for use when building a Request or Response to be sent.
+		"""
+		self.header_sequence.append((header, value))
 
 	def trailer(self, headers):
 		"""
@@ -656,6 +456,238 @@ class Response(Layer):
 	def result(self, code, description, version=b'HTTP/1.1'):
 		self.initiate((version, str(code).encode('ascii'), description.encode('utf-8')))
 
+class IO(libio.Transport):
+	"""
+	# HTTP Transaction Context.
+	"""
+	http_expect_continue = None
+
+	_xc_ci = None
+	_xc_co = None
+
+	def __init__(self, request:Request, response:Response, ci, co, host):
+		self.host = host
+		self.request = request
+		self.response = response
+		self._xc_ci = ci
+		self._xc_co = co
+
+	def actuate(self):
+		self.connection = self.controller.controller
+		self.actuated = True
+
+	def terminate(self, by=None):
+		self.terminator = by
+		self.terminated = True
+		self.exit()
+
+	def io_connect_input(self, flow:libio.Flow):
+		r = self._xc_ci(flow)
+		del self._xc_ci
+		if self._xc_co is None:
+			self.terminate()
+	xact_ctx_connect_input = io_connect_input
+
+	def io_connect_output(self, flow:libio.Flow):
+		r = self._xc_co(flow)
+		del self._xc_co
+		if self._xc_ci is None:
+			self.terminate()
+	xact_ctx_connect_output = io_connect_output
+
+	def io_reflect(self):
+		"""
+		# Send the input back to the output. Usually, after configuring the response layer.
+
+		# Primarily used for performance testing.
+		"""
+
+		f = libio.Flow()
+		self.xact_dispatch(f)
+		self.xact_ctx_connect_output(f)
+		self.xact_ctx_connect_input(f)
+
+	def io_write_null(self):
+		"""
+		# Used to send a request or a response without a body.
+		# Necessary to emit the headers of the transaction.
+		"""
+		self.xact_ctx_connect_output(None)
+
+	def io_read_null(self):
+		"""
+		# Used to note that no read will occur.
+		# *Must* be used when no body is expected. Usually called by the &Client or &Server.
+
+		# ! FUTURE:
+			# Throws exception or emits error in cases where body is present.
+		"""
+		self.xact_ctx_connect_input(None)
+
+	@property
+	def http_terminal(self):
+		"""
+		# Whether the Transaction is the last.
+		"""
+		return self.response.terminal
+
+	def http_continue(self, headers):
+		"""
+		# Emit a (http/code)`100` continue response
+		# with the given headers. Emitting a continuation
+		# after a non-100 response has been sent will fault
+		# the Transaction.
+
+		# [ Engineering ]
+		# Currently, the HTTP implementation presumes one response
+		# per transaction which is in conflict with HTTP/1.1's CONTINUE.
+		"""
+		raise NotImplementedError()
+
+	def http_redirect(self, location):
+		"""
+		# Location header redirect.
+		"""
+		res = self.response
+
+		if self.request.connection in {b'close', None}:
+			res.add_header(b'Connection', b'close')
+
+		res.add_header(b'Location', location.encode('ascii'))
+		res.initiate((b'HTTP/1.1', b'302', b'Found'))
+		self.io_write_null()
+
+	def http_response_content(self, cotype:bytes, colength:int):
+		"""
+		# Define the type and length of the entity body to be sent.
+		"""
+		self.response.add_headers([
+			(b'Content-Type', cotype),
+			(b'Content-Length', colength),
+		])
+
+	def io_iterate_output(self, iterator:typing.Iterable):
+		"""
+		# Construct a Flow consisting of a single &libio.Iterate instance
+		# used to stream output to the connection protocol state.
+
+		# The &libio.Flow will be dispatched into the &Connection for proper
+		# fault isolation in cases that the iterator produces an exception.
+		"""
+
+		f = libio.Iteration(iterator)
+		self.xact_dispatch(f)
+		self.response.initiate((self.request.version, b'200', b'OK'))
+		self.xact_ctx_connect_output(f)
+
+		return f
+
+	def io_write_output(self, mime:str, data:bytes):
+		"""
+		# Send the given &data to the remote end with the given &mime type.
+		# If other headers are desired, they *must* be configured before running
+		# this method.
+		"""
+
+		self.response.add_headers([
+			(b'Content-Type', mime.encode('utf-8')),
+			(b'Content-Length', length_string(data)),
+		])
+
+		return self.io_iterate_output([(data,)])
+
+	def io_read_file_into_output(self, path:str, str=str):
+		"""
+		# Send the file referenced by &path to the remote end as
+		# the (HTTP) entity body.
+
+		# The response must be properly initialized before invoking this method.
+
+		# [ Parameters ]
+
+		# /path
+			# A string containing the file's path.
+
+		# [ Engineering ]
+		# The Segments instance needs to be retrieved from a cache.
+		"""
+
+		f = libio.Iteration(((x,) for x in libmemory.Segments.open(str(path))))
+		self.xact_dispatch(f)
+		self.xact_ctx_connect_output(f)
+
+		return f
+
+	def io_read_input_into_buffer(self, callback, limit=None):
+		"""
+		# Connect the input Flow to a buffer that executes
+		# the given callback when the entity body has been transferred.
+
+		# This should only be used when connecting to trusted hosts.
+		"""
+
+		f = libio.Collection.buffer()
+		self.xact_dispatch(f)
+		f.atexit(callback)
+		self.xact_ctx_connect_input(f)
+
+		return f
+
+	def io_read_input_into_file(self, route):
+		"""
+		# Connect the input Flow's entity body to the given file.
+
+		# The file will be truncated and data will be written in append mode.
+		"""
+
+		f = self.context.append_file(str(route))
+		self.xact_dispatch(f)
+		self.xact_ctx_connect_input(f)
+
+		return f
+
+	def io_write_kport_to_output(self, fd, limit=None):
+		"""
+		# Transfer data from the &kport, file descriptor, to the output
+		# constrained by the limit.
+
+		# The file descriptor will be closed after the transfer is complete.
+		"""
+
+		f = self.context.connect_input(fd)
+		self.xact_dispatch(f)
+		self.xact_ctx_connect_output(f)
+
+		return f
+
+	def io_read_input_into_kport(self, fd, limit=None):
+		"""
+		# Connect the input Flow's entity body to the given file descriptor.
+		# The state of the open file descriptor will be used to allow inputs
+		# to be connected to arbitrary parts of a file.
+
+		# The file descriptor will be closed after the transfer is complete.
+		"""
+
+		f = self.context.connect_output(fd)
+		self.xact_dispatch(f)
+		self.xact_ctx_connect_input(f)
+
+		return f
+
+	def io_connect_pipeline(self, kpipeline):
+		"""
+		# Connect the input and output to a &..system.library.KPipeline.
+		# Received data will be sent to the pipeline,
+		# and data emitted from the pipeline will be sent to the remote endpoint.
+		"""
+
+		sp, i, o, e = xact.pipeline(kpipeline)
+		self.xact_ctx_connect_input(fi)
+		self.xact_ctx_connect_output(fo)
+
+		return f
+
 def join(
 		checksum=None,
 		status=None,
@@ -752,6 +784,7 @@ def fork(
 	close_state = False # header Connection: close
 	events = iter(())
 	flow_events = []
+	layer = None
 
 	# Pass exception as terminal Layer context.
 	def http_protocol_violation(data):
@@ -977,7 +1010,7 @@ class Server(libio.Mitre):
 
 	def _init_xacts(self, events):
 		"""
-		# Reserve respone slots and yield the constructed &ProtocolTransaction instances.
+		# Reserve respone slots and yield the constructed &IO instances.
 		"""
 
 		cxn = self.controller
@@ -988,18 +1021,15 @@ class Server(libio.Mitre):
 
 		for req, res in zip(events, responses):
 			ts = libtime.now()
-			px = ProtocolTransaction((
-				cxn, req[0], res[0], req[1], res[1], self.m_reference
-			))
+			io = IO(req[0], res[0], req[1], res[1], self.m_reference)
+			iox = libio.Transaction.create(io)
 
 			datetime = ts.select('rfc').encode('utf-8')
-			px.response.add_headers([
-				(b'Date', datetime),
-			])
+			io.response.add_header(b'Date', datetime)
 			if req[0].terminal:
-				res[0].header_sequence.append((b'Connection', b'close'))
+				res[0].add_header(b'Connection', b'close')
 
-			yield px
+			yield iox
 
 	def process(self, events, source=None):
 		"""
@@ -1007,11 +1037,12 @@ class Server(libio.Mitre):
 		"""
 
 		cxn = self.controller
-		px = None
+		iox = None
 
 		xacts = list(self._init_xacts(events))
-		for px in xacts:
-			self.m_route(cxn, px)
+		for iox in xacts:
+			self.controller.dispatch(iox)
+			self.m_route(iox, iox.xact_context)
 
-		if px and px.request.terminal:
-			self.terminate(by=px)
+		if iox is not None and iox.xact_context.request.terminal:
+			self.terminate(by=iox)

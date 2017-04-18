@@ -34,7 +34,7 @@ allocate = library.kernel.Junction.rallocate
 def deliver_io_events(junction, events, iter=iter):
 	"""
 	# Send the individual &events originally prepared by
-	# &separate_io_events to their associated &.library.KernelPort Transformers.
+	# &separate_io_events to their associated &.library.KInput or &.library.KOutput flows.
 	"""
 
 	complete = False

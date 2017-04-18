@@ -80,9 +80,6 @@ class Commands(libhttpd.Index):
 	# HTTP Control API used by control (Host) connections.
 	"""
 
-	def __init__(self):
-		pass
-
 	@libhttpd.Resource.method()
 	def inject(self, resource, parameters) -> str:
 		"""
@@ -148,37 +145,24 @@ class Commands(libhttpd.Index):
 	def __resource__(self, resource, path, query, px):
 		pass
 
-def rt_load_unit_sector(unit, sector_import, Sector=None, location=('bin',)):
+def rt_load_unit_sector(unit, sector_import, location=('bin',)):
 	"""
 	# Load a sector into (iri)`rt://unit/bin` named by the module's full name
 	# and the following attribute path.
 	"""
 
-	# Path to SectorModules
 	sr, attpath = libroutes.Import.from_attributes(sector_import)
 	mod = importlib.import_module(str(sr))
-
-	s = (Sector or libio.Sector)()
-	s.subresource(unit)
-	unit.place(s, 'bin', sector_import)
-	s.actuate()
 
 	y = mod
 	for x in attpath:
 		y = getattr(y, x)
 
+	s = y(unit)
+	unit.place(s, 'bin', sector_import)
+	s.subresource(unit)
+
 	return s, y, sector_import
-
-def rt_load_argument_sectors(unit):
-	"""
-	# Load the initialization selections from the system arguments as sectors.
-	"""
-
-	inv = unit.context.process.invocation
-	args = inv.parameters['system']['arguments']
-
-	for sectors_module in args:
-		yield rt_load_unit_sector(unit, sectors_module)
 
 def extract_sectors_config(document):
 	xr = xmllib.XML(document)
@@ -238,41 +222,32 @@ def serialize_sectors(struct,
 		for alloc in allocs:
 			slot_allocs[alloc.protocol].append((alloc.address, alloc.port))
 
-	xmlctx = libxml.Serialization()
+	xml = libxml.Serialization()
 
-	return xmlctx.root('sectors',
-		chain((
-			xmlctx.element('libraries',
-				chain(
-					xmlctx.element('module', None, ('libname', x), ('fullname', fn))
-					for x, fn in (struct.get('libraries', None) or {}).items()
+	return xml.root('sectors', chain((
+		xml.element('libraries', chain(
+			xml.element('module', None, ('libname', x), ('fullname', fn))
+			for x, fn in (struct.get('libraries', None) or {}).items()
+		)), chain(
+			xml.element('interface', chain(
+				xml.element('address.space', chain(
+					xml.element('allocate', None,
+						('address', address),
+						('port', port)
+					)
+					for address, port in allocs),
+					('type', addrspace),
 				)
-			),
-			chain(
-				xmlctx.element('interface',
-					chain(
-						xmlctx.element('address.space',
-							chain(
-								xmlctx.element('allocate', None,
-									('address', address),
-									('port', port)
-								)
-								for address, port in allocs
-							),
-							('type', addrspace),
-						)
-						for addrspace, allocs in spaces.items()
-					),
-					('identifier', slot),
-				)
-				for slot, spaces in ifs.items()
-			),
+				for addrspace, allocs in spaces.items()),
+				('identifier', slot),
+			)
+			for slot, spaces in ifs.items()),
 		)),
 		('concurrency', struct.get('concurrency')),
 		namespace = namespace,
 	)
 
-class Control(libio.Interface):
+class Control(libio.Context):
 	"""
 	# Control processor that manages the concurrency of an IO process and the control
 	# interfaces thereof.
@@ -331,13 +306,12 @@ class Control(libio.Interface):
 		cidstr = cid.fullpath
 
 		unit = self.context.association()
+		inv = unit.context.process.invocation
 		ports = unit.ports
 
-		for bsector, root, origin in rt_load_argument_sectors(unit):
-			try:
-				bsector.acquire(libio.Call.partial(root, bsector))
-			except TypeError:
-				raise Exception("initialization object is not callable")
+		args = inv.parameters['system']['arguments']
+		for sector_exe in args:
+			bsector, root, origin = rt_load_unit_sector(unit, sector_exe)
 
 		# The control interface must be shut down in the forks.
 		# The interchange is voided the moment we get into the fork,
@@ -477,14 +451,14 @@ class Control(libio.Interface):
 		host.h_update_names('control')
 		host.h_options = {}
 
-		si = libio.System(http.Server, host, host.h_route, (), ('control', fid))
+		si = libio.Network(http.Server, host, host.h_route, (), ('control', fid))
 		sector.process((host, si))
 
 	def ctl_subactuate(self):
 		"""
-		Called to actuate the sector daemons installed into (rt:path)`/bin`
+		# Called to actuate the sector daemons installed into (rt/path)`/bin`
 
-		Separated from &actuate for process forks.
+		# Separated from &actuate for process forks.
 		"""
 
 		unit = self.context.association()

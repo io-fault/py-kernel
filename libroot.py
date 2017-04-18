@@ -4,19 +4,19 @@
 # libroot provides the primary support for &.bin.rootd which manages a scheduling daemon,
 # a set of service processes and a set of service Sectors assigned to a particular
 # group with its own configurable concurrency level.
-# 
+
 # Multiple instances of faultd may exist, but usually only one per-user is necessary.
 # The (system:directory)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
 # line parameter. The daemon directory supplies all the necessary configuration,
 # so few options are available from system invocation.
-# 
+
 # It is important that the faultd directory exist on the same partition as the
 # Python executable. Hardlinks are used in order to provide accurate process names.
-# 
+
 # The daemon directory structure is a set of service directories managed by the instance with
 # "scheduled" and "root" reserved for the management of the administrative scheduler
 # and the spawning daemon itself.
-# 
+
 # /root/
 	# Created automatically to represent the faultd process.
 	# All files are instantiated as if it were a regular service.
@@ -198,7 +198,7 @@ class Commands(libhttpd.Index):
 		if service.status == 'executed':
 			return (service.identifier, "already running")
 		else:
-			managed.invoke()
+			managed.sm_invoke()
 			return (service.identifier, "invoked")
 
 	@libhttpd.Resource.method()
@@ -220,7 +220,7 @@ class Commands(libhttpd.Index):
 			managed = self.managed[name]
 
 			if service.actuates and service.status != 'executed':
-				yield (service.identifier, managed.invoke())
+				yield (service.identifier, managed.sm_invoke())
 			elif service.disabled and service.status == 'executed':
 				yield (service.identifier, managed.subprocess.signal(signal.SIGTERM))
 
@@ -238,7 +238,7 @@ class Commands(libhttpd.Index):
 		if service.type != 'command':
 			return (service.identifier, "not a command service")
 		else:
-			managed.invoke()
+			managed.sm_invoke()
 			return (service.identifier, "service invoked")
 
 	@libhttpd.Resource.method()
@@ -248,11 +248,11 @@ class Commands(libhttpd.Index):
 	@libhttpd.Resource.method()
 	def timestamp(self, resource, parameters):
 		"""
-		Return the faultd's perception of time.
+		# Return rootd's perception of time.
 		"""
 		return libtime.now().select("iso")
 
-	# /if/signal?number=9
+	# /if/usignal?number=9
 
 	@libhttpd.Resource.method()
 	def __resource__(self, resource, path, query, px):
@@ -316,13 +316,10 @@ class ServiceManager(libio.Processor):
 		# so there are race conditions.
 
 	# [ Properties ]
-
 	# /minimum_runtime
 		# Identifies the minimum time required to identify a successful start.
-
 	# /minimum_wait
 		# Identifies the minimum wait time before trying again.
-
 	# /maximum_wait
 		# Identifies the maximum wait time before trying again.
 	"""
@@ -336,6 +333,7 @@ class ServiceManager(libio.Processor):
 		p = [
 			('status', self.status),
 			('actuates', self.service.actuates),
+			('identifier', self.service.identifier),
 			('service', self.service),
 			('invocation', self.invocation),
 			('exit_events', self.exit_events),
@@ -368,18 +366,17 @@ class ServiceManager(libio.Processor):
 		self.status = 'terminated'
 
 		self.sm_update()
-		self.last_known_time = libtime.now()
+		self.sm_last_known_time = libtime.now()
 		srv = self.service
 
 		if srv.actuates and srv.type in ('daemon', 'sectors'):
-			self.invoke()
+			self.sm_invoke()
 
 		return self
 
-	def invoke(self):
+	def sm_invoke(self):
 		"""
-		# Invoke the service daemon or command.
-		# Does nothing if &status is `'executed'`.
+		# Invoke the service. Does nothing if &status is `'executed'`.
 		"""
 
 		if self.service.type == 'root':
@@ -412,18 +409,18 @@ class ServiceManager(libio.Processor):
 
 		# service_exit is called when the process exit signal is received.
 
-	def again(self):
+	def sm_again(self):
 		"""
 		# Called when a non-command service exits.
 		"""
 
-		r = self.rate()
+		r = self.sm_rate()
 		self.status = 'waiting'
-		# based on the rate, defer .invoke by an interval bounded
+		# based on the rate, defer .sm_invoke by an interval bounded
 		# by minimum_wait and maximum_wait.
-		self.invoke()
+		self.sm_invoke()
 
-	def rate(self):
+	def sm_rate(self):
 		"""
 		# Average exits per second.
 		"""
@@ -451,11 +448,11 @@ class ServiceManager(libio.Processor):
 				pass
 			else:
 				if self.service.actuates:
-					self.again()
+					self.sm_again()
 				elif self.inhibit_recovery == False:
 					# restarted
 					self.inhibit_recovery = None
-					self.again()
+					self.sm_again()
 
 	def sm_update(self):
 		"""
@@ -483,11 +480,7 @@ class ServiceManager(libio.Processor):
 	def terminate(self, by=None):
 		if super().terminate(by):
 			terminated = True
-			self.controller.exited(self)
-
-	def interrupt(self, by=None):
-		if super().interrupt(by):
-			self.controller.exited(self)
+			self.exit()
 
 # faultd manages services via a set of directories that identify the service
 # and its launch parameters/environment.
@@ -497,17 +490,16 @@ class ServiceManager(libio.Processor):
 # A given group has a set of configured interfaces; these interfaces
 # are allocated by the parent process as they're configured.
 
-class Set(libio.Interface):
+class Set(libio.Context):
 	"""
-	# The (io.path)`/control` sector of the root daemon (faultd)
+	# The (io/path)`/control` sector of the root daemon (faultd)
 	# managing a set of services.
 
-	# Executes the managed services inside (io.path)`/bin/*`; ignores
+	# Executes the managed services inside (io/path)`/bin/*`; ignores
 	# natural exit signals as it waits for administrative termination
 	# signal.
 
 	# [ Engineering ]
-
 	# Operation set for dispatched processes. Provides instropection
 	# to the operation status, and any blocking operations.
 	"""
@@ -515,20 +507,12 @@ class Set(libio.Interface):
 	def halt(self, source):
 		self.context.process.log("halt requested")
 
-	def exit(self, unit):
-		# faultd only exits when explicitly terminated.
-		# It is possible to have a running daemon without services;
-		# the provided HTTP interface allows modification to the service set.
-		pass
-
 	def actuate(self):
 		"""
 		# Create the faultd context if it does not exist.
 		# This is performed in actuate because it is desirable
 		# to trigger a &libsys.Panic when an exception occurs.
 		"""
-		super().actuate()
-
 		self.route = libroutes.File.from_cwd()
 		self.services = {} # name :> ManagedService() instances
 		self.managed = {} # the ServiceManager instances dispatched in io://faultd/bin/
@@ -557,55 +541,38 @@ class Set(libio.Interface):
 			(x.identifier, libservice.Service(x, x.identifier))
 			for x in srv_list
 		)
-		self.context.enqueue(self.boot)
+		self.context.enqueue(self.set_boot)
 
-		return self
+		web_interface = {
+			'/sys/': Commands(self.services, self.managed),
+		}
+		libhttpd.init(self.sector, ('control',), web_interface, 'http')
 
-	def manage_service(self, unit, srv:libservice.Service):
+		return super().actuate()
+
+	def set_install(self, srv:libservice.Service):
 		"""
 		# Install the service's manager for execution.
 		"""
 
-		S = libio.Sector()
-		unit.place(S, "bin", srv.identifier)
-		S.subresource(unit)
-		S.actuate()
-
 		d = ServiceManager(srv, self.root)
 		# HTTP needs to be able to find the SM to interact with it.
 		self.managed[srv.identifier] = d
+		self.xact_dispatch(d)
 
-		d.subresource(S)
-		S.dispatch(d)
-
-	def forget_service(self, s:libservice.Service):
-		"""
-		# Remove the service from the managed list and the service set.
-		"""
-		raise Exception('not implemented')
-
-	def boot(self):
+	def set_boot(self):
 		"""
 		# Start all the *actuating* services and mention all the disabled ones.
 		"""
 
-		unit = self.context.association()
-
-		# invocation. each subprocess gets its own sector
-		# the RService instances manages the core.Subprocess instance
-		# running the actual system [sub] process.
+		# Invocation; poll configuration and launch.
 		for sn, s in self.services.items():
 			s.load()
-			self.manage_service(unit, s)
+			self.set_install(s)
 
-	@classmethod
-	def rs_initialize(Class, sector):
-		"""
-		# sectord entry point for initializing the application sector.
-		"""
-		rset = Class()
-		sector.dispatch(rset)
-		web_interface = {
-			'/sys/': Commands(rset.services, rset.managed),
-		}
-		libhttpd.init(sector, ('control',), web_interface, 'http')
+def execute(sector):
+	"""
+	# &.bin.sectord entry point for starting an instance of &.bin.rootd.
+	"""
+
+	return libio.System.create(Set())

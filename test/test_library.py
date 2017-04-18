@@ -29,17 +29,19 @@ def test_parallel(test):
 		pass
 	test/t == True
 
-def sector():
+def sector(count=1):
 	"""
-	Construct a root Sector and Context for testing.
+	# Construct a root Sector and Context for testing.
 	"""
 	ctx = testlib.Context()
-	sect = library.Sector()
-	sect.context = ctx
-	x = testlib.ExitController()
-	sect.controller = x
-	sect.actuate()
-	return ctx, sect
+	yield ctx
+	for x in range(count):
+		sect = library.Sector()
+		sect.context = ctx
+		x = testlib.ExitController()
+		sect.controller = x
+		sect.actuate()
+		yield sect
 
 def test_Lock(test):
 	"""
@@ -253,14 +255,7 @@ def test_Flow_obstructions(test):
 	test/l == ['suspend', 'resume', 'suspend',]
 
 def setup_connected_flows():
-	ctx = testlib.Context()
-	usector = library.Sector()
-	usector.context = ctx
-	usector.actuate()
-
-	dsector = library.Sector()
-	dsector.context = ctx
-	dsector.actuate()
+	ctx, usector, dsector = sector(2)
 
 	us = library.Flow()
 	ds = library.Collection.list()
@@ -271,7 +266,7 @@ def setup_connected_flows():
 
 def test_Flow_connect_events(test):
 	"""
-	Validate events of connected Flows across Sector boundaries.
+	# Validate events of connected Flows across Sector boundaries.
 	"""
 	usector, dsector, reservoir, us, ds = setup_connected_flows()
 	us.f_connect(ds)
@@ -482,11 +477,7 @@ def test_Catenation(test):
 	fc_terminate = library.FlowControl.terminate
 	fc_initiate = library.FlowControl.initiate
 	fc_transfer = library.FlowControl.transfer
-	ctx = testlib.Context()
-
-	S = library.Sector()
-	S.context = ctx
-	S.actuate()
+	ctx, S = sector()
 
 	# output flow
 	c = library.Collection.list()
@@ -590,10 +581,7 @@ def test_Division(test):
 	fc_init = library.FlowControl.initiate
 
 	Type = library.Division
-	Context = testlib.Context()
-	S = library.Sector()
-	S.context = Context
-	S.actuate()
+	ctx, S = sector()
 
 	class Local(library.Mitre):
 		accepted = []
@@ -609,9 +597,9 @@ def test_Division(test):
 
 	# no content
 	x.process([(fc_init, 1)])
-	Context()
+	ctx()
 	test/mitre.accepted[0][0] == 1
-	Context()
+	ctx()
 
 	test/mitre.accepted[0][1] / typing.Callable
 	c = library.Collection.list()
@@ -621,7 +609,7 @@ def test_Division(test):
 	test/c.c_storage == [(b'data',)]
 	test/c.terminated == False
 	x.process([(fc_terminate, 1)])
-	Context()
+	ctx()
 	test/c.terminated == True
 
 def test_Transformation(test):
