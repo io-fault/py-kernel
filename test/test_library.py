@@ -62,6 +62,18 @@ def test_Lock(test):
 	s.release()
 	test/sum(cell) == 0
 
+def test_fault(test):
+	ctx, s = sector()
+	f = library.Fatal()
+	f1 = library.Flow()
+	s.dispatch(f1)
+	s.dispatch(f)
+	ctx.flush()
+	test/s.interruptor == f
+	test/f1.interrupted == True
+	test/s.interrupted == True
+	test/bool(f.exceptions) == True
+
 def test_Join(test):
 	Type = library.Join
 
@@ -288,13 +300,6 @@ def test_Flow_connect_events(test):
 	usector, dsector, reservoir, us, ds = setup_connected_flows()
 	us.f_connect(ds)
 
-	# validate that interrupt is inherited
-	us.interrupt()
-	test/us.interrupted == True
-	usector.context() # context is shared
-	test/ds.interrupted == False
-	test/ds.terminated == True
-
 	# faulted flow
 	usector, dsector, reservoir, us, ds = setup_connected_flows()
 	us.f_connect(ds)
@@ -312,17 +317,12 @@ def test_Flow_connect_events(test):
 	test/dsector.terminated == True
 
 def test_Iteration(test):
+	ctx, S = sector()
 	c = library.Collection.list()
-	e = testlib.ExitController()
-	ctx = testlib.Context()
-
-	c.controller = e
-	c.context = ctx
-	c.actuate()
+	e = S.CONTROLLER
 
 	i = library.Iteration(range(100))
-	i.controller = e
-	i.context = ctx
+	S.dispatch(i)
 	i.f_connect(c)
 	i.actuate()
 	ctx.flush()
@@ -331,13 +331,11 @@ def test_Iteration(test):
 	test/i.terminated == True
 
 def test_null(test):
-	e = testlib.ExitController()
-	ctx = testlib.Context()
+	ctx, S = sector()
+	e = S.CONTROLLER
 	i = library.Iteration(range(100))
-	i.controller = e
-	i.context = ctx
 	i.f_connect(library.null)
-	i.actuate()
+	S.dispatch(i)
 	ctx.flush()
 	# Validate empty iterator.
 	test/tuple(i.it_iterator) == ()

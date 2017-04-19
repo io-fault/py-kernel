@@ -846,7 +846,12 @@ class Processor(Resource):
 	actuated = False
 	terminated = False
 	terminating = None # None means there is no terminating state.
-	interrupted = False
+	@property
+	def interrupted(self):
+		if self.controller:
+			return self.controller.interrupted
+		else:
+			return None
 
 	# Origin of the interrupt or terminate
 	terminator = None
@@ -880,20 +885,6 @@ class Processor(Resource):
 
 		# Generic Processor has no knowledge of subresources.
 		return False
-
-	def requisite(self):
-		"""
-		# Configure any necessary requisites prior to actuation.
-		# Preferred over creation arguments in order to allow the use of prebuilt structures.
-
-		# Subclasses should not call superclass implementations; rather, users of complex
-		# implementations need to be aware that multiple requisite invocations will be necessary
-		# in order for actuation to succeed.
-
-		# Base class &requisite is a no-op.
-		"""
-
-		pass
 
 	def actuate(self):
 		"""
@@ -933,11 +924,7 @@ class Processor(Resource):
 		# Only &Sector interrupts cause exits.
 		"""
 
-		if self.interrupted:
-			return False
-
-		self.interrupted = True
-		return True
+		pass
 
 	def fault(self, exception, association=None):
 		"""
@@ -1585,6 +1572,7 @@ class Sector(Processor):
 	exits = None
 	processors = None
 	product = None
+	interrupted = False
 
 	def structure(self):
 		p = ()
@@ -1691,14 +1679,20 @@ class Sector(Processor):
 		if self.interrupted:
 			return
 
-		super().interrupt(by)
+		self.interrupted = True
+		self.interruptor = by
 
 		if self.scheduler is not None:
 			self.scheduler.interrupt()
 
-		for Class, sset in self.processors.items():
-			for x in sset:
-				x.interrupt()
+		# Sectors set if they've been interrupted, so the
+		# following general case will be no-ops.
+		for sector in self.processors[Sector]:
+			sector.interrupt()
+
+		for Class, processor_set in self.processors.items():
+			for processor in processor_set:
+				processor.interrupt() # Class
 
 		# exits are managed by the invoker
 
@@ -2137,6 +2131,14 @@ class Subprocess(Processor):
 		return None
 
 	def sp_exit(self, pid, event):
+		# Target of the system event, this may be executed in cases
+		# where the Processor has exited.
+
+		# Being that this is representation of a resource that is not
+		# actually controlled by the Processor, it will continue
+		# to update the state. However, the exit event will only
+		# occur if the Sector is consistent.
+
 		self.process_exit_events[pid] = event
 		self.active_processes.discard(pid)
 
@@ -2209,9 +2211,7 @@ class Subprocess(Processor):
 		# Interrupt the running processes by issuing a SIGKILL signal.
 		"""
 
-		r = super().interrupt(by)
 		self.sp_signal(9)
-		return r
 
 	def abort(self, by=None):
 		"""
@@ -2219,7 +2219,7 @@ class Subprocess(Processor):
 		"""
 
 		r = super().interrupt(by)
-		self.sp_signal(signal.SIGABRT)
+		self.sp_signal(signal.SIGQUIT)
 		return r
 
 class Recurrence(Processor):
@@ -2508,20 +2508,15 @@ class Scheduler(Processor):
 			if np < p:
 				self.update()
 
-	def interrupt(self, by=None):
+	def interrupt(self):
 		# cancel the transition callback
 		if self.scheduled_reference is not None:
 			self.x_ops[1](self.scheduled_reference)
-
-		super().interrupt(by)
 
 class Thread(Processor):
 	"""
 	# A &Processor that runs a callable in a dedicated thread.
 	"""
-
-	def requisite(self, callable):
-		self.callable = callable
 
 	def __init__(self, callable):
 		self.callable = callable
@@ -2944,13 +2939,7 @@ class Flow(Processor):
 		if self.controller:
 			self.controller.exited(self)
 
-	def interrupt(self, by=None):
-		"""
-		# Terminate the flow abrubtly.
-		"""
-		if not super().interrupt(by):
-			return False
-
+	def interrupt(self):
 		self.process = self.f_discarding
 		self.f_emit = self.f_discarding
 
@@ -3273,10 +3262,6 @@ class Parallel(Flow):
 		self.pf_parameters = parameters
 		self.pf_queue = queue.Queue()
 		self._pf_put = self.pf_queue.put
-
-	def requisite(self, thread:typing.Callable, *parameters, criticial=False):
-		self.thread = thread
-		self.parameters = parameters
 
 	def terminate(self, by=None):
 		"""
@@ -3633,11 +3618,9 @@ class Kernel(Flow):
 		t.terminate() # terminates one direction.
 		return t
 
-	def interrupt(self, by=None):
+	def interrupt(self):
 		if self.transit is not None:
 			self.k_kill()
-
-		super().interrupt(by=by)
 
 	def f_terminated(self):
 		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
@@ -3904,7 +3887,7 @@ class Null(Flow):
 
 	def terminate(self, by=None):
 		pass
-	def interrupt(self, by=None):
+	def interrupt(self):
 		pass
 	def process(self, event, source=None):
 		pass
@@ -4216,9 +4199,6 @@ class Division(Flow):
 		"""
 		# Interruptions on distributions translates to termination.
 		"""
-
-		if not super().interrupt(by=by):
-			return False
 
 		# Any connected div_flows are subjected to interruption here.
 		# Closure here means that the protocol state did not manage

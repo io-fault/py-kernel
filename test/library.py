@@ -47,7 +47,7 @@ class Context(object):
 	def faulted(self, resource):
 		self.faults.append(resource)
 		faultor = resource.controller
-		faultor.interrupt()
+		faultor.interrupt(resource)
 		if faultor.controller:
 			faultor.controller.exited(faultor)
 
