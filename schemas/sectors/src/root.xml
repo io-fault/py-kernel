@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<grammar
+	xmlns:ctl="http://fault.io/xml/control"
+	xmlns="http://relaxng.org/ns/structure/1.0"
+	xmlns:xlink="http://www.w3.org/1999/xlink"
+	ns="http://fault.io/xml/io.sectors"
+	datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"
+	xmlns:a="http://relaxng.org/ns/compatibility/annotations/1.0">
+
+	<define name="xmlid">
+		<attribute name="xml:id">
+			<data type="ID"/>
+		</attribute>
+	</define>
+
+	<define name="sectors.addressing">
+		<attribute name="address">
+			<text/>
+		</attribute>
+		<attribute name="port">
+			<text/>
+		</attribute>
+	</define>
+
+	<define name="sectors.ip">
+		<element name="ip">
+			<attribute name="version">
+				<text/>
+			</attribute>
+
+			<zeroOrMore>
+				<element name="allocate">
+					<ref name="sectors.addressing"/>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<define name="sectors.local">
+		<element name="local">
+			<zeroOrMore>
+				<element name="allocate">
+					<ref name="sectors.addressing"/>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<define name="sectors.interface">
+		<element name="interface">
+			<attribute name="identifier">
+				<text/>
+			</attribute>
+			<attribute name="transport">
+				<text/>
+			</attribute>
+			<zeroOrMore>
+				<choice>
+					<ref name="sectors.ip"/>
+					<ref name="sectors.local"/>
+				</choice>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<define name="sectors.protocol">
+		<element name="protocol">
+			<optional>
+				<attribute name="import">
+					<text/>
+				</attribute>
+			</optional>
+			<optional>
+				<attribute name="identifier">
+					<text/>
+				</attribute>
+			</optional>
+
+			<optional>
+				<element name="limits">
+					<zeroOrMore>
+						<attribute>
+							<anyName/>
+							<text/>
+						</attribute>
+					</zeroOrMore>
+				</element>
+			</optional>
+
+			<zeroOrMore>
+				<element name="resource">
+					<attribute name="parameter">
+						<text/>
+					</attribute>
+					<attribute name="xlink:href">
+						<data type="anyURI"/>
+					</attribute>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<define name="sectors.connect">
+		<element name="connect">
+			<attribute name="interface">
+				<text/>
+			</attribute>
+			<attribute name="protocols">
+				<text/>
+			</attribute>
+		</element>
+	</define>
+
+	<define name="sectors.system">
+		<element name="system">
+			<attribute name="identifier">
+				<text/>
+			</attribute>
+
+			<ref name="sectors.connect"/>
+		</element>
+	</define>
+
+	<define name="sectors.sectors">
+		<element name="sectors">
+			<optional>
+				<attribute name="concurrency">
+					<data type="integer"/>
+				</attribute>
+			</optional>
+			<zeroOrMore>
+				<choice>
+					<ref name="sectors.protocol"/>
+					<ref name="sectors.interface"/>
+					<ref name="sectors.system"/>
+				</choice>
+			</zeroOrMore>
+		</element>
+	</define>
+
+	<start>
+		<ref name="sectors.sectors"/>
+	</start>
+</grammar>

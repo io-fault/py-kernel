@@ -1,11 +1,10 @@
 """
-Resources and Processor class hierarchy for managing explicitly structured processes.
+# Processor class hierarchy for managing explicitly structured processes.
 
-[ Properties ]
-
-/ProtocolTransactionEndpoint
-	The typing decorator that identifies receivers
-	for protocol transactions. (Such as http requests or reponses.)
+# [ Properties ]
+# /ProtocolTransactionEndpoint
+	# The typing decorator that identifies receivers
+	# for protocol transactions. (Such as http requests or reponses.)
 """
 
 import os
@@ -55,19 +54,17 @@ __shortname__ = 'libio'
 		#octets://port.kernel/output#fd
 
 		#flows://v1-1.http/?constraints config [transformation]
-
 		#flows://host/...
 
-#...
+	#...
 	#octets://file.kernel/input (path)
 	#octets://file.kernel/output/overwrite (path)
 	#octets://file.kernel/output/append (path)
 
 def parse_transport_indicator(ti:str, port = None):
 	"""
-	Parse a Transport Indicator for constructing connection templates.
+	# Parse a Transport Indicator for constructing connection templates.
 	"""
-	global libri
 	parts = libri.parse(tri)
 
 	hn = parts['host']
@@ -106,7 +103,7 @@ def parse_transport_indicator(ti:str, port = None):
 
 class Expiry(Exception):
 	"""
-	An operation exceeded a time limit.
+	# An operation exceeded a time limit.
 	"""
 	def __init__(self, constraint, timestamp):
 		self.timestamp = timestamp
@@ -114,18 +111,18 @@ class Expiry(Exception):
 
 class RateViolation(Expiry):
 	"""
-	The configured rate constraints could not be maintained.
-	Usually a fault that identifies a Flow that could not maintain
-	the minimum transfer rate.
+	# The configured rate constraints could not be maintained.
+	# Usually a fault that identifies a Flow that could not maintain
+	# the minimum transfer rate.
 	"""
 
 class Lock(object):
 	"""
-	Event driven lock.
+	# Event driven lock.
 
-	Executes a given callback when it has been dequeued with the &release method
-	as its parameter. When &release is then called by the lock's holder, the next
-	enqueued callback is processed.
+	# Executes a given callback when it has been dequeued with the &release method
+	# as its parameter. When &release is then called by the lock's holder, the next
+	# enqueued callback is processed.
 	"""
 	__slots__ = ('_current', '_waiters',)
 
@@ -135,7 +132,7 @@ class Lock(object):
 
 	def acquire(self, callback):
 		"""
-		Return boolean on whether or not it was **immediately** acquired.
+		# Return boolean on whether or not it was **immediately** acquired.
 		"""
 		self._waiters.append(callback)
 		# At this point, if there is a _current,
@@ -149,8 +146,8 @@ class Lock(object):
 
 	def release(self):
 		"""
-		Returns boolean on whether or not the Switch was
-		released **to another controller**.
+		# Returns boolean on whether or not the Switch was
+		# released **to another controller**.
 		"""
 		if self._current is not None:
 			if not self._waiters:
@@ -178,31 +175,29 @@ def set_controller_reference(self, obj, Ref = weakref.ref):
 @functools.lru_cache(32)
 def endpoint(type:str, address:str, port:object):
 	"""
-	Endpoint constructor for fault.io applicaitons.
+	# Endpoint constructor for fault.io applicaitons.
 
-	[ Samples ]
-
-	/IPv4
-		`libio.endpoint('ip4', '127.0.0.1', 80)`
-	/IPv6
-		`libio.endpoint('ip6', '::1', 80)`
-	/UNIX
-		`libio.endpoint('local', '/directory/path/to', 'socket_file')`
+	# [ Samples ]
+	# /IPv4
+		# `libio.endpoint('ip4', '127.0.0.1', 80)`
+	# /IPv6
+		# `libio.endpoint('ip6', '::1', 80)`
+	# /UNIX
+		# `libio.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
-	global endpoint_classes
 	return endpoint_classes[type](address, port)
 
 def perspectives(resource, mro=inspect.getmro):
 	"""
-	Return the stack of structures used for Resource introspection.
+	# Return the stack of structures used for Resource introspection.
 
-	Traverses the MRO of the &resource class and executes the &structure
-	method; the corresponding class, properties, and subresources are
-	then appended to a list describing the &Resource from the perspective
-	of each class.
+	# Traverses the MRO of the &resource class and executes the &structure
+	# method; the corresponding class, properties, and subresources are
+	# then appended to a list describing the &Resource from the perspective
+	# of each class.
 
-	Returns `[(Class, properties, subresources), ...]`.
+	# Returns `[(Class, properties, subresources), ...]`.
 	"""
 
 	l = []
@@ -226,8 +221,8 @@ def perspectives(resource, mro=inspect.getmro):
 
 def sequence(identity, resource, perspective, traversed, depth=0):
 	"""
-	Convert the structure tree of a &Resource into a sequence of tuples to be
-	formatted for display.
+	# Convert the structure tree of a &Resource into a sequence of tuples to be
+	# formatted for display.
 	"""
 
 	if resource in traversed:
@@ -257,7 +252,7 @@ def sequence(identity, resource, perspective, traversed, depth=0):
 
 def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 	"""
-	Format the &Resource tree in fault.text.
+	# Format the &Resource tree in fault.text.
 	"""
 	import pprint
 
@@ -313,7 +308,7 @@ def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 
 def controllers(resource):
 	"""
-	Return the stack of controllers of the given &Resource. Excludes initial resource.
+	# Return the stack of controllers of the given &Resource. Excludes initial resource.
 	"""
 
 	stack = []
@@ -327,7 +322,7 @@ def controllers(resource):
 
 class Local(tuple):
 	"""
-	A reference to a unix domain file system socket.
+	# A reference to a unix domain file system socket.
 	"""
 
 	__slots__ = ()
@@ -366,10 +361,10 @@ class Local(tuple):
 
 class Coprocess(tuple):
 	"""
-	A reference to a coprocess interface. Used by &.libdaemon based processes
-	in order to refer to each other.
+	# A reference to a coprocess interface. Used by &.libdaemon based processes
+	# in order to refer to each other.
 
-	Used by distributed services in order to refer to custom listening interfaces.
+	# Used by distributed services in order to refer to custom listening interfaces.
 	"""
 
 	__slots__ = ()
@@ -401,7 +396,7 @@ class Coprocess(tuple):
 
 class Endpoint(tuple):
 	"""
-	A process-local endpoint. These objects are pointers to [logical] process resources.
+	# A process-local endpoint. These objects are pointers to [logical] process resources.
 	"""
 
 	__slots__ = ()
@@ -410,7 +405,7 @@ class Endpoint(tuple):
 	@property
 	def unit(self):
 		"""
-		The absolute unit name; &None if subjective reference.
+		# The absolute unit name; &None if subjective reference.
 		"""
 
 		return self[0]
@@ -418,8 +413,8 @@ class Endpoint(tuple):
 	@property
 	def pid(self):
 		"""
-		The process identifier pointing to the location of the endpoint.
-		Necessary in interprocess communication.
+		# The process identifier pointing to the location of the endpoint.
+		# Necessary in interprocess communication.
 		"""
 
 		return self[4]
@@ -427,7 +422,7 @@ class Endpoint(tuple):
 	@property
 	def path(self):
 		"""
-		The path in the structure used to locate the container.
+		# The path in the structure used to locate the container.
 		"""
 
 		if not self.directory:
@@ -436,7 +431,7 @@ class Endpoint(tuple):
 	@property
 	def identifier(self):
 		"""
-		Last component in the path if it's not a directory.
+		# Last component in the path if it's not a directory.
 		"""
 
 		if not self.directory:
@@ -445,7 +440,7 @@ class Endpoint(tuple):
 	@property
 	def directory(self):
 		"""
-		Endpoint refers to the *directory* of the location, not the assigned object.
+		# Endpoint refers to the *directory* of the location, not the assigned object.
 		"""
 
 		return self[2]
@@ -453,8 +448,8 @@ class Endpoint(tuple):
 	@property
 	def validation(self):
 		"""
-		A unique identifier selecting an object within the &Resource.
-		Usually the result of an &id call of a particular object
+		# A unique identifier selecting an object within the &Resource.
+		# Usually the result of an &id call of a particular object
 		"""
 
 		return self[3]
@@ -481,7 +476,7 @@ class Endpoint(tuple):
 	@classmethod
 	def parse(Class, psi):
 		"""
-		Parse an IRI-like indicator for selecting a process object.
+		# Parse an IRI-like indicator for selecting a process object.
 		"""
 
 		dir = False
@@ -506,7 +501,7 @@ class Endpoint(tuple):
 	@classmethod
 	def local(Class, *path, directory = False):
 		"""
-		Construct a local reference using the given absolute path.
+		# Construct a local reference using the given absolute path.
 		"""
 
 		return Class((None, path, directory, None, None))
@@ -522,33 +517,33 @@ endpoint_classes = {
 
 class Join(object):
 	"""
-	An object whose purpose is to join the completion of multiple
-	processors into a single event. Joins are used to simplify coroutines
-	whose progression depends on a set of processors instead of one.
+	# An object whose purpose is to join the completion of multiple
+	# processors into a single event. Joins are used to simplify coroutines
+	# whose progression depends on a set of processors instead of one.
 
-	Joins also enable interrupts to trigger completion events so that
-	failures from unrelated Sectors can be communicated to callback.
+	# Joins also enable interrupts to trigger completion events so that
+	# failures from unrelated Sectors can be communicated to callback.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/dependencies
-		The original set of processors as a dictionary mapping
-		given names to the corresponding &Processor.
+	# /dependencies
+		# The original set of processors as a dictionary mapping
+		# given names to the corresponding &Processor.
 
-	/pending
-		The current state of pending exits that must
-		occur prior to the join-operation's completion.
+	# /pending
+		# The current state of pending exits that must
+		# occur prior to the join-operation's completion.
 
-	/callback
-		The callable that is performed after the &pending
-		set has been emptied; defined by &atexit.
+	# /callback
+		# The callable that is performed after the &pending
+		# set has been emptied; defined by &atexit.
 	"""
 
 	__slots__ = ('dependencies', 'pending', 'callback')
 
 	def __init__(self, **processors):
 		"""
-		Initialize the join with the given &processor set.
+		# Initialize the join with the given &processor set.
 		"""
 
 		self.dependencies = processors
@@ -557,8 +552,8 @@ class Join(object):
 
 	def connect(self):
 		"""
-		Connect the &Processor.atexit calls of the configured
-		&dependencies to the &Join instance.
+		# Connect the &Processor.atexit calls of the configured
+		# &dependencies to the &Join instance.
 		"""
 
 		for x in self.dependencies.values():
@@ -568,23 +563,23 @@ class Join(object):
 
 	def __iter__(self, iter=iter):
 		"""
-		Return an iterator to the configured dependencies.
+		# Return an iterator to the configured dependencies.
 		"""
 
 		return iter(self.dependencies.values())
 
 	def __getitem__(self, k):
 		"""
-		Get the dependency the given identifier.
+		# Get the dependency the given identifier.
 		"""
 
 		return self.dependencies[k]
 
 	def exited(self, processor):
 		"""
-		Record the exit of the given &processor and execute
-		the &callback of the &Join if the &processor is the last
-		in the configured &pending set.
+		# Record the exit of the given &processor and execute
+		# the &callback of the &Join if the &processor is the last
+		# in the configured &pending set.
 		"""
 
 		self.pending.discard(processor)
@@ -598,17 +593,17 @@ class Join(object):
 
 	def atexit(self, callback):
 		"""
-		Assign the callback of the &Join.
+		# Assign the callback of the &Join.
 
-		If the &pending set is empty, the callback will be immediately executed,
-		otherwise, overwrite the currently configured callback.
+		# If the &pending set is empty, the callback will be immediately executed,
+		# otherwise, overwrite the currently configured callback.
 
-		The &callback is executed with the &Join instance as its sole parameter.
+		# The &callback is executed with the &Join instance as its sole parameter.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/callback
-			The task to perform when all the dependencies have exited.
+		# /callback
+			# The task to perform when all the dependencies have exited.
 		"""
 
 		if self.pending is None:
@@ -619,7 +614,7 @@ class Join(object):
 
 class ExceptionStructure(object):
 	"""
-	Exception associated with an interface supporting the sequencing of processor trees.
+	# Exception associated with an interface supporting the sequencing of processor trees.
 	"""
 
 	actuated=True
@@ -647,20 +642,20 @@ class ExceptionStructure(object):
 
 class Projection(object):
 	"""
-	A set of credentials and identities used by a &Sector to authorize actions by the entity.
+	# A set of credentials and identities used by a &Sector to authorize actions by the entity.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/entity
-		The identity of the user, person, bot, or organization that is being represented.
-	/credentials
-		The credentials provided to authenticate the user.
-	/role
-		An effective entity identifier; an override for entity.
-	/authorization
-		A set of authorization tokens for the systems that are being used by the entity.
-	/device
-		An identifier for the device that is being used to facilitate the connection.
+	# /entity
+		# The identity of the user, person, bot, or organization that is being represented.
+	# /credentials
+		# The credentials provided to authenticate the user.
+	# /role
+		# An effective entity identifier; an override for entity.
+	# /authorization
+		# A set of authorization tokens for the systems that are being used by the entity.
+	# /device
+		# An identifier for the device that is being used to facilitate the connection.
 	"""
 
 	entity = None
@@ -677,35 +672,34 @@ class Projection(object):
 
 class Layer(object):
 	"""
-	Base class for Layer Contexts
+	# Base class for Layer Contexts
 
-	[ Properties ]
+	# [ Properties ]
+	# /(&bool)terminal
+		# Whether or not the Layer Context identifies itself as being
+		# the last to occur in a connection. Protocol routers use
+		# this to identify when to close input and output.
 
-	/(&bool)terminal
-		Whether or not the Layer Context identifies itself as being
-		the last to occur in a connection. Protocol routers use
-		this to identify when to close input and output.
-
-	/(&object)context
-		The context of the layer. In cases of protocols that support
-		multiple channels, the layer's context provides channel metadata
-		so that transaction handlers can identify its source.
+	# /(&object)context
+		# The context of the layer. In cases of protocols that support
+		# multiple channels, the layer's context provides channel metadata
+		# so that transaction handlers can identify its source.
 	"""
 
 	context = None
 
 class Resource(object):
 	"""
-	Base class for the Resource and Processor hierarchy making up a fault.io process.
+	# Base class for the Resource and Processor hierarchy making up a fault.io process.
 
-	[ Properties ]
+	# [ Properties ]
 
-	/context
-		The execution context that can be used to enqueue tasks,
-		and provides access to the root &Unit.
+	# /context
+		# The execution context that can be used to enqueue tasks,
+		# and provides access to the root &Unit.
 
-	/controller
-		The &Resource containing this &Resource.
+	# /controller
+		# The &Resource containing this &Resource.
 	"""
 
 	context = None
@@ -720,17 +714,15 @@ class Resource(object):
 	@property
 	def unit(self):
 		"""
-		Return the &Unit that contains this &Resource instance.
+		# Return the &Unit that contains this &Resource instance.
 		"""
 		return self.context.association()
 
 	@property
 	def sector(self, isinstance=isinstance):
 		"""
-		Identify the &Sector holding the &Resource by scanning the &controller stack.
+		# Identify the &Sector holding the &Resource by scanning the &controller stack.
 		"""
-
-		global Sector
 
 		c = self.controller
 		while c and not isinstance(c, Sector):
@@ -749,7 +741,7 @@ class Resource(object):
 
 	def subresource(self, ascent:'Resource', Ref=weakref.ref):
 		"""
-		Assign &ascent as the controller of &self and inherit its &Context.
+		# Assign &ascent as the controller of &self and inherit its &Context.
 		"""
 
 		self.controller_reference = Ref(ascent)
@@ -757,12 +749,12 @@ class Resource(object):
 
 	def relocate(self, ascent):
 		"""
-		Relocate the Resource into the &ascent Resource.
+		# Relocate the Resource into the &ascent Resource.
 
-		Primarily used to relocate &Processors from one sector into another.
-		Controller resources may not support move operations; the origin
-		location must support the erase method and the destination must
-		support the acquire method.
+		# Primarily used to relocate &Processors from one sector into another.
+		# Controller resources may not support move operations; the origin
+		# location must support the erase method and the destination must
+		# support the acquire method.
 		"""
 
 		controller = self.controller
@@ -771,32 +763,32 @@ class Resource(object):
 
 	def structure(self):
 		"""
-		Returns a pair, a list of properties and list of subresources.
-		Each list contains pairs designating the name of the property
-		or resource and the object itself.
+		# Returns a pair, a list of properties and list of subresources.
+		# Each list contains pairs designating the name of the property
+		# or resource and the object itself.
 
-		The structure method is used for introspective purposes and each
-		implementation in the class hierarchy will be called (&sequence) in order
-		to acquire a reasonable representation of the Resource's contents.
+		# The structure method is used for introspective purposes and each
+		# implementation in the class hierarchy will be called (&sequence) in order
+		# to acquire a reasonable representation of the Resource's contents.
 
-		Implementations are used by &format and &sequence.
+		# Implementations are used by &format and &sequence.
 		"""
 
 		return None
 
 class Device(Resource):
 	"""
-	A resource that is loaded by &Unit instances into (io.resource)`/dev`
+	# A resource that is loaded by &Unit instances into (io.resource)`/dev`
 
-	Devices often have special purposes that regular &Resource instances do not
-	normally fulfill. The name is a metaphor for operating system kernel devices
-	as they are often associated with kernel features.
+	# Devices often have special purposes that regular &Resource instances do not
+	# normally fulfill. The name is a metaphor for operating system kernel devices
+	# as they are often associated with kernel features.
 	"""
 
 	@classmethod
 	def connect(Class, unit):
 		"""
-		Load an instance of the &Device into the given &unit.
+		# Load an instance of the &Device into the given &unit.
 		"""
 
 		dev = Class()
@@ -815,14 +807,13 @@ class Processor(Resource):
 	# Processor resources essentially manage state machines and provide an
 	# abstraction for initial and terminal states that are often used.
 
-	# Core State Transition Sequence.
+	# State Transition Sequence.
 
-		# # Instantiate
-		# # Actuate
+		# # Instantiated
+		# # Actuated
 		# # Functioning
 		# # Terminating
 		# # Terminated
-		# # Interrupted
 
 	# Where the functioning state designates that the implementation specific state
 	# has been engaged. Often, actuation and termination intersect with implementation states.
@@ -888,23 +879,25 @@ class Processor(Resource):
 
 	def actuate(self):
 		"""
-		# Initialize the Processor for use within the designated Sector.
+		# Initialize the Processor for use within the controlling Sector.
 		"""
-
 		pass
 
 	def process(self, event):
 		"""
-		# Base class implementation merely discarding the event.
-
-		# Subclasses may override this to formally support messaging.
+		# Processing entry point for performing work of primary interest.
 		"""
 
 		pass
 
 	def terminate(self, by=None):
 		"""
-		# Note the Processor as terminating.
+		# Request that the Processor terminate.
+		# Causes the Processor to progress into a `'terminating'` or `'terminated'` state
+		# given that the Processor allows it.
+
+		# Processors that do not support direct termination requests should document why
+		# in their documentation strings.
 		"""
 
 		if not self.functioning or self.terminating:
@@ -916,12 +909,14 @@ class Processor(Resource):
 
 	def interrupt(self, by=None):
 		"""
-		# Note the processor as being interrupted.
+		# Signal the Processor that the controlling Sector has been interrupted,
+		# and all processing of events should cease immediately.
 
-		# Subclasses must perform any related resource releases after
-		# calling the superclass's implementation.
-
-		# Only &Sector interrupts cause exits.
+		# Subclasses that need to perform disconnects or cancellations should
+		# implement this method in order to ensure that event processing stops.
+		# However, interrupt procedures will automatically rewrite the &process
+		# method to perform a no-op if invoked, so carefully written subclasses
+		# may not have to perform any tasks at all.
 		"""
 
 		pass
@@ -929,8 +924,11 @@ class Processor(Resource):
 	def fault(self, exception, association=None):
 		"""
 		# Note the given exception as an error on the &Processor.
-
 		# Exceptions identified as errors cause the &Processor to exit.
+
+		# Called internally when a task associated with a Processor raises
+		# an exception. The controlling Sector will be interrupted and the
+		# faulting Processor identified for subsequent scrutiny.
 		"""
 
 		if self.exceptions is None:
@@ -1006,9 +1004,9 @@ class Processor(Resource):
 
 	def exit_event_connect(self, processor, callback, dict=dict):
 		"""
-		Connect the given callback to the exit of the given processor.
-		The &processor must be controlled by &self and any necessary
-		data structures will be initialized.
+		# Connect the given callback to the exit of the given processor.
+		# The &processor must be controlled by &self and any necessary
+		# data structures will be initialized.
 		"""
 
 		assert processor.controller is self
@@ -1021,6 +1019,9 @@ class Processor(Resource):
 		eec[processor] = cbl + (callback,)
 
 	def exit_event_disconnect(self, processor, callback):
+		"""
+		# Remove the callback from the set of listeners.
+		"""
 		l = list(self.exit_event_connections[processor])
 		l.remove(callback)
 		if not l:
@@ -1084,6 +1085,7 @@ class Processor(Resource):
 		# when the given &processor exits. &processor will be dispatched into the controlling
 		# sector.
 		"""
+
 		raise NotImplemented
 
 class Fatal(Processor):
@@ -1118,7 +1120,6 @@ class Call(Processor):
 		# The positional arguments will follow the &Sector instance passed as
 		# the first argument.
 		"""
-		global functools
 		return Class(functools.partial(call, *args, **kw))
 
 	def __init__(self, call:functools.partial):
