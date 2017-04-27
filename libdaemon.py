@@ -38,7 +38,6 @@
 		# /graph/site-id/machine-id/fork-id
 			# .
 """
-
 import os
 import sys
 import functools
@@ -50,16 +49,12 @@ import xml.etree.ElementTree as xmllib
 
 from . import library as libio
 from . import http
+from . import libxml
 
 from ..chronometry import library as libtime
 from ..routes import library as libroutes
 from ..system import library as libsys
 from ..web import libhttpd
-from ..xml import libfactor
-
-xml_namespaces = {
-	"s": "http://fault.io/xml/io.sectors",
-}
 
 def restrict_stdio(route):
 	"""
@@ -166,86 +161,14 @@ def rt_load_unit_sector(unit, sector_import, location=('bin',)):
 
 def extract_sectors_config(document):
 	xr = xmllib.XML(document)
-	find = lambda x: xr.find(x, xml_namespaces)
-	findall = lambda x: xr.findall(x, xml_namespaces)
-
-	libelements = findall("s:library")
-	ifelements = findall("s:interface")
-	dist = xr.attrib.get("concurrency", None)
-
-	if libelements:
-		libs = [
-			(x.attrib["libname"], x.attrib["fullname"])
-			for x in list(libelements)
-		]
-		libs = dict(libs)
-	else:
-		libs = None
-
-	ifelements = list(ifelements)
-	interfaces = {
-		ifelement.attrib["identifier"]: set(
-			itertools.chain.from_iterable([
-				[
-					(
-						#x.attrib["transport"],
-						addrspace.attrib["type"],
-						alloc.attrib["address"], alloc.attrib["port"]
-					)
-					for alloc in addrspace
-				]
-				for addrspace in ifelement
-			])
-		)
-		for ifelement in ifelements
-	}
-
-	struct = {
-		'libraries': libs,
-		'interfaces': interfaces,
-		'concurrency': None if dist is None else int(dist),
-	}
-
-	return struct
+	return libxml.Sectors.structure(xr)
 
 def serialize_sectors(struct,
 		encoding="ascii",
-		namespace=xml_namespaces['s'],
 		chain=itertools.chain.from_iterable,
 	):
-	import collections
-	from ..xml import library as libxml
-	ifs = {}
-
-	for slot, allocs in struct.get('interfaces', ()).items():
-		slot_allocs = ifs[slot] = collections.defaultdict(list)
-		for alloc in allocs:
-			slot_allocs[alloc.protocol].append((alloc.address, alloc.port))
-
-	xml = libxml.Serialization()
-
-	return xml.root('sectors', chain((
-		xml.element('libraries', chain(
-			xml.element('module', None, ('libname', x), ('fullname', fn))
-			for x, fn in (struct.get('libraries', None) or {}).items()
-		)), chain(
-			xml.element('interface', chain(
-				xml.element('address.space', chain(
-					xml.element('allocate', None,
-						('address', address),
-						('port', port)
-					)
-					for address, port in allocs),
-					('type', addrspace),
-				)
-				for addrspace, allocs in spaces.items()),
-				('identifier', slot),
-			)
-			for slot, spaces in ifs.items()),
-		)),
-		('concurrency', struct.get('concurrency')),
-		namespace = namespace,
-	)
+	xml = libxml.core.Serialization()
+	return libxml.Sectors.serialize(xml, struct)
 
 class Control(libio.Context):
 	"""
@@ -281,7 +204,7 @@ class Control(libio.Context):
 
 		def errprint(*args, **kw):
 			"""
-			Override for print to default to standard error and qualify origin in output.
+			# Override for print to default to standard error and qualify origin in output.
 			"""
 			global libsys, sys
 			nonlocal dprint, self
@@ -293,7 +216,11 @@ class Control(libio.Context):
 			pid = libsys.current_process_id
 			iso = libtime.now().select('iso')
 
-			dprint("%s [builtins.print(%s:%d/%d)]"%(iso, sid, fid, pid), *args, **kw)
+			dprint(
+				"%s [x-sectord://%s:%d/python/builtins.print#%d]"%(
+					iso.ljust(26, '0'), sid, fid, pid
+				), *args, **kw
+			)
 
 		builtins.print = errprint
 
