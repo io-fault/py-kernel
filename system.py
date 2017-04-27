@@ -665,7 +665,7 @@ class Process(object):
 			raise
 			raise libsys.Panic("exception escaped process loop") # programming error in Process.loop
 
-	def terminate(self, exit = None):
+	def terminate(self, exit=None):
 		"""
 		# Terminate the context. If no contexts remain, exit the process.
 		"""
@@ -681,7 +681,7 @@ class Process(object):
 			else:
 				self.invocation.exit(exit)
 
-	def __init__(self, identity, invocation = None):
+	def __init__(self, identity, invocation=None):
 		"""
 		# Initialize the Process instance using the designated &identity.
 		# The identity is essentially arbitrary, but must be hashable as it's
