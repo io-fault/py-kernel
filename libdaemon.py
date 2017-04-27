@@ -398,7 +398,7 @@ class Control(libio.Context):
 
 		for exe in [unit.u_index[('bin', x)] for x in exe_index]:
 			exe.actuate()
-			exe.actuated = True
+			exe._pexe_state = 1 # actuated
 
 	def ctl_terminate_worker(self):
 		"""

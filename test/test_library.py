@@ -154,7 +154,7 @@ def test_Inexorable(test):
 
 def test_FlowControl(test):
 	"""
-	Validate primitives.
+	# Validate primitives.
 	"""
 	Type = library.FlowControl
 
@@ -187,7 +187,7 @@ def test_Flow_operation(test):
 
 def test_Flow_obstructions(test):
 	"""
-	Validate signaling of &library.Flow obstructions.
+	# Validate signaling of &library.Flow obstructions.
 	"""
 
 	status = []
@@ -219,7 +219,7 @@ def test_Flow_obstructions(test):
 
 def test_Flow_obstructions_initial(test):
 	"""
-	Validate obstruction signaling when obstruction is presented before the watch.
+	# Validate obstruction signaling when obstruction is presented before the watch.
 	"""
 
 	status = []
@@ -240,7 +240,7 @@ def test_Flow_obstructions_initial(test):
 
 def test_Flow_obstructions(test):
 	"""
-	Validate that joins receive obstruction notifications.
+	# Validate that joins receive obstruction notifications.
 	"""
 
 	l = []
@@ -558,7 +558,7 @@ def test_Catenation(test):
 	x.terminate(test)
 	test/x.terminated == False
 	test/x.terminating == True
-	test/x.functioning == True
+	test/x.functioning == False
 
 	# i3 was obstructed prior to cat_connect meaning, the queue
 	# should be empty. It was connected after x.cat_connect(1, i1).

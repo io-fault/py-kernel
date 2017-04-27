@@ -478,11 +478,8 @@ class IO(libio.Transport):
 
 	def actuate(self):
 		self.connection = self.controller.controller
-		self.actuated = True
 
 	def terminate(self, by=None):
-		self.terminator = by
-		self.terminated = True
 		self.exit()
 
 	def io_connect_input(self, flow:libio.Flow):
@@ -608,7 +605,6 @@ class IO(libio.Transport):
 		# The response must be properly initialized before invoking this method.
 
 		# [ Parameters ]
-
 		# /path
 			# A string containing the file's path.
 
@@ -762,7 +758,7 @@ def join(
 			status[event[0]] += 1
 
 def fork(
-		Layer,
+		Layer, overflow,
 		rline=libhttp.Event.rline,
 		headers=libhttp.Event.headers,
 		trailers=libhttp.Event.trailers,
@@ -777,6 +773,7 @@ def fork(
 		fc_initiate=libio.FlowControl.initiate,
 		fc_terminate=libio.FlowControl.terminate,
 		fc_transfer=libio.FlowControl.transfer,
+		fc_overflow=libio.FlowControl.overflow,
 	):
 	"""
 	# Split an HTTP stream into flow events for use by &libio.Division.
@@ -802,6 +799,7 @@ def fork(
 			rline: lrline.extend,
 			headers: lheaders.extend,
 			violation: http_protocol_violation,
+			bypass: overflow.extend,
 		}
 
 		headers_received = False
@@ -847,6 +845,7 @@ def fork(
 			# extension: handle chunk extension events.
 			trailers: trailer_sequence.extend,
 			violation: http_protocol_violation,
+			bypass: overflow.extend,
 		}
 
 		try:
@@ -890,13 +889,18 @@ def fork(
 			flow_events.append((fc_terminate, layer))
 			layer = None
 
+	# Close state.
 	# Store overflow for next protocol.
-	events = []
-	y = events.extend
+	#flow_events.append((fc_overflow, b''))
+	overflow.append(b'')
+
 	while True:
-		for x in map(tokens, (yield flow_events)):
-			y(x)
-		flow_events = ()
+		bypassing = map(tokens, ((yield flow_events)))
+		flow_events = []
+		for x in bypassing:
+			assert x[0] == bypass
+			if x[1]:
+				overflow.append(x[1])
 
 class Protocol(object):
 	"""
@@ -904,7 +908,7 @@ class Protocol(object):
 
 	# [ Properties ]
 
-	# /receive_overflow
+	# /overflow
 		# Transfers that occurred past protocol boundaries. Used during protocol
 		# switching to properly maintain state.
 	"""
@@ -921,25 +925,31 @@ class Protocol(object):
 	def open_transactions(self):
 		return self.status[libio.FlowControl.initiate] - self.status[libio.FlowControl.terminate]
 
+	@property
+	def terminated(self):
+		return self._output_terminated and self.overflow
+
 	def terminate(self, polarity=0):
-		self._termination ^= polarity
-		if self._termination == -2:
-			self.terminated = True
-		elif polarity == 1 and self.open_transactions == 0:
-			# read terminated with no open protocol transactions
-			self.terminated = True
+		if polarity == 1:
+			if not self.overflow:
+				# The &fork generator runs forever once outside of the protocol.
+				# If this condition is true, it likely means that an interruption
+				# is occurring.
+				self.overflow.append(b'')
+		elif polarity == -1:
+			self._output_terminated = True
+		else:
+			raise ValueError("invalid polarity")
 
 	def __init__(self, Layer:Layer, selected_version=b'HTTP/1.1'):
 		self.version = selected_version
 
-		self._termination = 0
-		self.terminated = False
-		self.receive_overflow = []
-
-		self.input_state = fork(Layer)
+		self.overflow = []
+		self.input_state = fork(Layer, self.overflow)
 		self.fork = self.input_state.send
 		self.fork(None)
 
+		self._output_terminated = False
 		self.status = collections.Counter()
 		self.output_state = join(status=self.status)
 		self.join = self.output_state.send
@@ -975,6 +985,7 @@ class Client(libio.Mitre):
 		resp = self.m_responses[:signal_count]
 		del self.m_requests[:signal_count]
 		del self.m_responses[:signal_count]
+
 		for req, res in zip(reqs, resp):
 			rec = req[0]
 			rec(self, req[1], *res)
@@ -1041,12 +1052,13 @@ class Server(libio.Mitre):
 		"""
 
 		cxn = self.controller
+		dispatch = cxn.dispatch
 		iox = None
 
 		xacts = list(self._init_xacts(events))
 		for iox in xacts:
-			self.controller.dispatch(iox)
+			dispatch(iox)
 			self.m_route(iox, iox.xact_context)
 
 		if iox is not None and iox.xact_context.request.terminal:
-			self.terminate(by=iox)
+			self._f_terminated()

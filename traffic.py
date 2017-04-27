@@ -44,13 +44,14 @@ def deliver_io_events(junction, events, iter=iter):
 		try:
 			for event in ievents:
 				link, delta = event
+
 				kp = link
 				if kp is None:
-					link = None
+					# Ignore event for None links.
 					continue
 
 				# *MUST* rely on exhaust events here. If we peek ahead of the
-				# event callback, we may run a double acquire().
+				# event callback, it may run a double acquire().
 				xfer, demand, term = delta
 
 				if xfer is not None:
@@ -58,14 +59,13 @@ def deliver_io_events(junction, events, iter=iter):
 					# data may be transferred while the termination
 					# condition is present, so its important it gets sent
 					# prior to running the KernelPort's termination.
-					kp.inject((xfer,))
+					kp.f_emit((xfer,))
 
 				if demand is not None:
 					kp.k_transition() # Accept the next memory transfer.
 
 				if term:
-					kp.f_terminated()#
-					# Ignore termination for None links
+					kp.f_terminated()
 
 				link = None
 			else:
@@ -75,12 +75,10 @@ def deliver_io_events(junction, events, iter=iter):
 				if link is None:
 					# failed to unpack the kp and delta from event
 					# generally this shouldn't happen and usually refers
-					# to a programming error in io.
+					# to a programming error in &.library or &.traffic.
 					junction.link.error((junction, event), exception)
 				else:
-					flow = kp.controller
-					flow.fault(exception, kp)
-					flow.context.process.error(flow, exception, title="I/O")
+					kp.fault(exception)
 			except BaseException as exc:
 				# Record exception of cleanup failure.
 				# TODO: Note as cleanup failure.

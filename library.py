@@ -166,12 +166,6 @@ class Lock(object):
 	def locked(self):
 		return self._current is not None
 
-def dereference_controller(self):
-	return self.controller_reference()
-
-def set_controller_reference(self, obj, Ref = weakref.ref):
-	self.controller_reference = Ref(obj)
-
 @functools.lru_cache(32)
 def endpoint(type:str, address:str, port:object):
 	"""
@@ -703,13 +697,25 @@ class Resource(object):
 	"""
 
 	context = None
-	controller_reference = lambda x: None
+
+	def _unset_controller(self):
+		return None
+	controller_reference = _unset_controller
+	del _unset_controller
+
+	def _dereference_controller(self):
+		return self.controller_reference()
+
+	def _set_controller_reference(self, obj, Ref = weakref.ref):
+		self.controller_reference = Ref(obj)
 
 	controller = property(
-		fget = dereference_controller,
-		fset = set_controller_reference,
+		fget = _dereference_controller,
+		fset = _set_controller_reference,
 		doc = "Direct ascending resource containing this resource."
 	)
+	del _dereference_controller
+	del _set_controller_reference
 
 	@property
 	def unit(self):
@@ -834,14 +840,43 @@ class Processor(Resource):
 	# footprint.
 	"""
 
-	actuated = False
-	terminated = False
-	terminating = None # None means there is no terminating state.
+	_pexe_state = 0 # defaults to "object initialized"
+	_pexe_states = (
+		('initialized', 0), # Created.
+		('actuated', 1), # Placed in Execution Context and started.
+		('terminating', 2), # Received and accepted termination request.
+		('terminated', -1), # Termination completed and the processor will exit().
+		('deallocating', 0), # Unused state.
+	)
+
 	@property
-	def interrupted(self):
+	def actuated(self) -> bool:
+		return self._pexe_state != 0
+
+	@property
+	def terminating(self) -> bool:
+		return self._pexe_state == 2
+
+	@property
+	def terminated(self) -> bool:
+		return self._pexe_state == -1
+
+	@property
+	def status(self, _states={k:v for v,k in _pexe_states}):
+		return _states[self._pexe_state]
+
+	def termination_started(self):
+		self._pexe_state = 2
+
+	def termination_completed(self):
+		self._pexe_state = -1
+
+	@property
+	def interrupted(self) -> typing.Union[bool]:
 		if self.controller:
 			return self.controller.interrupted
 		else:
+			# No controller.
 			return None
 
 	# Origin of the interrupt or terminate
@@ -857,7 +892,6 @@ class Processor(Resource):
 	def functioning(self):
 		"""
 		# Whether or not the Processor is functioning.
-
 		# Indicates that the processor was actuated and is neither terminated nor interrupted.
 
 		# ! NOTE:
@@ -867,7 +901,7 @@ class Processor(Resource):
 			# are still considered functional.
 		"""
 
-		return self.actuated and not (self.terminated or self.interrupted)
+		return self._pexe_state > 0 and not self.interrupted
 
 	def controlled(self, subprocessor):
 		"""
@@ -903,11 +937,11 @@ class Processor(Resource):
 		if not self.functioning or self.terminating:
 			return False
 
-		self.terminating = True
+		self.termination_started()
 		self.terminator = by
 		return True
 
-	def interrupt(self, by=None):
+	def interrupt(self, context=None):
 		"""
 		# Signal the Processor that the controlling Sector has been interrupted,
 		# and all processing of events should cease immediately.
@@ -935,6 +969,7 @@ class Processor(Resource):
 			self.exceptions = set()
 
 		self.exceptions.add((association, exception))
+		self.exit = (lambda x: x)
 		self.context.faulted(self)
 
 	def _fio_fault_trap(self, trapped_task):
@@ -957,8 +992,7 @@ class Processor(Resource):
 		# Exit the processor by signalling the controlling processor that termination
 		# has completed.
 		"""
-		assert self.terminated or self.interrupted
-
+		self._pexe_state = -1
 		return self.controller.exited(self)
 
 	def atexit(self, exit_callback):
@@ -1143,8 +1177,8 @@ class Call(Processor):
 
 		try:
 			self.product = self.source() # Execute Callable.
-			self.terminated = True
-			self.controller.exited(self)
+			self.termination_complete()
+			self.exit()
 		except BaseException as exc:
 			self.product = None
 			self.fault(exc)
@@ -1341,9 +1375,12 @@ class Unit(Processor):
 
 	def dispatch(self, path, processor):
 		processor.subresource(self)
-		processor.actuate()
-		processor.actuated = True
 		self.place(processor, *path)
+		try:
+			processor.actuate()
+			processor._pexe_state = 1
+		except:
+			raise
 
 	def __init__(self):
 		"""
@@ -1461,14 +1498,14 @@ class Unit(Processor):
 		# Normally, it is called automatically when the program is loaded by the process.
 		"""
 
-		# Allows the roots to perform scheduling.
-		self.actuated = True
+		self._pexe_state = 1
 
+		# Allows the roots to perform scheduling.
 		scheduler = Scheduler()
 		scheduler.subresource(self)
 		self.place(scheduler, 'dev', 'scheduler')
 		scheduler.actuate()
-		scheduler.actuated = True
+		scheduler._pexe_state = 1
 
 		self.place(self.context.process, 'dev', 'process')
 
@@ -1481,9 +1518,9 @@ class Unit(Processor):
 				if self.u_hierarchy['faults']:
 					self.context.process.report()
 				self.context.process.terminate(getattr(self, 'result', 0))
-				self.terminated = True
+				self._pexe_state = -1
 			else:
-				self.terminated = True
+				self._pexe_state = -1
 
 	def place(self, obj:collections.abc.Hashable, *destination):
 		"""
@@ -1607,7 +1644,7 @@ class Sector(Processor):
 				for proc in sset:
 					proc.subresource(self)
 					proc.actuate()
-					proc.actuated = True
+					proc._pexe_state = 1
 		except BaseException as exc:
 			self.fault(exc)
 
@@ -1620,7 +1657,7 @@ class Sector(Processor):
 		sched = self.scheduler = Scheduler()
 		sched.subresource(self)
 		sched.actuate()
-		sched.actuated = True
+		sched._pexe_state = 1
 
 	def eject(self, processor):
 		"""
@@ -1649,12 +1686,9 @@ class Sector(Processor):
 			ps.subresource(self)
 			structs[ps.__class__].add(ps)
 			ps.actuate()
-			ps.actuated = True
+			ps._pexe_state = 1
 
-	def _sector_terminated(self):
-		self.terminated = True
-		self.terminating = False
-		self.exit()
+	_sector_terminated = Processor.exit
 
 	def terminate(self, by=None):
 		if not super().terminate(by=by):
@@ -1723,7 +1757,7 @@ class Sector(Processor):
 		processor.subresource(self)
 		self.processors[processor.placement()].add(processor)
 		processor.actuate()
-		processor.actuated = True
+		processor._pexe_state = 1
 
 		return processor
 
@@ -2018,8 +2052,6 @@ class Transport(Context):
 	def io_exit(self, processor):
 		self._exits += 1
 		if self._exits >= 2:
-			self.terminated = True
-			self.terminating = False
 			self.exit()
 
 class Accept(Transport):
@@ -2095,9 +2127,7 @@ class Accept(Transport):
 		if not super().terminate():
 			return False
 		Sector.terminate(self.controller)
-		self.terminated = True
 		self.exit()
-
 
 class Subprocess(Processor):
 	"""
@@ -2145,8 +2175,7 @@ class Subprocess(Processor):
 
 		if not self.active_processes:
 			del self.active_processes
-			self.terminated = True
-			self.terminating = None
+			self._pexe_state = -1
 
 			# Don't exit if interrupted; maintain position in hierarchy.
 			if not self.interrupted:
@@ -2235,42 +2264,44 @@ class Recurrence(Processor):
 	"""
 
 	def __init__(self, target):
-		self.target = target
+		self.recur_target = target
+		self._recur_inhibit = False
 
 	def actuate(self):
 		"""
 		# Enqueue the initial execution of the recurrence.
 		"""
 
-		self.ctx_enqueue_task(self.occur)
+		self.ctx_enqueue_task(self._recur_occur)
 
 	def recur_execute(self):
-		assert self.functioning
+		if self._recur_inhibit:
+			return None
 
 		try:
-			return self.target()
+			return self.recur_target()
 		except BaseException as exc:
 			self.fault(exc)
 
-	def occur(self):
+	def _recur_occur(self):
 		"""
 		# Invoke a recurrence and use its return to schedule its next iteration.
 		"""
 
-		if self.terminating:
-			self.terminated = True
-			del self.terminating
-			self.exit()
-		elif self.terminated or self.interrupted:
-			pass
-		else:
-			next_delay = self.recur_execute()
+		next_delay = self.recur_execute()
 
-			if next_delay is None:
-				self.terminated = True
+		if next_delay is None:
+			if not self.interrupted:
 				self.exit()
-			else:
-				self.controller.scheduler.defer(next_delay, self.occur)
+		else:
+			self.controller.scheduler.defer(next_delay, self._recur_occur)
+
+	def terminate(self, by=None):
+		self._recur_inhibit = True
+		self.exit()
+
+	def interrupt(self):
+		self._recur_inhibit = True
 
 class Timeout(Processor):
 	"""
@@ -2298,8 +2329,6 @@ class Timeout(Processor):
 		if not super().terminate(by=by):
 			return False
 		self.controller.scheduler.cancel(self.to_execute)
-		self.terminating = False
-		self.terminated = True
 		self.exit()
 
 	def to_schedule(self):
@@ -2469,6 +2498,7 @@ class Scheduler(Processor):
 				if scheduled_task is not None:
 					scheduled_task()
 			except BaseException as scheduled_task_exception:
+				raise
 				self.fault(scheduled_task_exception)
 				break # don't re-schedule transition
 		else:
@@ -2482,6 +2512,7 @@ class Scheduler(Processor):
 					# falls back to class attribute; None
 					del self.scheduled_reference
 			except BaseException as scheduling_exception:
+				raise
 				self.fault(scheduling_exception)
 
 	def process(self, event, Point=libtime.core.Point, Measure=libtime.core.Measure):
@@ -2526,8 +2557,7 @@ class Thread(Processor):
 		final = None
 		try:
 			self.callable(self)
-			self.terminated = True
-			self.terminating = False
+			self.termination_started()
 			# Must be enqueued to exit.
 			final = self.exit
 		except BaseException as exc:
@@ -2768,6 +2798,7 @@ FlowControl.clear = FlowControl()
 FlowControl.transfer = FlowControl()
 FlowControl.obstruct = FlowControl()
 FlowControl.terminate = FlowControl()
+FlowControl.overflow = FlowControl()
 FlowControl.operations = (
 	FlowControl.terminate,
 	FlowControl.obstruct,
@@ -2832,15 +2863,13 @@ class Flow(Processor):
 		# holding the attribute.
 	"""
 
-	terminating = False
-	terminated = False
-
 	f_type = None
 	f_obstructions = None
 	f_monitors = None
 	f_downstream = None
+	f_upstream = None
 
-	def f_connect(self, flow:Processor, partial=functools.partial):
+	def f_connect(self, flow:Processor, partial=functools.partial, Ref=weakref.ref):
 		"""
 		# Connect the Flow to the given object supporting the &Flow interface.
 		# Normally used with other Flows, but other objects may be connected.
@@ -2858,6 +2887,7 @@ class Flow(Processor):
 		# Events run downstream, obstructions run upstream.
 
 		self.f_downstream = flow
+		flow.f_upstream = Ref(self)
 		flow.f_watch(self.f_obstruct, self.f_clear)
 		self.f_emit = flow.process
 	connect = f_connect
@@ -2868,10 +2898,34 @@ class Flow(Processor):
 		"""
 
 		flow = self.f_downstream
-		del self.f_downstream
-		flow.f_ignore(self.f_obstruct, self.f_clear)
-		self.controller.exit_event_disconnect(self, flow.terminate)
-		del self.f_emit
+		if flow is not None:
+			self.f_downstream = None
+			flow.f_ignore(self.f_obstruct, self.f_clear)
+			flow.f_upstream = None
+		self.f_emit = self.f_discarding
+
+	def f_collapse(self):
+		"""
+		# Connect the upstream to the downstream leaving the Flow &self
+		# in a disconnected state with the old references remaining in place.
+		"""
+		upstream_ref = self.f_upstream
+		upstream = upstream_ref()
+		upstream.f_disconnect()
+		downstream = self.f_downstream
+		self.f_disconnect()
+
+		upstream.f_connect(downstream)
+
+		self.f_upstream = upstream_ref
+		self.f_downstream = downstream
+
+	def f_substitute(self, series):
+		for us, ds in zip(series[0::1], series[1::1]):
+			us.f_connect(ds)
+
+		series[-1].f_connect(self.f_downstream)
+		self.f_upstream().f_connect(series[0])
 
 	def __repr__(self):
 		return '<' + self.__class__.__name__ + '[' + hex(id(self)) + ']>'
@@ -2907,7 +2961,7 @@ class Flow(Processor):
 			return False
 
 		self.terminator = by
-		self.terminating = True
+		self.termination_started()
 
 		self.ctx_enqueue_task(self._f_terminated)
 		return True
@@ -2917,7 +2971,7 @@ class Flow(Processor):
 		# Termination signal received when the upstream no longer has
 		# flow transfers for the downstream Flow.
 		"""
-		self.terminate(by=context)
+		self._f_terminated()
 
 	def _f_terminated(self):
 		"""
@@ -2930,15 +2984,14 @@ class Flow(Processor):
 		self.process = self.f_discarding
 		self.f_emit = self.f_discarding
 
-		self.terminated = True
-		self.terminating = False
+		self.termination_completed()
 
 		if self.f_downstream:
 			self.f_downstream.f_ignore(self.f_obstruct, self.f_clear)
 			self.f_downstream.f_terminate(context=self)
 
 		if self.controller:
-			self.controller.exited(self)
+			self.exit()
 
 	def interrupt(self):
 		self.process = self.f_discarding
@@ -3091,7 +3144,6 @@ class Mitre(Flow):
 		# Similar to &Flow, but obstruction notifications are not carried upstream.
 		self.f_downstream = flow
 		self.f_emit = flow.process
-		self.atexit(flow.terminate)
 
 class Sockets(Mitre):
 	"""
@@ -3271,7 +3323,7 @@ class Parallel(Flow):
 		if self.terminated or self.terminating or self.interrupted:
 			return False
 
-		self.terminating = True
+		self.termination_started()
 		self._pf_put(None)
 		return True
 
@@ -3347,9 +3399,8 @@ class Transports(Flow):
 	@classmethod
 	def create(Class, transports, Stack=list):
 		"""
-		# Create a pair of &Transports instances.
+		# Create a pair of &Protocols instances.
 		"""
-		global weakref
 
 		i = Class(1)
 		o = Class(-1)
@@ -3383,6 +3434,12 @@ class Transports(Flow):
 		path += '.' + self.__class__.__qualname__
 		return format.format(path=path, stack=repr(self.tf_stack))
 
+	def structure(self):
+		return ((
+			('polarity', self.tf_polarity),
+			('stack', self.tf_stack),
+		), ())
+
 	@property
 	def opposite(self):
 		"""
@@ -3390,49 +3447,7 @@ class Transports(Flow):
 		"""
 		return self._tf_opposite()
 
-	def drain(self):
-		"""
-		# Drain the transport layer.
-
-		# Buffers are left as empty as possible, so flow termination is the only
-		# condition that leaves a requirement for drain completion.
-		"""
-
-		if self.tf_stack:
-			# Only block if there are items on the stack.
-			if not self.terminating and self.functioning:
-				# Run empty process to flush.
-				self.process(())
-				return None
-			else:
-				# Terminal Drain.
-				if self.f_permanent:
-					# flow is permanently obstructed and transfers
-					# are irrelevant at one level or another
-					# so try to process whatever is available, finish
-					# the drain operation so termination can finish.
-					self.process(())
-					# If a given Transports side is dead, so is the other.
-					self.opposite.closed()
-
-					# If it's permanent, no drain can be performed.
-					return None
-				else:
-					# Signal transport that termination needs to occur.
-					self.tf_stack[-1].terminate(self.tf_polarity)
-
-					# Send whatever termination signal occurred.
-					self.ctx_enqueue_task(self.empty)
-
-					return None
-		else:
-			# No stack, not draining.
-			pass
-
-		# No stack or not terminating.
-		return None
-
-	def empty(self):
+	def tf_empty(self):
 		self.process(())
 
 	def terminal(self):
@@ -3450,6 +3465,13 @@ class Transports(Flow):
 				o.process(())
 
 	def process(self, events, source=None):
+		"""
+		# Process the given events with the referenced I/O operations.
+
+		# [ Engineering ]
+		# Currently raises exception when deadlocked, should dispatch
+		# a Fatal with details.
+		"""
 		if not self.tf_operations:
 			# Opposite cannot have work if empty.
 			self.f_emit(events) # Empty transport stack acts a passthrough.
@@ -3478,17 +3500,25 @@ class Transports(Flow):
 			# Use recursion on purpose and allow
 			# the maximum stack depth to block an infinite loop.
 			# from a poorly implemented protocol.
-			self.opposite.process(())
+			self._tf_opposite().process(())
+			x = 0
+			for ops in self.tf_operations:
+				if ops[2]():
+					x += 1
+					break
+			if x and self.polarity == -1 and self._tf_opposite().terminating:
+				# The Input side of the Pair has terminated and
+				# there is still opposite work pending.
+				raise Exception("transport stack deadlock")
 
 		stack = self.tf_stack
-
-		if stack and stack[-1].terminated:
-			# *fully* terminated. pop item after allowing the opposite to complete
-
+		opp = self._tf_opposite()
+		while stack and stack[-1].terminated:
+			# Full Termination. Pop item after allowing the opposite to complete.
 			# This needs to be done as the transport needs the ability
 			# to flush any remaining events in the opposite direction.
-			opp = self.opposite
 
+			protocol = stack[-1]
 			del stack[-1] # both sides; stack is shared.
 
 			# operations is perspective sensitive
@@ -3496,44 +3526,57 @@ class Transports(Flow):
 				# recv/input
 				del self.tf_operations[-1]
 				del opp.tf_operations[0]
+				self.f_downstream.f_terminate()
+				self.f_disconnect()
 			else:
 				# send/output
 				del self.tf_operations[0]
 				del opp.tf_operations[-1]
-
-			if stack:
-				if self.terminating:
-					# continue termination.
-					self.tf_stack[-1].terminate(self.tf_polarity)
-					self.ctx_enqueue_task(self.terminal)
-			else:
+				opp.f_downstream.f_terminate()
+				opp.f_disconnect()
+		else:
+			if not stack:
 				# empty stack. check for terminating conditions.
 				if self.terminating:
 					self._f_terminated()
 				if opp is not None and opp.terminating:
 					opp._f_terminated()
 
+	def f_terminate(self, context=None):
+		"""
+		# Manage upstream flow termination by signalling
+		# the internal transport layers.
+		"""
+
+		stack = self.tf_stack
+		if not stack:
+			# Termination is complete when the stack's layers
+			# have been completed or interrupted.
+			self._f_terminated()
+			return
+		elif self.tf_polarity == 1:
+			# Receive termination effectively interrupts receive transfers.
+			# When a terminating receive is expected to perform transfers,
+			# we can safely interrupt if it's not satisfied by an empty transfer.
+			self.termination_started()
+			for x in stack:
+				x.terminate(1)
+			self.tf_empty()
+			if stack:
+				self.f_downstream.f_terminate()
+		else:
+			assert self.tf_polarity == -1
+
+			# Output Flow. Termination is passed to the top of the stack.
+			self.tf_stack[-1].terminate(self.tf_polarity)
+			self.tf_empty()
+
 	def terminate(self, by=None):
 		"""
-		# Initiate the termination of the transport stack.
+		# Reject the request to terminate as Transports
+		# state is dependent on Flow state.
 		"""
-
-		if self.terminated or self.terminating or self.interrupted:
-			return False
-
-		self.terminator = by
-		self.terminating = True
-
-		if self.tf_stack:
-			self.tf_stack[-1].terminate(self.tf_polarity)
-			self.empty()
-			if not self.tf_stack:
-				self._f_terminated()
-		else:
-			# empty stack, finish termination immediately.
-			self._f_terminated()
-
-		return True
+		pass
 
 class Kernel(Flow):
 	"""
@@ -3617,6 +3660,7 @@ class Kernel(Flow):
 		self.k_status = (t.port, t.endpoint())
 		t.link = None # signals I/O loop to not inject.
 		t.terminate() # terminates one direction.
+
 		return t
 
 	def interrupt(self):
@@ -3625,40 +3669,30 @@ class Kernel(Flow):
 
 	def f_terminated(self):
 		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
+		#assert not self.interrupted and not self.terminated
 
 		# Called when the termination condition is received,
 		# but *after* any transfers have been injected.
 
-		# io.traffic calls this when it sees termination of the transit.
+		# &.traffic calls this when it sees termination of the transit.
 
 		if self.transit is None:
 			# terminate has already been ran; status is *likely* present
 			pass
 		else:
-			t = self.transit
-			t.link = None
-			self.k_status = (t.port, t.endpoint())
-			self.transit = None
+			self.k_kill()
 
 			# No need to run transit.terminate() as this is only
 			# executed by io.traffic in response to shutdown.
-			# t.terminate()
 
 			# Exception is not thrown as the transport's error condition
 			# might be irrelevant to the success of the application.
 			# If a transaction was successfully committed and followed
 			# with a transport error, it's probably appropriate to
 			# show the transport issue, if any, as a warning.
-			if self.interrupted:
-				# Presume the exit already occurred.
-				pass
-			else:
-				if self.terminating:
-					self.terminated = True
-					self.terminating = False
-					self.controller.exited(self)
-				else:
-					self.f_obstruct('kernel port closed', None, Inexorable)
+			self.exit()
+			if 0:
+				self.f_obstruct('kernel port closed', None, Inexorable)
 
 	def process(self, event, source=None):
 		raise NotImplementedError("kernel flows must implement process")
@@ -3703,42 +3737,18 @@ class KInput(Kernel):
 		self.ki_resource_size = allocate[1]
 
 	def f_terminated(self):
-		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
-
-		# Called when the termination condition is received,
-		# but *after* any transfers have been injected.
-
-		# io.traffic calls this when it sees termination of the transit.
-
 		if self.transit is None:
 			# terminate has already been ran; status is *likely* present
-			pass
-		else:
-			t = self.transit
-			t.link = None
-			self.k_status = (t.port, t.endpoint())
-			self.transit = None
+			return
 
-			# No need to run transit.terminate() as this is only
-			# executed by io.traffic in response to shutdown.
-			# t.terminate()
+		self.k_kill()
 
-			# Exception is not thrown as the transport's error condition
-			# might be irrelevant to the success of the application.
-			# If a transaction was successfully committed and followed
-			# with a transport error, it's probably appropriate to
-			# show the transport issue, if any, as a warning.
-			if self.interrupted:
-				# Presume the exit already occurred.
-				pass
-			else:
-				if self.terminating:
-					self.terminated = True
-					self.terminating = False
-					self.exit()
-				else:
-					self.f_obstruct('kernel port closed', None, Inexorable)
-					self.terminate('kernel')
+		# Exception is not thrown as the transport's error condition
+		# might be irrelevant to the success of the application.
+		# If a transaction was successfully committed and followed
+		# with a transport error, it's probably appropriate to
+		# show the transport issue, if any, as a warning.
+		self._f_terminated()
 
 	def k_transition(self):
 		"""
@@ -3825,19 +3835,19 @@ class KOutput(Kernel):
 				)
 
 	def f_terminate(self, context=None):
-		if self.terminated or self.terminating or self.interrupted:
+		if self.terminating:
 			return False
 
-		self.terminating = True
+		# Flow-level Termination occurs when the queue is clear.
+		self.termination_started()
 		self.terminator = context
 
 		if self.f_empty:
 			# Only terminate transit if it's empty.
 			self.transit.terminate()
-			self.terminating = False
-			self.terminated = True
 			self.exit()
 
+		# Note termination signalled.
 		return True
 
 	def terminate(self, by=None):
@@ -3901,12 +3911,8 @@ class Funnel(Flow):
 	# The significant distinction being that termination from &Flow instances are ignored.
 	"""
 
-	def terminate(self, by=None):
-		global Flow
-
-		if not isinstance(by, Flow):
-			# Termination induced by flows are ignored.
-			super().terminate(by=by)
+	def f_terminate(self, context=None):
+		pass
 
 class Traces(Flow):
 	def __init__(self):
@@ -4034,21 +4040,8 @@ class Catenation(Flow):
 				(x, functools.partial(self.cat_connect, x)) for x in events
 			]
 
-	def terminate(self, by=None):
-		if self.interrupted:
-			return False
-		cxn = self.cat_connections.get(by)
-
-		if cxn is None:
-			# Not termination from a connection.
-			# Note as terminating.
-			if self.terminating:
-				return False
-			self.terminating = True
-			self.terminator = by
-			self.cat_flush()
-			return True
-
+	def cat_terminate(self, subflow):
+		cxn = self.cat_connections[subflow]
 		q, layer, term = cxn
 
 		if layer == self.cat_order[0]:
@@ -4058,9 +4051,25 @@ class Catenation(Flow):
 			# Not head of line. Update entry's termination state.
 			self.cat_connections[by] = (q, layer, True)
 
+	def f_terminate(self, context=None):
+		cxn = self.cat_connections.get(context)
+
+		if cxn is None:
+			# Not termination from an upstream subflow.
+			# Note as terminating.
+			if not self.terminating:
+				self.termination_started()
+				self.cat_flush()
+		else:
+			self.cat_terminate(context)
+
+	def terminate(self, by=None):
+		"""
+		# Termination signal ignored. Flow state dictates terminal state.
+		"""
 		return False
 
-	def cat_flush(self):
+	def cat_flush(self, len=len):
 		"""
 		# Flush the accumulated events downstream.
 		"""
@@ -4187,9 +4196,9 @@ class Division(Flow):
 		# map protocol stream events to &Flow instances.
 		"""
 
-		ops = self.div_operations.__getitem__
+		ops = self.div_operations
 		for event in events:
-			ops(event[0])(self, *event)
+			ops[event[0]](self, *event)
 
 		if self.div_initiations:
 			# Aggregate initiations for single propagation.
@@ -4207,9 +4216,13 @@ class Division(Flow):
 		for layer, flow in self.div_flows.items():
 			if flow in {fc_terminate, None}:
 				continue
-			flow.terminate(by=self)
+			flow.f_terminate(context=self)
 
 		return True
+
+	def f_terminate(self, context=None):
+		self.interrupt()
+		self._f_terminated()
 
 	def div_initiate(self, fc, layer, partial=functools.partial):
 		"""
@@ -4255,7 +4268,7 @@ class Division(Flow):
 		# The availability of the flow allows the queue to be dropped.
 		del self.div_queues[layer]
 		if cflow == fc_terminate:
-			flow.terminate(by=self)
+			flow.f_terminate(self)
 
 	def div_transfer(self, fc, layer, subflow_transfer):
 		"""
@@ -4271,6 +4284,19 @@ class Division(Flow):
 			# Connected flow.
 			flow.process(subflow_transfer, source=self)
 
+	def div_overflow(self, fc, data):
+		"""
+		# Invoked when an upstream flow received data past a protocol's boundary.
+		"""
+		if not data:
+			#
+			pass
+		else:
+			if not hasattr(self, 'div_container_overflow'):
+				self.div_container_overflow = []
+			self.div_container_overflow.append(data)
+		self.f_terminate()
+
 	def div_terminate(self, fc, layer, fc_terminate=FlowControl.terminate):
 		"""
 		# End of Layer context content. Flush queue and remove entries.
@@ -4284,7 +4310,7 @@ class Division(Flow):
 				self.div_flows[layer] = fc_terminate
 			else:
 				flow.f_ignore(self.f_obstruct, self.f_clear)
-				flow.terminate(self)
+				flow.f_terminate(self)
 
 			assert layer not in self.div_queues[layer]
 
@@ -4294,6 +4320,7 @@ class Division(Flow):
 		FlowControl.obstruct: None,
 		FlowControl.clear: None,
 		FlowControl.transfer: div_transfer,
+		FlowControl.overflow: div_overflow,
 	}
 
 def Encoding(
@@ -4469,7 +4496,6 @@ def context(max_depth=None):
 	# Used to discover the execution context when it wasn't explicitly
 	# passed forward.
 	"""
-	global sys
 
 	f = sys._getframe().f_back
 	while f:
