@@ -1,8 +1,8 @@
 """
-# IETF HTTP support for &..io based applications.
+# IETF HTTP tools for &..io based applications.
 
 # &.libhttp provides foundations for clients and servers. The high-level
-# concepts are managed by &..web.libhttpd.
+# interfaces are managed by &..web.
 
 # [ Properties ]
 # /HeaderSequence
@@ -301,11 +301,12 @@ class Layer(libio.Layer):
 		self.initiation = None
 		self.header_sequence.clear()
 
-	def __init__(self):
+	def __init__(self, version=b'HTTP/1.1'):
 		self.parameters = dict()
 		self.headers = dict()
 		self.initiation = None
 		self.header_sequence = []
+		self._version = version
 
 	def __str__(self):
 		init = " ".join(x.decode('utf-8') for x in (self.initiation or ()))
@@ -455,6 +456,9 @@ class Response(Layer):
 
 	def result(self, code, description, version=b'HTTP/1.1'):
 		self.initiate((version, str(code).encode('ascii'), description.encode('utf-8')))
+
+	def OK(self):
+		self.initiate((self.version, b'200', b'OK'))
 
 class IO(libio.Transport):
 	"""
