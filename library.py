@@ -1177,7 +1177,7 @@ class Call(Processor):
 
 		try:
 			self.product = self.source() # Execute Callable.
-			self.termination_complete()
+			self.termination_completed()
 			self.exit()
 		except BaseException as exc:
 			self.product = None
