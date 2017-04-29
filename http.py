@@ -20,7 +20,7 @@ from ..computation import library as libc
 from ..chronometry import library as libtime
 from ..routes import library as libroutes
 
-from ..internet import libhttp
+from ..internet import http as protocol
 from ..internet import media
 
 from ..system import libmemory
@@ -692,13 +692,13 @@ def join(
 		checksum=None,
 		status=None,
 
-		rline=libhttp.Event.rline,
-		headers=libhttp.Event.headers,
-		trailers=libhttp.Event.trailers,
-		content=libhttp.Event.content,
-		chunk=libhttp.Event.chunk,
-		EOH=libhttp.EOH,
-		EOM=libhttp.EOM,
+		rline=protocol.Event.rline,
+		headers=protocol.Event.headers,
+		trailers=protocol.Event.trailers,
+		content=protocol.Event.content,
+		chunk=protocol.Event.chunk,
+		EOH=protocol.EOH,
+		EOM=protocol.EOM,
 
 		repeat=itertools.repeat,
 		zip=zip,
@@ -711,7 +711,7 @@ def join(
 	# Join &libio.Catenate flow events into a proper HTTP stream.
 	"""
 
-	serializer = libhttp.assembly()
+	serializer = protocol.assembly()
 	serialize = serializer.send
 	transfer = ()
 	def layer_tokens(event, layer):
@@ -726,7 +726,7 @@ def join(
 		assert event == fc_terminate
 		return (EOM,), layer
 
-	def data(event, layer, payload, xchunk=libhttp.chunk):
+	def data(event, layer, payload, xchunk=protocol.chunk):
 		nonlocal content, chunk
 		assert event == fc_transfer
 
@@ -759,15 +759,15 @@ def join(
 
 def fork(
 		Layer, overflow,
-		rline=libhttp.Event.rline,
-		headers=libhttp.Event.headers,
-		trailers=libhttp.Event.trailers,
-		content=libhttp.Event.content,
-		chunk=libhttp.Event.chunk,
-		violation=libhttp.Event.violation,
-		bypass=libhttp.Event.bypass,
-		EOH=libhttp.EOH,
-		EOM=libhttp.EOM,
+		rline=protocol.Event.rline,
+		headers=protocol.Event.headers,
+		trailers=protocol.Event.trailers,
+		content=protocol.Event.content,
+		chunk=protocol.Event.chunk,
+		violation=protocol.Event.violation,
+		bypass=protocol.Event.bypass,
+		EOH=protocol.EOH,
+		EOM=protocol.EOM,
 		iter=iter, map=map, len=len,
 		chain=itertools.chain.from_iterable,
 		fc_initiate=libio.FlowControl.initiate,
@@ -779,7 +779,7 @@ def fork(
 	# Split an HTTP stream into flow events for use by &libio.Division.
 	"""
 
-	tokenizer = libhttp.disassembly()
+	tokenizer = protocol.disassembly()
 	tokens = tokenizer.send
 
 	close_state = False # header Connection: close
