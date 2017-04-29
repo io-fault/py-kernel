@@ -30,7 +30,7 @@ from ..system import library as libsys
 from ..system import libmemory
 
 from ..routes import library as libroutes
-from ..internet import libri
+from ..internet import ri
 from ..internet import library as libnet
 from ..chronometry import library as libtime
 from ..computation import library as libc
@@ -65,7 +65,7 @@ def parse_transport_indicator(ti:str, port = None):
 	"""
 	# Parse a Transport Indicator for constructing connection templates.
 	"""
-	parts = libri.parse(tri)
+	parts = ri.parse(tri)
 
 	hn = parts['host']
 	*leading, primary = hn.split('.')
@@ -474,7 +474,7 @@ class Endpoint(tuple):
 		"""
 
 		dir = False
-		d = libri.parse(psi)
+		d = ri.parse(psi)
 
 		path = d.get('path', ())
 		if path != ():

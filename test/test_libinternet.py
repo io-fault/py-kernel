@@ -2,7 +2,7 @@ from .. import libinternet as library
 from ...internet import library as netlib
 
 def test_endpoint(test):
-	# Don't bother testing the struct must as it's libri return.
+	# Don't bother testing the struct must as it's ri return.
 
 	struct, ep = library.endpoint("https://fault.io")
 	test/ep == netlib.Reference(('domain', 'fault.io', 443, 'https'))

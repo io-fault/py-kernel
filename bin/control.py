@@ -23,7 +23,7 @@ import functools
 import itertools
 import json
 
-from ...internet import libri
+from ...internet import ri
 from ...routes import library as libroutes
 
 from .. import libcommand
@@ -68,10 +68,10 @@ def main():
 		endpoint = libio.endpoint('local', ri.fullpath, "0")
 	else:
 		# URL target; endpoint exists on a remote system.
-		struct = libri.parse(target)
+		struct = ri.parse(target)
 
 		if struct['scheme'] == 'file':
-			path = libri.http(struct)
+			path = ri.http(struct)
 			ri = libroutes.File.from_absolute('/'+'/'.join(struct['path']))
 			protocol = 'http'
 		else:
@@ -94,7 +94,7 @@ def main():
 	sector.dispatch(s)
 
 	req = http.Request()
-	path = libri.http(struct)
+	path = ri.http(struct)
 
 	# The operations performed by .bin.control have side-effects.
 	parameters = json.dumps({'service': service, 'parameters': params}).encode('utf-8')

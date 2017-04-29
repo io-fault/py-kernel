@@ -7,7 +7,7 @@
 import socket # getaddrinfo
 from . import library as libio
 
-from ..internet import libri
+from ..internet import ri
 from ..internet import library as libi
 
 class DNS(libio.Sector):
@@ -39,9 +39,9 @@ def service(service_name):
 	raise NotImplementedError("no system service interface support")
 	# Fallback to system?
 
-def endpoint(url, scheme=None, parse=libri.parse):
+def endpoint(url, scheme=None, parse=ri.parse):
 	"""
-	# Parse a URL using internet.libri.parse and resolve its endpoint.
+	# Parse a URL using internet.ri.parse and resolve its endpoint.
 	# Resolves a default port if one is not provided and notes the
 	# service (scheme) if the endpoint is a domain name.
 
