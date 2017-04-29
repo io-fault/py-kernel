@@ -1,7 +1,7 @@
 """
 # IETF HTTP tools for &..io based applications.
 
-# &.libhttp provides foundations for clients and servers. The high-level
+# &.http provides foundations for clients and servers. The high-level
 # interfaces are managed by &..web.
 
 # [ Properties ]
@@ -21,7 +21,7 @@ from ..chronometry import library as libtime
 from ..routes import library as libroutes
 
 from ..internet import libhttp
-from ..internet import libmedia
+from ..internet import media
 
 from ..system import libmemory
 from . import library as libio
@@ -209,7 +209,7 @@ class Layer(libio.Layer):
 
 	@staticmethod
 	@functools.lru_cache(32)
-	def media_range_cache(range_data, parse_range=libmedia.Range.from_bytes):
+	def media_range_cache(range_data, parse_range=media.Range.from_bytes):
 		"""
 		# Cached access to a media range header.
 		"""
@@ -217,7 +217,7 @@ class Layer(libio.Layer):
 		if range_data is not None:
 			return parse_range(range_data)
 		else:
-			return libmedia.any_range # HTTP default.
+			return media.any_range # HTTP default.
 
 	@property
 	def media_range(self):
@@ -228,12 +228,12 @@ class Layer(libio.Layer):
 		return self.media_range_cache(self.headers.get(b'accept'))
 
 	@property
-	def media_type(self) -> libmedia.Type:
+	def media_type(self) -> media.Type:
 		"""
 		# The structured media type extracted from the (http/header-id)`Content-Type` header.
 		"""
 
-		return libmedia.type_from_bytes(self.headers[b'content-type'])
+		return media.type_from_bytes(self.headers[b'content-type'])
 
 	@property
 	def date(self, parse=libtime.parse_rfc1123) -> libtime.Timestamp:
