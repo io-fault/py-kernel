@@ -44,10 +44,20 @@ __shortname__ = 'libio'
 		# qtl: Query Time Limit (seconds)
 		#octets://gai.ai/domain.name?service=http&timeout|qtl=10#record-count-of-resolution
 
+		#if://path.ri/path/to/app
+		#if://machine/32:14:...:FA
+		#if://v4.ip/87.34.55.1
+		#if://address-space:system-ref/address
+		#if://.../127/0/1
+		#if://v6.ip:system-ref/::1
+		#transport://octets/80
+		#transport://http/host/path/to/interface
+		#octets://ip/::1
 		#octets://v6.ip:80/::1#fd
 		#octets://v4.ip:5555/127.0.0.1#fd
 		#octets://v1-2.tls/context-name#<STATUS>, context
 		#octets+flows://http/?constraints config [transformation]
+		#datagrams://...
 
 		#octets://port.kernel/socket#fd
 		#octets://port.kernel/input#fd
@@ -56,7 +66,6 @@ __shortname__ = 'libio'
 		#flows://v1-1.http/?constraints config [transformation]
 		#flows://host/...
 
-	#...
 	#octets://file.kernel/input (path)
 	#octets://file.kernel/output/overwrite (path)
 	#octets://file.kernel/output/append (path)
