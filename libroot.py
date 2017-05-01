@@ -6,7 +6,7 @@
 # group with its own configurable concurrency level.
 
 # Multiple instances of faultd may exist, but usually only one per-user is necessary.
-# The (system:directory)`$HOME/.faultd` directory is used by default, but can be adjusted by a command
+# The (system/home)`.fault` directory is used by default, but can be adjusted by a command
 # line parameter. The daemon directory supplies all the necessary configuration,
 # so few options are available from system invocation.
 
