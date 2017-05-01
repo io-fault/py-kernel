@@ -52,7 +52,6 @@ from ..system import libxml as system_xml
 
 types = set((
 	'daemon',
-	'command',
 	'sectors',
 	'processor',
 
@@ -62,10 +61,6 @@ types = set((
 
 environment = 'FAULT_DAEMON_DIRECTORY'
 default_route = libroutes.File.home() / '.fault' / 'rootd'
-
-xml_namespaces = {
-	"s": "http://fault.io/xml/sectors",
-}
 
 def identify_route(override=None):
 	"""
