@@ -5,7 +5,7 @@ import typing
 import itertools
 
 from .. import library
-from .. import libcommand
+from .. import command
 from . import library as testlib
 
 def test_parallel(test):
@@ -15,7 +15,7 @@ def test_parallel(test):
 		nonlocal t
 		t = True
 
-	i = functools.partial(libcommand.initialize, main=nothing)
+	i = functools.partial(command.initialize, main=nothing)
 
 	try:
 		with library.parallel(i) as unit:

@@ -40,11 +40,12 @@ def initialize(unit, main=None):
 
 def execute(name='__main__'):
 	"""
-	# Ran by scripts and executable modules depending on libcommand:
+	# Ran by scripts and executable modules depending on command:
 
 	# #!/pl/python
 		if __name__ == '__main__':
-			libcommand.execute()
+			from fault.io import command
+			command.execute()
 	"""
 
 	libio.execute(command=(initialize,))

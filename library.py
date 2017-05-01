@@ -4532,7 +4532,7 @@ def execute(*identity, **units):
 	# Initialize a &system.Process to manage the invocation from the (operating) system.
 	# This is the low-level means to invoke a &..io process from an executable module that
 	# wants more control over the initialization process than what is offered by
-	# &.libcommand.
+	# &.command.
 
 	# #!/pl/python
 		libio.execute(unit_name = (unit_initialization,))

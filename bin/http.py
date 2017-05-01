@@ -19,7 +19,7 @@ import operator
 from .. import library as libio
 
 from .. import http
-from .. import libcommand
+from .. import command
 
 def output_thread(transformer, queue, file):
 	"""
@@ -117,4 +117,4 @@ def main(sector):
 
 if __name__ == '__main__':
 	os.umask(0o137)
-	libcommand.execute()
+	command.execute()

@@ -26,7 +26,6 @@ import json
 from ...internet import ri
 from ...routes import library as libroutes
 
-from .. import libcommand
 from .. import http
 from .. import library as libio
 from .. import libservice # fs-socket resolution
@@ -115,5 +114,5 @@ def main():
 	series[0].process(None)
 
 if __name__ == '__main__':
-	from .. import library
-	libcommand.execute()
+	from .. import command
+	command.execute()
