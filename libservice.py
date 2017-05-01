@@ -110,7 +110,8 @@ def configure_root_service(srv):
 	(srv.route / 'daemons').init('directory')
 
 	# initialize sectors.xml
-	from . import libdaemon, library as libio
+	from ..daemon import library as libd
+	from . import library as libio
 	xml = srv.route / 'sectors.xml'
 	struct = {
 		'concurrency': 0,
@@ -120,7 +121,7 @@ def configure_root_service(srv):
 			]
 		},
 	}
-	xml.store(b''.join(libdaemon.serialize_sectors(struct)))
+	xml.store(b''.join(libd.serialize_sectors(struct)))
 
 class Service(object):
 	"""
