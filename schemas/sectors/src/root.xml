@@ -46,6 +46,16 @@
 		</element>
 	</define>
 
+	<define name="sectors.path">
+		<element name="path">
+			<zeroOrMore>
+				<element name="allocate">
+					<ref name="sectors.addressing"/>
+				</element>
+			</zeroOrMore>
+		</element>
+	</define>
+
 	<define name="sectors.interface">
 		<element name="interface">
 			<attribute name="identifier">
@@ -58,6 +68,7 @@
 				<choice>
 					<ref name="sectors.ip"/>
 					<ref name="sectors.local"/>
+					<ref name="sectors.path"/>
 				</choice>
 			</zeroOrMore>
 		</element>
@@ -66,7 +77,7 @@
 	<define name="sectors.protocol">
 		<element name="protocol">
 			<optional>
-				<attribute name="import">
+				<attribute name="implementation">
 					<text/>
 				</attribute>
 			</optional>
@@ -78,6 +89,8 @@
 
 			<optional>
 				<element name="limits">
+					<a:documentation>
+					</a:documentation>
 					<zeroOrMore>
 						<attribute>
 							<anyName/>
@@ -89,7 +102,7 @@
 
 			<zeroOrMore>
 				<element name="resource">
-					<attribute name="parameter">
+					<attribute name="identifier">
 						<text/>
 					</attribute>
 					<attribute name="xlink:href">
@@ -113,11 +126,16 @@
 
 	<define name="sectors.system">
 		<element name="system">
+			<attribute name="context">
+				<text/>
+			</attribute>
 			<attribute name="identifier">
 				<text/>
 			</attribute>
 
-			<ref name="sectors.connect"/>
+			<zeroOrMore>
+				<ref name="sectors.connect"/>
+			</zeroOrMore>
 		</element>
 	</define>
 

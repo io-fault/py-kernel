@@ -250,7 +250,9 @@ class Control(libio.Context):
 		xml = self.route / 'sectors.xml'
 		# Bind the requested interfaces from invocation.xml
 		structs = extract_sectors_config(xml.load())
-		for slot, binds in structs['interfaces'].items():
+		for slot, (transport, binds) in structs['interfaces'].items():
+			if transport != 'octets':
+				continue
 			ports.bind(slot, *list(itertools.starmap(libio.endpoint, binds)))
 
 		# forking

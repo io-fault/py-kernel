@@ -13,11 +13,34 @@ class Sectors(libschema.Interface):
 	"""
 	# Interface configuration for sector daemons.
 	"""
-	#from .schemas import sectors as schema
 	namespace = namespaces['sectors']
 
 	@classmethod
+	def struct_protocol(Class, element):
+		"""
+		# Construct a protocol reference from the given sectors:protocol element.
+		"""
+		params = {
+			'limits': {},
+			'resources': None,
+		}
+
+		pid = element.attrib.get('identifier')
+		rsrc_set = element.findall("sectors:resource", namespaces)
+		if len(rsrc_set) > 0:
+			params['resources'] = {
+				rsrc.attrib['identifier']: rsrc.attrib['{'+core.namespaces['xlink']+'}href']
+				for rsrc in rsrc_set
+			}
+
+		return params
+
+	@classmethod
 	def structure(Class, document):
+		"""
+		# Given an xml/io.sectors document, extract the structures necessary
+		# for starting a &.libdaemon based sectord process.
+		"""
 		find = lambda x: document.find(x, namespaces)
 		findall = lambda x: document.findall(x, namespaces)
 		get_local_name = (lambda x: x.tag[x.tag.rfind('}')+1:])
@@ -37,35 +60,29 @@ class Sectors(libschema.Interface):
 			libs = None
 
 		ifelements = list(ifelements)
-		transport = str(ifelement.attrib.get("transport", "octets"))
 
 		interfaces = {
-			ifelement.attrib["identifier"]: set(
-				itertools.chain.from_iterable([
-					[
-						(
-							get_local_name(addrspace) + addrspace.attrib.get("version", ""),
-							alloc.attrib["address"], alloc.attrib["port"]
-						)
-						for alloc in addrspace
-					]
-					for addrspace in ifelement
-				])
+			ifelement.attrib["identifier"]: (
+				# transport spec
+				ifelement.attrib.get('transport', 'octets'),
+				set(
+					itertools.chain.from_iterable([
+						[
+							(
+								get_local_name(addrspace) + addrspace.attrib.get("version", ""),
+								alloc.attrib["address"], alloc.attrib["port"]
+							)
+							for alloc in addrspace
+						]
+						for addrspace in ifelement
+					])
+				)
 			)
 			for ifelement in ifelements
 		}
 
 		protocols = {
-			ifelement.attrib["identifier"]: dict(
-				itertools.chain.from_iterable([
-					[
-						(
-						)
-						for alloc in addrspace
-					]
-					for addrspace in ifelement
-				])
-			)
+			protocol.attrib["identifier"]: Class.struct_protocol(protocol)
 			for protocol in pelements
 		}
 
@@ -73,7 +90,7 @@ class Sectors(libschema.Interface):
 			'libraries': libs,
 			'interfaces': interfaces,
 			'systems': None,
-			'protocols': None,
+			'protocols': protocols,
 			'concurrency': None if dist is None else int(dist),
 		}
 
@@ -81,6 +98,19 @@ class Sectors(libschema.Interface):
 
 	@classmethod
 	def serialize(Class, xml, struct, chain=itertools.chain.from_iterable):
+		"""
+		# Serialize the given &struct using the &xml context.
+		# The serialized form is not gauranteed to match the original
+		# formatting of a document processed with &structure.
+		# Generally, using serialize means that an interface is managing
+		# the document.
+
+		# [ Parameters ]
+		# /(&..xml.library.Serialization)`xml`
+			# The serializaiton context to use.
+		# /struct
+			# The, structured, data to serialize.
+		"""
 		ifs = {}
 
 		for slot, allocs in struct.get('interfaces', ()).items():
@@ -104,8 +134,9 @@ class Sectors(libschema.Interface):
 					)
 					for addrspace, allocs in spaces.items()),
 					('identifier', slot),
+					('transport', transport_type),
 				)
-				for slot, spaces in ifs.items()),
+				for slot, (transport_type, spaces) in ifs.items()),
 			)),
 			('concurrency', struct.get('concurrency')),
 			namespace = namespace,
