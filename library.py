@@ -110,21 +110,6 @@ def parse_transport_indicator(ti:str, port = None):
 
 	return parts
 
-class Expiry(Exception):
-	"""
-	# An operation exceeded a time limit.
-	"""
-	def __init__(self, constraint, timestamp):
-		self.timestamp = timestamp
-		self.constraint = constraint
-
-class RateViolation(Expiry):
-	"""
-	# The configured rate constraints could not be maintained.
-	# Usually a fault that identifies a Flow that could not maintain
-	# the minimum transfer rate.
-	"""
-
 class Lock(object):
 	"""
 	# Event driven lock.
@@ -514,8 +499,6 @@ endpoint_classes = {
 	'ip4': libnet.Endpoint.create_ip4,
 	'ip6': libnet.Endpoint.create_ip6,
 	'domain': libnet.Reference.from_domain,
-	'internal': None, # relay push; local to process
-	'coprocess': None, # process-group abstraction interface
 }
 
 class Join(object):
