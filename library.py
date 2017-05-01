@@ -4384,7 +4384,6 @@ class Ports(Device):
 
 	def __init__(self):
 		self.sets = collections.defaultdict(dict)
-		self.users = {}
 
 	def discard(self, slot):
 		"""
@@ -4414,7 +4413,7 @@ class Ports(Device):
 					x.route.void()
 				else:
 					# XXX: more appropriate error
-					raise Exception("cannot overwrite file that is not a socket file")
+					raise RuntimeError("cannot overwrite file that is not a socket file")
 
 		for ep, fd in zip(endpoints, self.context.bindings(*endpoints)):
 			add(ep, fd)
@@ -4442,14 +4441,6 @@ class Ports(Device):
 		"""
 
 		return self.sets[slot]
-
-	def associate(self, slot, processor):
-		"""
-		# Associate a slot with a particular processor in order to document
-		# the user of the slot.
-		"""
-
-		self.users[slot] = processor
 
 	def replace(self, slot, *endpoints):
 		"""
