@@ -170,7 +170,7 @@ def endpoint(type:str, address:str, port:object):
 		# `libio.endpoint('ip4', '127.0.0.1', 80)`
 	# /IPv6
 		# `libio.endpoint('ip6', '::1', 80)`
-	# /UNIX
+	# /Local
 		# `libio.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
@@ -311,6 +311,14 @@ def controllers(resource):
 class Local(tuple):
 	"""
 	# A reference to a unix domain file system socket.
+
+	# While local connections do not have "addresses", &..io generalizes
+	# all endpoints regardless of transport. In the case of local sockets,
+	# the directory containing the socket file is known as the `address`,
+	# and the filename is known as the `port`.
+
+	# All local socket connections are said to transfer "octets" and
+	# are semantically consistent with TCP/IP connections.
 	"""
 
 	__slots__ = ()
