@@ -47,15 +47,9 @@ from ..chronometry import library as libtime
 from . import libservice
 from . import library as libio
 
-from ..web import libhttpd
+from ..web import library as libweb
 
-class HumanInterface(libhttpd.Index):
-	pass
-
-class HumanInterfaceSupport(libhttpd.Index):
-	pass
-
-class Commands(libhttpd.Index):
+class Commands(libweb.Index):
 	"""
 	# HTTP Control API used by control (Host) connections.
 
@@ -66,7 +60,7 @@ class Commands(libhttpd.Index):
 		self.managed = managed
 		self.services = services
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def sleep(self, resource, parameters) -> (str, str):
 		"""
 		# Send a stop signal associated with a timer to pause the process group.
@@ -81,7 +75,7 @@ class Commands(libhttpd.Index):
 		else:
 			return (service.identifier, "cannot signal service when not running")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def enable(self, resource, parameters) -> typing.Tuple[str, str]:
 		"""
 		# Enable the service, but do not start it.
@@ -93,7 +87,7 @@ class Commands(libhttpd.Index):
 
 		return (service.identifier, "enabled")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def disable(self, resource, parameters):
 		"""
 		# Disable the service, but do not change its status.
@@ -105,7 +99,7 @@ class Commands(libhttpd.Index):
 
 		return (service.identifier, "disabled")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def signal(self, resource, parameters):
 		"""
 		# Send the given signal to the process.
@@ -121,7 +115,7 @@ class Commands(libhttpd.Index):
 		else:
 			return "signal not sent as service has not been executed"
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def stop(self, resource, parameters):
 		"""
 		# Signal the service to stop and inhibit it from being restarted if enabled.
@@ -142,7 +136,7 @@ class Commands(libhttpd.Index):
 		managed.subprocess.signal_process_group(signal.SIGTERM)
 		return (service.identifier, "daemon signalled to terminate")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def restart(self, resource, parameters):
 		"""
 		# Signal the service to stop (SIGTERM) and allow it to restart.
@@ -159,7 +153,7 @@ class Commands(libhttpd.Index):
 
 		return (service.identifier, "daemon signalled to restart")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def reload(self, resource, parameters):
 		"""
 		# Send a SIGHUP to the service.
@@ -174,7 +168,7 @@ class Commands(libhttpd.Index):
 		else:
 			return (service.identifier, "reload ineffective when service is not running")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def replace(self, resource, parameters):
 		service = self.services[parameters['service']]
 		# substitute the sectord process (code/process update)
@@ -185,7 +179,7 @@ class Commands(libhttpd.Index):
 		# 5. [sectord] exec to new process and load state from environment
 		return (service.identifier, "substitute not supported")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def start(self, resource, parameters):
 		"""
 		# Start the daemon unless it's already running; explicit starts ignore
@@ -201,13 +195,13 @@ class Commands(libhttpd.Index):
 			managed.sm_invoke()
 			return (service.identifier, "invoked")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def environment(self, resource, parameters):
 		managed = self.managed[parameters['service']]
 		service = self.services[parameters['service']]
 		return service.environment
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def normalize(self, resource, parameters):
 		"""
 		# Normalize the set of services by shutting down any running
@@ -224,7 +218,7 @@ class Commands(libhttpd.Index):
 			elif service.disabled and service.status == 'executed':
 				yield (service.identifier, managed.subprocess.signal(signal.SIGTERM))
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def execute(self, resource, parameters):
 		"""
 		# Execute the command associated with the service. Only applies to command types.
@@ -241,11 +235,11 @@ class Commands(libhttpd.Index):
 			managed.sm_invoke()
 			return (service.identifier, "service invoked")
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def report(self, resource, parameters):
 		pass
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def timestamp(self, resource, parameters):
 		"""
 		# Return rootd's perception of time.
@@ -254,11 +248,11 @@ class Commands(libhttpd.Index):
 
 	# /if/usignal?number=9
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def __resource__(self, resource, path, query, px):
 		pass
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def list(self, resource, parameters):
 		"""
 		# List the set of configured services.
@@ -268,7 +262,7 @@ class Commands(libhttpd.Index):
 		service_set = [x for x in self.services.keys()]
 		return service_set
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def create(self, resource, parameters):
 		"""
 		# Create a service.
@@ -276,7 +270,7 @@ class Commands(libhttpd.Index):
 
 		name = parameters['service']
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def void(self, resource, parameters):
 		"""
 		# Terminate the service and destroy it's stored configuration.
@@ -290,7 +284,7 @@ class Commands(libhttpd.Index):
 		s = self.services[name]
 		s.void()
 
-	@libhttpd.Resource.method()
+	@libweb.Resource.method()
 	def interface(self, resource, parameters):
 		"""
 		# Add a set of interfaces.
@@ -546,7 +540,7 @@ class Set(libio.Context):
 		web_interface = {
 			'/sys/': Commands(self.services, self.managed),
 		}
-		libhttpd.init(self.sector, ('control',), web_interface, 'http')
+		libweb.init(self.sector, ('control',), web_interface, 'http')
 
 		return super().actuate()
 
