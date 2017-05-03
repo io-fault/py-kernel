@@ -48,7 +48,7 @@ import itertools
 
 from ..chronometry import library as libtime
 from ..routes import library as libroutes
-from ..system import libxml as system_xml
+from ..system import xml as system_xml
 
 types = set((
 	'daemon',
@@ -140,7 +140,7 @@ class Service(object):
 		led = r / "libexec"
 
 		if self.type == 'root':
-			exe = led / 'faultd'
+			exe = led / 'rootd'
 		else:
 			exe = led / self.identifier
 
