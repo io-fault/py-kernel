@@ -3690,7 +3690,8 @@ class Kernel(Flow):
 			# If a transaction was successfully committed and followed
 			# with a transport error, it's probably appropriate to
 			# show the transport issue, if any, as a warning.
-			self.exit()
+			if not self.terminated:
+				self.exit()
 			if 0:
 				self.f_obstruct('kernel port closed', None, Inexorable)
 
