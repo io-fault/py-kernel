@@ -357,7 +357,7 @@ class Flow(Processor, metaclass=abc.ABCMeta):
 		"""
 
 	@abc.abstractmethod
-        def f_clear(self, obstruction):
+	def f_clear(self, obstruction):
 		"""
 		Clear the cited &obstruction.
 
