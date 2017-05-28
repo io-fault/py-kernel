@@ -457,8 +457,8 @@ class Response(Layer):
 	def result(self, code, description, version=b'HTTP/1.1'):
 		self.initiate((version, str(code).encode('ascii'), description.encode('utf-8')))
 
-	def OK(self):
-		self.initiate((self.version, b'200', b'OK'))
+	def OK(self, version=b'HTTP/1.1'):
+		self.initiate((version, b'200', b'OK'))
 
 class IO(libio.Transport):
 	"""
