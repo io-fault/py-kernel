@@ -75,7 +75,7 @@ def test_Transports_io(test, chain=itertools.chain):
 	sctx = library.libcrypt.pki.Context(key = key, certificates = [certificate])
 	cctx = library.libcrypt.pki.Context(certificates = [certificate])
 
-	client = cctx.connect()
+	client = cctx.connect(None)
 	server = sctx.accept()
 
 	cti, cto = libio.Transports.create((client,))
@@ -138,7 +138,6 @@ def test_Transports_io(test, chain=itertools.chain):
 
 	# termination can only occur when both sides have initiated termination.
 	cti.terminate()
-	test/cti.terminating == True
 	test/client.terminated == False
 
 	cto.terminate()

@@ -3877,6 +3877,13 @@ class Null(Flow):
 		"""
 		return self.f_discarding
 
+	@f_emit.setter
+	def f_emit(self, value):
+		"""
+		# Desregard update likely setting f_discarding.
+		"""
+		pass
+
 	def subresource(*args):
 		raise Exception("libio.Null cannot be acquired")
 	def atexit(*args):

@@ -51,7 +51,8 @@ def test_fork(test):
 	"""
 	Validate requests without bodies, sized bodies, and chunked transfers.
 	"""
-	g = library.fork(library.Request)
+	overflow = []
+	g = library.fork(library.Request, overflow)
 	g.send(None)
 	r_open, r_close = list(g.send(req()))
 	layer = r_open[1]
@@ -107,10 +108,11 @@ def test_fork(test):
 	test/total_content == b'first\nsecond\n'
 
 def test_join(test):
+	overflow = []
 	import collections
 	c = collections.Counter()
 	j = library.join(status=c)
-	g = library.fork(library.Request)
+	g = library.fork(library.Request, overflow)
 	g.send(None); j.send(None)
 
 	r = req()

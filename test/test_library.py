@@ -535,11 +535,9 @@ def test_Catenation(test):
 	test/i1.f_obstructed == False
 	test/i1.terminated == True
 	test/x.terminated == False
-	test/x.terminating == False
 
 	ctx.flush()
 	test/i2.terminated == True
-	test/i2.terminating == False
 	test/i2.f_obstructed == False
 
 	expect = list(zip(itertools.repeat(fc_transfer), itertools.repeat(1), range(0,-50,-1)))
@@ -557,8 +555,6 @@ def test_Catenation(test):
 	# termination completes when queue is empty.
 	x.terminate(test)
 	test/x.terminated == False
-	test/x.terminating == True
-	test/x.functioning == False
 
 	# i3 was obstructed prior to cat_connect meaning, the queue
 	# should be empty. It was connected after x.cat_connect(1, i1).
@@ -570,6 +566,7 @@ def test_Catenation(test):
 	test/list(itertools.chain.from_iterable(c.c_storage)) == expect
 	test/i3.terminated == True
 
+	ctx()
 	test/x.terminated == True
 	test/x_exit == [x]
 
