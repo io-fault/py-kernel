@@ -2205,26 +2205,41 @@ class Subprocess(Processor):
 		"""
 
 		proc = self.context.process
+		delta = libsys.process_delta
+		track = proc.kernel.track
+		untrack = proc.kernel.untrack
 		callback = self.sp_exit
 
 		# Track it first.
 		for pid in self.active_processes:
+			track(pid)
 			proc.system_event_connect(('process', pid), self, callback)
-			proc.kernel.track(pid)
 
 		# Validate that the process exists; it may have exited before .track() above.
+		# Apparently macos has a race condition here and a process that has exited
+		# prior to &track will not get the event. This loop checks to make sure
+		# that the process exists and whether or not it has exit status.
 		finished = False
+		proc_set = iter(list(self.active_processes))
 		while not finished:
 			try:
-				for pid in self.active_processes:
-					os.kill(pid, 0)
+				for pid in proc_set:
+					os.kill(pid, 0) # Looking for ESRCH errors.
+
+					d = delta(pid)
+					if d is not None:
+						untrack(pid)
+						proc.system_event_disconnect(('process', pid))
+						self.sp_exit(pid, d)
+						continue
 				else:
 					finished = True
 			except OSError as err:
 				if err.errno != os.ESRCH:
 					raise
+				untrack(pid)
 				proc.system_event_disconnect(('process', pid))
-				self.sp_exit(pid, libsys.process_delta(pid))
+				self.sp_exit(pid, delta(pid))
 
 	def terminate(self, by=None):
 		"""
