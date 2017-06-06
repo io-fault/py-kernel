@@ -2174,7 +2174,7 @@ class Subprocess(Processor):
 		self.active_processes.discard(pid)
 
 		if not self.active_processes:
-			del self.active_processes
+			self.active_processes = ()
 			self._pexe_state = -1
 
 			# Don't exit if interrupted; maintain position in hierarchy.
