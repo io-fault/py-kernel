@@ -113,7 +113,12 @@ struct Interface {
 typedef struct Interface *Interface;
 
 static int
-interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int nchanges, kevent_t *events, int nevents, const struct timespec *timeout)
+interface_kevent(
+	Interface kif,
+	int retry, int *out,
+	kevent_t *changes, int nchanges,
+	kevent_t *events, int nevents,
+	const struct timespec *timeout)
 {
 	RETRY_STATE_INIT;
 	int r = -1;
@@ -123,16 +128,16 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 	if (r >= 0)
 	{
 		/*
-			// EV_ERROR is used in cases where kevent(2) fails after it already processed
-			// some events. In these cases, the EV_ERROR flag is used to note the case.
+			# EV_ERROR is used in cases where kevent(2) fails after it already processed
+			# some events. In these cases, the EV_ERROR flag is used to note the case.
 		*/
 		if (r > 0 && events[r-1].flags & EV_ERROR)
 		{
 			--r;
 			*out = r;
 			/*
-			 * XXX: Set error from EV_ERROR?
-			 */
+				# XXX: Set error from EV_ERROR?
+			*/
 		}
 		else
 			*out = r;
@@ -140,7 +145,7 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 	else
 	{
 		/*
-			// Complete failure. Probably an interrupt or EINVAL.
+			# Complete failure. Probably an interrupt or EINVAL.
 		*/
 		*out = 0;
 
@@ -148,7 +153,7 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 		{
 			case EINTR:
 				/*
-					// The caller can designate whether or not retry will occur.
+					# The caller can designate whether or not retry will occur.
 				*/
 				switch (retry)
 				{
@@ -162,9 +167,9 @@ interface_kevent(Interface kif, int retry, int *out, kevent_t *changes, int ncha
 
 					case 0:
 						/*
-							// Purposefully allow it to fall through. Usually a signal occurred.
-							// Falling through is appropriate as it usually means
-							// processing an empty task queue.
+							# Purposefully allow it to fall through. Usually a signal occurred.
+							# Falling through is appropriate as it usually means
+							# processing an empty task queue.
 						*/
 						*out = 0;
 						return(1);
@@ -194,8 +199,8 @@ interface_repr(PyObj self)
 }
 
 /*
-	// Relay to the generated transit alloc functions.
-	// See the preproc blackmagic at the bottom of the file.
+	# Relay to the generated transit alloc functions.
+	# See the preproc blackmagic at the bottom of the file.
 */
 
 static int
@@ -300,8 +305,8 @@ acquire_kernel_ref(Interface kif, PyObj link)
 }
 
 /**
-	// Interface.track()
-*/
+	# Begin listening for the process exit event.
+**/
 static PyObj
 interface_track(PyObj self, PyObj args)
 {
@@ -309,27 +314,14 @@ interface_track(PyObj self, PyObj args)
 
 	Interface kif = (Interface) self;
 
-	PyObj link = NULL;
-	int uselink = 0;
 	long l;
-
 	int nkevents;
 	kevent_t kev;
 
-	if (!PyArg_ParseTuple(args, "l|O", &l, &link))
+	if (!PyArg_ParseTuple(args, "l", &l))
 		return(NULL);
 
-	if (link != NULL && link != Py_None)
-	{
-		if (acquire_kernel_ref(kif, link))
-			return(NULL);
-
-		uselink = 1;
-		kev.udata = link;
-	}
-	else
-		kev.udata = NULL;
-
+	kev.udata = NULL;
 	kev.data = 0;
 	kev.ident = (uintptr_t) l;
 	kev.flags = EV_ADD|EV_RECEIPT|EV_CLEAR;
@@ -338,13 +330,6 @@ interface_track(PyObj self, PyObj args)
 
 	if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 1, &ts))
 	{
-		/* failed */
-		if (uselink)
-		{
-			if (!PySet_Discard(kif->kif_kset, link))
-				return(NULL);
-		}
-
 		PyErr_SetFromErrno(PyExc_OSError);
 		return(NULL);
 	}
@@ -353,10 +338,44 @@ interface_track(PyObj self, PyObj args)
 		if (kev.filter == EV_ERROR)
 		{
 			errno = (int) kev.data;
+			PyErr_SetFromErrno(PyExc_OSError);
+			return(NULL);
+		}
+	}
 
-			if (uselink)
-				PySet_Discard(kif->kif_kset, link);
+	Py_RETURN_NONE;
+}
 
+static PyObj
+interface_untrack(PyObj self, PyObj args)
+{
+	const static struct timespec ts = {0,0};
+	Interface kif = (Interface) self;
+
+	long l;
+	int nkevents;
+	kevent_t kev;
+
+	if (!PyArg_ParseTuple(args, "l", &l))
+		return(NULL);
+
+	kev.udata = NULL;
+	kev.data = 0;
+	kev.ident = (uintptr_t) l;
+	kev.flags = EV_DELETE;
+	kev.filter = EVFILT_PROC;
+	kev.fflags = NOTE_EXIT;
+
+	if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 1, &ts))
+	{
+		PyErr_SetFromErrno(PyExc_OSError);
+		return(NULL);
+	}
+	else
+	{
+		if (kev.filter == EV_ERROR)
+		{
+			errno = (int) kev.data;
 			PyErr_SetFromErrno(PyExc_OSError);
 			return(NULL);
 		}
@@ -374,9 +393,9 @@ interface_force(PyObj self)
 	kevent_t kev;
 	int out = 0;
 
-	/*
-	 * Ignore force if we're not waiting or have already forced.
-	 */
+	/**
+		# Ignore force if we're not waiting or have already forced.
+	**/
 	if (kif->kif_waiting > 0)
 	{
 		kev.udata = (void *) kif;
@@ -535,7 +554,7 @@ interface_recur(PyObj self, PyObj args, PyObj kw)
 	int note;
 
 	/*
-		// (link_object, period, unit)
+		# (link_object, period, unit)
 	*/
 	if (!PyArg_ParseTupleAndKeywords(args, kw, "Ok|C", (char **) kwlist, &link, &l, &unit))
 		return(NULL);
@@ -576,7 +595,7 @@ interface_cancel(PyObj self, PyObj link)
 		}
 
 		/*
-			// Add to cancellation *after* successful kevent()
+			# Add to cancellation *after* successful kevent()
 		*/
 		if (PySet_Add(kif->kif_cancellations, link) < 0)
 			return(NULL);
@@ -649,9 +668,9 @@ interface_exit(PyObj self, PyObj args)
 	Py_RETURN_NONE;
 }
 
-/*
-	// interface_wait() - collect and process kqueue events
-*/
+/**
+	# collect and process kqueue events
+**/
 static PyObj
 interface_wait(PyObj self, PyObj args)
 {
@@ -668,7 +687,7 @@ interface_wait(PyObj self, PyObj args)
 		return(NULL);
 
 	/*
-		// *Negative* numbers signal indefinite.
+		# *Negative* numbers signal indefinite.
 	*/
 	if (sleeptime >= 0)
 		waittime.tv_sec = sleeptime;
@@ -689,7 +708,7 @@ interface_wait(PyObj self, PyObj args)
 	}
 
 	/*
-		// Process the collected events.
+		# Process the collected events.
 	*/
 	rob = PyList_New(0);
 	if (rob == NULL)
@@ -796,7 +815,7 @@ interface_wait(PyObj self, PyObj args)
 	}
 
 	/*
-		// Complete timer cancellations.
+		# Complete timer cancellations.
 	*/
 	if (PySet_GET_SIZE(kif->kif_cancellations) > 0)
 	{
@@ -819,9 +838,6 @@ static PyMethodDef
 interface_methods[] = {
 	{"void", (PyCFunction) interface_void,
 		METH_NOARGS, PyDoc_STR(
-			"void()\n\n"
-			":returns: None\n"
-			"\n"
 			"Destroy the Interface instance, closing any file descriptors managed by the object.\n"
 			"Also destroy the internal set-object for holding kernel references.\n"
 		)
@@ -829,11 +845,13 @@ interface_methods[] = {
 
 	{"track", (PyCFunction) interface_track, METH_VARARGS,
 		PyDoc_STR(
-			"track(link_object, pid)\n\n"
-			":returns: None\n"
-			":rtype: NoneType\n"
-			"\n"
-			"Watch a process so that an event will be generated when it exits.\n"
+			"Listen for the process exit event."
+		)
+	},
+
+	{"untrack", (PyCFunction) interface_untrack, METH_VARARGS,
+		PyDoc_STR(
+			"Stop listening for the process exit event."
 		)
 	},
 
