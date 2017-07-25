@@ -477,6 +477,7 @@ class IO(libio.Transport):
 		self._xc_co = co
 
 	def actuate(self):
+		# Temporary; reference cycle
 		self.connection = self.controller.controller
 
 	def terminate(self, by=None):
@@ -623,7 +624,10 @@ class IO(libio.Transport):
 		# Connect the input Flow to a buffer that executes
 		# the given callback when the entity body has been transferred.
 
-		# This should only be used when connecting to trusted hosts.
+		# This should only be used when connecting to trusted hosts as
+		# a &libio.Collection instance is used to buffer the entire
+		# entire result. This risk can be mitigated by injecting
+		# a &libio.Constraint into the Flow.
 		"""
 
 		f = libio.Collection.buffer()
