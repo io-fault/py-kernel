@@ -1,4 +1,4 @@
-identity = 'http://fault.io/python/io'
+identity = 'http://fault.io/src/python/io'
 name = 'io'
 abstract = 'Explicitly structured processing for managing complex applications'
 icon = '⚗'
