@@ -111,7 +111,6 @@ def test_track(test):
 		i = os.read(fd, 1)
 		os._exit(3)
 
-	proc_ob = object()
 	kif = kernel.Interface()
 	try:
 		pid = os.fork()
@@ -119,11 +118,11 @@ def test_track(test):
 		if pid == 0:
 			child()
 		else:
-			kif.track(pid, proc_ob)
+			kif.track(pid)
 			os.write(w, b'f')
 		with kif:
 			r = kif.wait()
-		test/r[0] == ('process', pid, proc_ob)
+		test/r[0] == ('process', pid, None)
 		_, status = os.waitpid(pid, os.P_WAIT)
 		test/os.WIFEXITED(status) == True
 		test/os.WEXITSTATUS(status) == 3
