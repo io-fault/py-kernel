@@ -1,5 +1,5 @@
 /**
-	// Kernel interfaces for process invocation and system signal management.
+	# Kernel interfaces for process invocation and system signal management.
 */
 #include <errno.h>
 #include <unistd.h>
@@ -33,12 +33,12 @@ typedef struct kevent kevent_t; /* kernel event description */
 	FLAG(EV_ERROR)
 
 /**
-	// Signals that kernel.Interface will listen for automatically.
+	# Signals that kernel.Interface will listen for automatically.
 
-	// SIGINT is handled fork.library.control() with signal.signal.
-	// SIGUSR2 is *explicitly* used to trigger interjections.
+	# SIGINT is handled fork.library.control() with signal.signal.
+	# SIGUSR2 is *explicitly* used to trigger interjections.
 
-	// *All* Kernel instances will receive signals.
+	# *All* Kernel instances will receive signals.
 */
 #define KQ_SIGNALS() \
 	SIGNAME(SIGTERM) \
@@ -50,17 +50,17 @@ typedef struct kevent kevent_t; /* kernel event description */
 	SIGNAME(SIGURG)
 
 /*
-	// SIGPOLL is POSIX+XSI and is apparently ignored on Darwin.
-	// SIGURG is apparently widely available.
-	// SIGIO doesn't exist on Linux.
-	// SIGINFO is only available on Darwin and BSD.
+	# SIGPOLL is POSIX+XSI and is apparently ignored on Darwin.
+	# SIGURG is apparently widely available.
+	# SIGIO doesn't exist on Linux.
+	# SIGINFO is only available on Darwin and BSD.
 */
 
 /*
-	// SIGNAME(SIGUSR2)
+	# SIGNAME(SIGUSR2)
 
-	// SIGUSR2 is used to interrupt the main thread. This is used
-	// to allow system.interject() to operate while in a system call.
+	# SIGUSR2 is used to interrupt the main thread. This is used
+	# to allow system.interject() to operate while in a system call.
 */
 
 #ifndef HAVE_STDINT_H
@@ -85,7 +85,7 @@ typedef struct kevent kevent_t; /* kernel event description */
 #endif
 
 /*
-	// Manage retry state for limiting the number of times we'll accept EINTR.
+	# Manage retry state for limiting the number of times we'll accept EINTR.
 */
 #define _RETRY_STATE _avail_retries
 #define RETRY_STATE_INIT int _RETRY_STATE = CONFIG_SYSCALL_RETRY
@@ -258,9 +258,9 @@ interface_init(Interface kif)
 }
 
 /**
-	// Interface.void()
+	# Interface.void()
 
-	// Close the kqueue FD, and release references.
+	# Close the kqueue FD, and release references.
 */
 static PyObj
 interface_void(PyObj self)
@@ -306,7 +306,7 @@ acquire_kernel_ref(Interface kif, PyObj link)
 
 /**
 	# Begin listening for the process exit event.
-**/
+*/
 static PyObj
 interface_track(PyObj self, PyObj args)
 {
@@ -670,7 +670,7 @@ interface_exit(PyObj self, PyObj args)
 
 /**
 	# collect and process kqueue events
-**/
+*/
 static PyObj
 interface_wait(PyObj self, PyObj args)
 {
@@ -857,65 +857,39 @@ interface_methods[] = {
 
 	{"alarm", (PyCFunction) interface_alarm, METH_VARARGS|METH_KEYWORDS,
 		PyDoc_STR(
-			"alarm(link_object, period, unit)\n\n"
-			":returns: None\n"
-			":rtype: NoneType\n"
-			"\n"
 			"Allocate a one-time timer that will cause an event after the designed period.\n"
 		)
 	},
 
 	{"recur", (PyCFunction) interface_recur, METH_VARARGS|METH_KEYWORDS,
 		PyDoc_STR(
-			"recur(link_object, period, unit)\n\n"
-			":returns: None\n"
-			":rtype: NoneType\n"
-			"\n"
 			"Allocate a recurring timer that will cause an event at the designed frequency.\n"
 		)
 	},
 
 	{"cancel", (PyCFunction) interface_cancel, METH_O,
 		PyDoc_STR(
-			"recur(link_object)\n\n"
-			":returns: None\n"
-			":rtype: NoneType\n"
-			"\n"
 			"Cancel a timer, recurring or once, using the link that the timer was allocated with.\n"
 		)
 	},
 
 	{"force", (PyCFunction) interface_force, METH_NOARGS,
 		PyDoc_STR(
-			":returns: None or True or False\n"
-			"\n"
-			"Cause a corresponding :py:meth:`.wait` call to stop waiting **if** the Interface\n"
+			"Cause a corresponding &wait call to stop waiting **if** the Interface\n"
 			"instance is inside a with-statement block::\n"
-			"\n"
-			"	with kinterface:\n"
-			"		kinterface.wait()\n"
-			"\n"
-			"\n"
 		)
 	},
 
 	{"wait",
 		(PyCFunction) interface_wait, METH_VARARGS,
 		PyDoc_STR(
-			":returns: Sequence of events that occurred while waiting.\n"
-			":rtype: list\n"
-			"\n"
-			"Normally executed after entering a with-statement block.\n"
-			"If executed outside, the :py:meth:`.force` method will not interrupt the system call."
+			"Executed after entering a with-statement block to collect queued events or timeout.\n"
 		)
 	},
 
 	{"__enter__",
 		(PyCFunction) interface_enter, METH_NOARGS,
 		PyDoc_STR(
-			":returns: Sequence of events that occurred while waiting.\n"
-			":rtype: list\n"
-			"\n"
 			"Enter waiting state."
 		)
 	},
@@ -923,8 +897,6 @@ interface_methods[] = {
 	{"__exit__",
 		(PyCFunction) interface_exit, METH_VARARGS,
 		PyDoc_STR(
-			":returns: None.\n"
-			"\n"
 			"Leave waiting state."
 		)
 	},
@@ -1013,7 +985,8 @@ interface_new(PyTypeObject *subtype, PyObj args, PyObj kw)
 }
 
 PyDoc_STRVAR(interface_doc,
-"The kernel Interface implementation providing event driven signalling for control signals and subprocess exits.");
+"The kernel Interface implementation providing event driven signalling "
+"for control signals and subprocess exits.");
 
 PyTypeObject
 InterfaceType = {
