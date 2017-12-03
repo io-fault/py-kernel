@@ -110,7 +110,7 @@ def separate_io_events(
 
 	# This is executed inside a thread managed by the interchange and *cannot* deliver
 	# the events to Transformers. &synchronize_io_events is used to deliver the queue
-	# for processing in the &.process.Representation's task queue.
+	# for processing in the main task queue.
 	"""
 
 	# In a thread *outside* of the task queue, so is inappropriate
