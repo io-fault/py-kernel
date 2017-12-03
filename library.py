@@ -3717,7 +3717,7 @@ class Kernel(Flow):
 		self.f_emit(events)
 
 	@property
-	def k_transferring(self):
+	def k_transferring(self, len=len):
 		"""
 		# The length of the buffer being transferred into or out of the kernel.
 
@@ -3816,6 +3816,7 @@ class KOutput(Kernel):
 	def __init__(self, transit, Queue=collections.deque):
 		super().__init__(transit=transit)
 		self.ko_queue = Queue()
+		self.k_transferred = None
 
 	def k_transition(self):
 		# Acquire the next buffer to be sent.
@@ -3840,7 +3841,7 @@ class KOutput(Kernel):
 		# Events *must* be processed, so extend the queue unconditionally.
 		self.ko_queue.extend(event)
 
-		if self.k_transferring is None:
+		if self.k_transferred is None:
 			# nothing transferring, so there should be no transfer resources (Transit/Detour)
 			self.k_transition()
 		else:
