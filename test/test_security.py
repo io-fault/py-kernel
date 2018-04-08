@@ -155,5 +155,5 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/cti.terminated == True
 
 if __name__ == '__main__':
-	import sys; from ...development.libtest import execute
-	execute(sys.modules[__name__])
+	import sys; from ...test import library as libtest
+	libtest.execute(sys.modules[__name__])
