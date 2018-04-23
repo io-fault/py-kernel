@@ -6,8 +6,8 @@
 # overhead involved.
 """
 
-from ..cryptography import library as libcrypt
-Transport = libcrypt.pki.Transport
+from ..security import library as libsecurity
+Transport = libsecurity.pki.Transport
 
 def operations(transport):
 	"""
@@ -37,7 +37,7 @@ def public(certificates=()):
 
 	global _public_context
 	if _public_context is None:
-		_public_context = libcrypt.pki.Context(certificates=certificates+())
+		_public_context = libsecurity.pki.Context(certificates=certificates+())
 
 	return _public_context
 
