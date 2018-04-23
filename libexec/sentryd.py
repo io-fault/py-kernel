@@ -14,7 +14,7 @@ import os
 import os.path
 import psutil
 
-from ...chronometry import library as timelib
+from ...time import library as timelib
 
 machine_boot = timelib.unix(psutil.boot_time())
 

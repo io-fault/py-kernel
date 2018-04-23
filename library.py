@@ -32,7 +32,7 @@ from ..system import libmemory
 from ..routes import library as libroutes
 from ..internet import ri
 from ..internet import library as libnet
-from ..chronometry import library as libtime
+from ..time import library as libtime
 from ..computation import library as libc
 
 from . import system

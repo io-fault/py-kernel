@@ -32,7 +32,7 @@ from .kernel import Interface as Kernel
 
 from ..system import library as libsys # cpu and memory
 from ..system import libmemory
-from ..chronometry import library as libtime
+from ..time import library as libtime
 
 __process_index__ = dict()
 __traffic_index__ = dict()

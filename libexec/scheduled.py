@@ -11,7 +11,7 @@ Commands are normally system commands, but they can also be HTTP requests.
 """
 import sys
 from .. import library
-from ...chronometry import library as timelib
+from ...time import library as timelib
 
 class Scheduled(object):
 	"""
