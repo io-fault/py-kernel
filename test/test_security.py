@@ -72,8 +72,8 @@ def test_Transports_io(test, chain=itertools.chain):
 	io_root = libtest.Root()
 	io_context.associate(io_root)
 
-	sctx = library.libcrypt.pki.Context(key = key, certificates = [certificate])
-	cctx = library.libcrypt.pki.Context(certificates = [certificate])
+	sctx = library.libsecurity.pki.Context(key = key, certificates = [certificate])
+	cctx = library.libsecurity.pki.Context(certificates = [certificate])
 
 	client = cctx.connect(None)
 	server = sctx.accept()
