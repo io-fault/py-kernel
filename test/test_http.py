@@ -60,7 +60,7 @@ def test_fork(test):
 	test/r_close[0] == libio.FlowControl.terminate
 	test/True == (r_close[1] is layer)
 
-	test/layer / library.Request
+	test.isinstance(layer, library.Request)
 	test/layer.method == b'GET'
 	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
@@ -72,9 +72,9 @@ def test_fork(test):
 	test/r_open[0] == libio.FlowControl.initiate
 	test/r_close[0] == libio.FlowControl.terminate
 	test/True == (r_close[1] is layer)
-	test/layer / library.Request
+	test.isinstance(layer, library.Request)
 
-	test/layer / library.Request
+	test.isinstance(layer, library.Request)
 	test/layer.method == b'GET'
 	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
@@ -92,9 +92,9 @@ def test_fork(test):
 	test/r_open[0] == libio.FlowControl.initiate
 	test/r_close[0] == libio.FlowControl.terminate
 	test/True == (r_close[1] is layer)
-	test/layer / library.Request
+	test.isinstance(layer, library.Request)
 
-	test/layer / library.Request
+	test.isinstance(layer, library.Request)
 	test/layer.method == b'GET'
 	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'
@@ -162,7 +162,7 @@ def test_Protocol(test):
 	test/r_close[0] == libio.FlowControl.terminate
 	test/True == (r_close[1] is layer)
 
-	test/layer / library.Request
+	test.isinstance(layer, library.Request)
 	test/layer.method == b'GET'
 	test/layer.path == b'/test/fault.io.http'
 	test/layer.version == b'HTTP/1.1'

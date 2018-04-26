@@ -150,7 +150,7 @@ def test_Condition(test):
 def test_Inexorable(test):
 	inex = library.Inexorable
 	test/bool(inex) == False
-	test/inex / library.Condition
+	test.isinstance(inex, library.Condition)
 
 def test_FlowControl(test):
 	"""
@@ -597,7 +597,7 @@ def test_Division(test):
 	test/mitre.accepted[0][0] == 1
 	ctx()
 
-	test/mitre.accepted[0][1] / typing.Callable
+	test.isinstance(mitre.accepted[0][1], typing.Callable)
 	c = library.Collection.list()
 	S.dispatch(c)
 	x.process([(fc_xfer, 1, (b'data',))])
