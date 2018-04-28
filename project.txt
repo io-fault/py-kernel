@@ -1,0 +1,23 @@
+@protocol http://if.fault.io/structure/project
+
+/identity/
+	`http://fault.io/src/python/io`
+/product/
+	`http://fault.io/python/`
+/name/
+	`io`
+/abstract/
+	`Explicitly structured processing for managing complex applications`
+/icon/
+	- (emoji)`⚗`
+	- [(entity)`fault`:I/O]
+/versioning/
+	continuous
+/version/
+	&void
+/status/
+	flux
+/controller/
+	fault.io
+/contact/
+	http://fault.io/critical
