@@ -12,7 +12,7 @@ Transport = libsecurity.pki.Transport
 def operations(transport):
 	"""
 	# Construct the input and output operations used by &.library.Transports instances.
-	# All implementations accessible from &..cryptography expose the same features,
+	# All implementations accessible from &..security expose the same features,
 	# so &operations is implementation independent.
 	"""
 
