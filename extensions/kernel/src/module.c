@@ -923,7 +923,7 @@ interface_dealloc(PyObj self)
 	if (kif->kif_kqueue != -1)
 	{
 		close(kif->kif_kqueue);
-		PyErr_WarnFormat(PyExc_ResourceWarning, 0, MODULE_QPATH("Interface") " instance not voided before deallocation");
+		PyErr_WarnFormat(PyExc_ResourceWarning, 0, FACTOR_PATH("Interface") " instance not voided before deallocation");
 	}
 }
 
@@ -991,7 +991,7 @@ PyDoc_STRVAR(interface_doc,
 PyTypeObject
 InterfaceType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	MODULE_QPATH("Interface"),   /* tp_name */
+	FACTOR_PATH("Interface"),   /* tp_name */
 	sizeof(struct Interface),    /* tp_basicsize */
 	0,                           /* tp_itemsize */
 	interface_dealloc,           /* tp_dealloc */
