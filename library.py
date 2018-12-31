@@ -2252,12 +2252,16 @@ class Subprocess(Processor):
 			super().terminate(by=by)
 			self.sp_signal(15)
 
-	def interrupt(self, by=None):
+	def interrupt(self, by=None, send_signal=os.kill):
 		"""
 		# Interrupt the running processes by issuing a SIGKILL signal.
 		"""
 
-		self.sp_signal(9)
+		for pid in self.active_processes:
+			try:
+				send_signal(pid, 9)
+			except ProcessLookupError:
+				pass
 
 	def abort(self, by=None):
 		"""
