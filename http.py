@@ -39,9 +39,9 @@ def ranges(length, range_header):
 	# Generator producing the ranges specified by the given Range header.
 
 	# [ Parameters ]
-	# /length
+	# /length/
 		# The (http/header)`Content-Length` of the entity body being referenced.
-	# /range_header
+	# /range_header/
 		# The (http/header)`Range` to be converted to slices.
 	"""
 	if range_header is None:
@@ -81,17 +81,17 @@ class Layer(libio.Layer):
 
 	# [ Properties ]
 
-	# /cached_headers
+	# /cached_headers/
 		# The HTTP headers that will be available inside a &dict instance
 		# as well as the canonical header sequence that preserves order.
 
-	# /(&HeaderSequence)`header_sequence`
+	# /(&HeaderSequence)`header_sequence`/
 		# The sequence of headers.
 
-	# /(&dict)`headers`
+	# /(&dict)`headers`/
 		# The mapping of headers available in the &header_sequence.
 
-	# /channel
+	# /channel/
 		# The stream identifier. For HTTP/2.0, this identifies channel
 		# being used for facilitating the request or response.
 	"""
