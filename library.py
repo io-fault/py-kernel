@@ -2,7 +2,7 @@
 # Processor class hierarchy for managing explicitly structured processes.
 
 # [ Properties ]
-# /ProtocolTransactionEndpoint
+# /ProtocolTransactionEndpoint/
 	# The typing decorator that identifies receivers
 	# for protocol transactions. (Such as http requests or reponses.)
 """
@@ -521,15 +521,15 @@ class Join(object):
 
 	# [ Properties ]
 
-	# /dependencies
+	# /dependencies/
 		# The original set of processors as a dictionary mapping
 		# given names to the corresponding &Processor.
 
-	# /pending
+	# /pending/
 		# The current state of pending exits that must
 		# occur prior to the join-operation's completion.
 
-	# /callback
+	# /callback/
 		# The callable that is performed after the &pending
 		# set has been emptied; defined by &atexit.
 	"""
@@ -641,15 +641,15 @@ class Projection(object):
 
 	# [ Properties ]
 
-	# /entity
+	# /entity/
 		# The identity of the user, person, bot, or organization that is being represented.
-	# /credentials
+	# /credentials/
 		# The credentials provided to authenticate the user.
-	# /role
+	# /role/
 		# An effective entity identifier; an override for entity.
-	# /authorization
+	# /authorization/
 		# A set of authorization tokens for the systems that are being used by the entity.
-	# /device
+	# /device/
 		# An identifier for the device that is being used to facilitate the connection.
 	"""
 
@@ -670,12 +670,12 @@ class Layer(object):
 	# Base class for Layer Contexts
 
 	# [ Properties ]
-	# /(&bool)terminal
+	# /(&bool)terminal/
 		# Whether or not the Layer Context identifies itself as being
 		# the last to occur in a connection. Protocol routers use
 		# this to identify when to close input and output.
 
-	# /(&object)context
+	# /(&object)context/
 		# The context of the layer. In cases of protocols that support
 		# multiple channels, the layer's context provides channel metadata
 		# so that transaction handlers can identify its source.
@@ -689,11 +689,11 @@ class Resource(object):
 
 	# [ Properties ]
 
-	# /context
+	# /context/
 		# The execution context that can be used to enqueue tasks,
 		# and provides access to the root &Unit.
 
-	# /controller
+	# /controller/
 		# The &Resource containing this &Resource.
 	"""
 
@@ -830,7 +830,7 @@ class Processor(Resource):
 	# process interrupts (unix.signal)`SIGINT`.
 
 	# [ Properties ]
-	# /terminating
+	# /terminating/
 		# Whether the Processor is in a termination state. &None if
 		# the Processor was never terminating.
 
@@ -1593,16 +1593,16 @@ class Sector(Processor):
 
 	# [ Properties ]
 
-	# /processors
+	# /processors/
 		# A divided set of abstract processors currently running within a sector.
 		# The sets are divided by their type inside a &collections.defaultdict.
 
-	# /scheduler
+	# /scheduler/
 		# The Sector local schduler instance for managing recurrences and alarms
 		# configured by subresources. The exit of the Sector causes scheduled
 		# events to be dismissed.
 
-	# /exits
+	# /exits/
 		# Set of Processors that are currently exiting.
 		# &None if nothing is currently exiting.
 	"""
@@ -1857,10 +1857,12 @@ class Context(Processor):
 	# &Transaction sector containing the context.
 
 	# [ Properties ]
-	# /(&dict)xact_ctx_events
+
+	# /(&dict)xact_ctx_events/
 		# Storage for initialization event completion, and
 		# general storage area for the controlling &Transaction.
-	# /(&bool)xact_ctx_private
+
+	# /(&bool)xact_ctx_private/
 		# Whether the initialized Transaction is directly managing transactions
 		# created from uncontrolled sources.
 		# &None means that context privacy is irrelevant.
@@ -1923,7 +1925,8 @@ class Transaction(Sector):
 	# as opposed to defining Transactions in terms of a Sector.
 
 	# [ Properties ]
-	# /(&Context)xact_context
+
+	# /(&Context)xact_context/
 		# The Processor that will be dispatched to initialize the Transaction
 		# Sector and control its effect.
 	"""
@@ -1963,10 +1966,11 @@ class System(Transaction):
 	# processors.
 
 	# [ Properties ]
-	# /sys_identifier
+
+	# /sys_identifier/
 		# URL identifying the System's implementation.
 		# Ideally, a valid URL providing documentation.
-	# /sys_properties
+	# /sys_properties/
 		# Storage dictionary for System properties.
 		# Usually accessed using &sys_data for automatic initialization of data sets.
 	"""
@@ -2005,10 +2009,11 @@ class Transport(Context):
 	# and manage transport stack connectivity.
 
 	# [ Properties ]
-	# /(&bool)transport_contraint
+
+	# /(&bool)transport_contraint/
 		# Whether the transport is constrainted to `'input'` or `'output'`.
 		# &None if the transport is bidirectional.
-	# /(&tuple)transport_protocols
+	# /(&tuple)transport_protocols/
 		# The stack of protocols that manage the communications layers.
 		# &None if the stack is not being used with the channel.
 	"""
@@ -2611,7 +2616,8 @@ class Interface(Processor):
 	# dependencies without establishing connections.
 
 	# [ Properties ]
-	# /if_identifier
+
+	# /if_identifier/
 		# An identifier for the interface allowing Systems to be queried for particular
 		# interface types.
 	"""
@@ -2643,7 +2649,7 @@ class Network(Context):
 
 	# [ Properties ]
 
-	# /if_slot
+	# /if_slot/
 		# The set of interfaces that will source connections to be processed by
 		# this interface.
 	"""
@@ -2842,43 +2848,43 @@ class Flow(Processor):
 
 	# [ Properties ]
 
-	# /f_type
+	# /f_type/
 		# The flow type describing what the instance does.
 		# This property can be &None at the class level, but should be initialized
 		# when an instance is created.
 
-		# /(id)`source`
+		# /(id)`source`/
 			# Flow that primarily emits events for downstream processing.
-		# /(id)`terminal`
+		# /(id)`terminal`/
 			# Flow processes events, but emits nothing.
-		# /(id)`switch`
+		# /(id)`switch`/
 			# Flow that takes events and distributes their transformation
 			# to a mapping of receiving flows. (Diffusion)
-		# /(id)`join`
+		# /(id)`join`/
 			# Flow that receives events from a set of sources and combines
 			# them into a single stream.
-		# /(id)`transformer`
+		# /(id)`transformer`/
 			# Flow emits events strictly in response to processing. Transformers
 			# may buffer events as needed.
-		# /&None
+		# /&None/
 			# Unspecified type.
 
-	# /f_obstructions
-		# /&None
+	# /f_obstructions/
+		# /&None/
 			# No obstructions present.
-		# /&typing.Mapping
+		# /&typing.Mapping/
 			# The objects that are obstructing the &Flow from
 			# performing processing associated with the exact
 			# condition causing it.
 
-	# /f_monitors
+	# /f_monitors/
 		# The set of callbacks used to signal changes in the flow's
 		# &f_obstructed state.
 
-		# /&None
+		# /&None/
 			# No monitors watching the flow state.
 
-	# /f_downstream
+	# /f_downstream/
 		# The &Flow instance that receives events emitted by the instance
 		# holding the attribute.
 	"""
@@ -3386,27 +3392,27 @@ class Transports(Flow):
 
 	# [ Properties ]
 
-	# /tf_termination_index
+	# /tf_termination_index/
 		# Not Implemented.
 
-		# /(&int)`x > 0`
+		# /(&int)`x > 0`/
 			# The lowest index of the stack that has terminated
 			# in both directions. When &tf_termination_index is equal
 			# to `1`, the transports will reach a terminated
 			# state and the connected flows will receive terminate events.
-		# /&None
+		# /&None/
 			# No part of the stack has terminated.
 
-	# /tf_polarity
-		# /`-1`
+	# /tf_polarity/
+		# /`-1`/
 			# The transport is sending events out.
-		# /`+1`
+		# /`+1`/
 			# The transport is receiving events in.
 
-	# /tf_operations
+	# /tf_operations/
 		# The operations used to apply the layers for the respective direction.
 
-	# /operation_set
+	# /operation_set/
 		# Class-wide dictionary containing the functions
 		# needed to resolve the transport operations used by a layer.
 
@@ -4006,12 +4012,12 @@ class Catenation(Flow):
 
 	# [ Properties ]
 
-	# /cat_order
+	# /cat_order/
 		# Queue of &Layer instances dictating the order of the flows.
-	# /cat_connections
+	# /cat_connections/
 		# Mapping of connected &Flow instances to their corresponding
 		# queue, &Layer, and termination state.
-	# /cat_flows
+	# /cat_flows/
 		# Connection identifier mapping to a connected &Flow.
 	"""
 	f_type = 'join'
