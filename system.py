@@ -7,9 +7,10 @@
 # instances to cache access to &Context.enqueue.
 
 # [ Properties ]
-# /__process_index__
+
+# /__process_index__/
 	# Indirect association of &Proces and &Context
-# /__traffic_index__
+# /__traffic_index__/
 	# Indirect association of Logical Process objects and traffic Interchanges.
 	# Interchange holds references back to the process.
 """
@@ -250,14 +251,14 @@ class Context(object):
 
 		# [ Parameters ]
 
-		# /interface
+		# /interface/
 			# The &.library.Endpoint instance describing the interface to use for the
 			# connection.
 
-		# /endpoint
+		# /endpoint/
 			# The &.library.Endpoint instance describing the target of the connection.
 
-		# /protocols
+		# /protocols/
 			# A sequence of transport layers to use with the &.library.Transport instances.
 			# A &.library.Transport pair will be created even if &protocols is empty.
 			# This parameter might be merged into the mitre.
@@ -276,10 +277,10 @@ class Context(object):
 
 		# [ Parameters ]
 
-		# /endpoint
+		# /endpoint/
 			# The &.library.Endpoint instance describing the target of the connection.
 
-		# /protocols
+		# /protocols/
 			# A sequence of transport layers to use with the &.library.Transport instances.
 			# A &.library.Transport pair will be created even if &protocols is empty.
 			# This parameter might be merged into the mitre.
@@ -294,9 +295,9 @@ class Context(object):
 		# manage the connection's I/O.
 
 		# [ Parameters ]
-		# /fd
+		# /fd/
 			# The &.library.Endpoint instance describing the target of the connection.
-		# /protocols
+		# /protocols/
 			# A sequence of transport layers to use with the &.library.Transport instances.
 			# A &.library.Transport pair will be created even if &protocols is empty.
 			# This parameter might be merged into the mitre.
@@ -350,11 +351,13 @@ class Context(object):
 		# and construct a pair of &KernelPort instances to represent them inside a &Flow.
 
 		# [ Parameters ]
-		# /kports
+
+		# /kports/
 			# An iterable consisting of file descriptors referring to sockets.
 
 		# [ Returns ]
-		# /&Type
+
+		# /&Type/
 			# Iterable of pairs. First item of each pair being the interface's local endpoint,
 			# and the second being the &KernelPort instance.
 		"""
@@ -462,9 +465,9 @@ class Context(object):
 		# transferring memory segments.
 
 		# [ Parameters ]
-		# /path
+		# /path/
 			# Local filesystem path to read from.
-		# /range
+		# /range/
 			# A triple, (start, stop, size), or &None if the entire file should be used.
 			# Where size is the size of the memory slices to emit.
 		"""
@@ -564,7 +567,8 @@ class Process(object):
 	# are the mechanisms used to respond to child process exits signals.
 
 	# [ Properties ]
-	# /fabric
+
+	# /fabric/
 		# The &Fabric instance managing the threads controlled by the process.
 	"""
 
