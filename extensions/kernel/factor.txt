@@ -1,0 +1,9 @@
+! CONTEXT:
+	/protocol/
+		&<http://if.fault.io/project/factor>
+
+/type/
+	`extension`
+/symbols/
+	- `fault:c-interfaces`
+	- `python-extension`
