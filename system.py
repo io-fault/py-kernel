@@ -34,6 +34,7 @@ from .kernel import Interface as Kernel
 from ..system import process
 from ..system import thread
 from ..system import memory
+from ..system import execution as libexec
 from ..time import library as libtime
 
 __process_index__ = dict()
