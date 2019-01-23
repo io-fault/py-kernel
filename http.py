@@ -23,7 +23,7 @@ from ..routes import library as libroutes
 from ..internet import http as protocol
 from ..internet import media
 
-from ..system import libmemory
+from ..system import memory
 from . import library as libio
 
 length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
@@ -613,7 +613,7 @@ class IO(libio.Transport):
 		# The Segments instance needs to be retrieved from a cache.
 		"""
 
-		f = libio.Iteration(((x,) for x in libmemory.Segments.open(str(path))))
+		f = libio.Iteration(((x,) for x in memory.Segments.open(str(path))))
 		self.xact_dispatch(f)
 		self.xact_ctx_connect_output(f)
 

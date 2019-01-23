@@ -25,16 +25,15 @@ import typing
 import codecs
 import contextlib
 
-from ..system import library as libsys
+from ..system import execution as libexec
+from ..system import thread
 from ..system import files
 from ..system import process
-from ..system import libmemory
 
 from ..routes import library as libroutes
 from ..internet import ri
 from ..internet import library as libnet
 from ..time import library as libtime
-from ..computation import library as libc
 
 from . import system
 
@@ -2211,7 +2210,7 @@ class Subprocess(Processor):
 		"""
 
 		proc = self.context.process
-		delta = libsys.process_delta
+		delta = libexec.reap
 		track = proc.kernel.track
 		untrack = proc.kernel.untrack
 		callback = self.sp_exit
@@ -4587,7 +4586,7 @@ def execute(*identity, **units):
 	# import root function
 	process.control(spr.boot, ())
 
-_parallel_lock = libsys.create_lock()
+_parallel_lock = thread.amutex()
 @contextlib.contextmanager
 def parallel(*tasks, identity='parallel'):
 	"""
@@ -4605,7 +4604,7 @@ def parallel(*tasks, identity='parallel'):
 	_parallel_lock.acquire()
 	unit = None
 	try:
-		join = libsys.create_lock()
+		join = thread.amutex()
 		join.acquire()
 
 		inv = process.Invocation(lambda x: join.release())

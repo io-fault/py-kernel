@@ -31,8 +31,9 @@ import signal # masking SIGINT/SIGTERM in threads.
 from . import traffic
 from .kernel import Interface as Kernel
 
-from ..system import library as libsys # cpu and memory
-from ..system import libmemory
+from ..system import process
+from ..system import thread
+from ..system import memory
 from ..time import library as libtime
 
 __process_index__ = dict()
@@ -446,7 +447,7 @@ class Context(object):
 
 		return pid
 
-	def system_execute(self, invocation:libsys.KInvocation):
+	def system_execute(self, invocation:libexec.KInvocation):
 		"""
 		# Execute the &..system.library.KInvocation inheriting standard input, output, and error.
 
@@ -456,7 +457,7 @@ class Context(object):
 
 		return Subprocess(invocation())
 
-	def stream_shared_segments(self, path:str, range:tuple, *_, Segments=libmemory.Segments):
+	def stream_shared_segments(self, path:str, range:tuple, *_, Segments=memory.Segments):
 		"""
 		# Construct a new Flow with an initial Iterate Transformer
 		# flowing shared memory segments from the memory mapped file.
@@ -502,15 +503,15 @@ class Fabric(object):
 	def critical(self, controller, context, callable, *args):
 		"""
 		# Create a dedicated thread that is identified as a critical resource where exceptions
-		# trigger &libsys.Panic exceptions in the main thread.
+		# trigger &process.Panic exceptions in the main thread.
 
 		# The additional &context parameter is an arbitrary object describing the resource;
 		# often the object whose method is considered critical.
 		"""
 
-		self.spawn(weakref.ref(controller), libsys.critical, (context, callable) + args)
+		self.spawn(weakref.ref(controller), process.critical, (context, callable) + args)
 
-	def spawn(self, controller, callable, args, create_thread = libsys.create_thread):
+	def spawn(self, controller, callable, args, create_thread=thread.create):
 		"""
 		# Add a thread to the fabric.
 		# This expands the "parallel" capacity of a &Process.
@@ -519,14 +520,14 @@ class Fabric(object):
 		tid = create_thread(self.thread, (controller, (callable, args)))
 		return tid
 
-	def thread(self, *parameters, gettid = libsys.identify_thread):
+	def thread(self, *parameters, gettid=thread.identify):
 		"""
 		# Manage the execution of a thread.
 		"""
 		global signal
 
 		# Block INT and TERM from fabric threads.
-		# Necessary to allow libsys.protect()'s sleep function to
+		# Necessary to allow process.protect()'s sleep function to
 		# be interrupted when a signal is received.
 		signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
 
@@ -573,7 +574,7 @@ class Process(object):
 	"""
 
 	@staticmethod
-	def current(tid = libsys.identify_thread):
+	def current(tid=thread.identify):
 		"""
 		# Resolve the current logical process based on the thread's identifier.
 		# &None is returned if the thread was not created by a &Process.
@@ -592,7 +593,7 @@ class Process(object):
 		return __process_index__[self][None]
 
 	@classmethod
-	def spawn(Class, invocation, Unit, units, identity='root', critical=libsys.critical):
+	def spawn(Class, invocation, Unit, units, identity='root', critical=process.critical):
 		"""
 		# Construct a booted &Process using the given &invocation
 		# with the specified &Unit.
@@ -628,12 +629,12 @@ class Process(object):
 		# Returns a &.library.Subprocess instance referring to the Process-Id.
 		"""
 
-		return libsys.Fork.dispatch(self.boot, *tasks)
+		return process.Fork.dispatch(self.boot, *tasks)
 
 	def actuate(self, *tasks):
 		# kernel interface: watch process exits, process signals, and timers.
 		self.kernel = Kernel()
-		self.enqueue(*[functools.partial(libsys.critical, None, x) for x in tasks])
+		self.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
 		self.fabric.spawn(None, self.main, ())
 
 	def boot(self, main_thread_calls, *tasks):
@@ -643,18 +644,18 @@ class Process(object):
 		# Only used inside the main thread for the initialization of the
 		# controlling processor.
 		"""
-		global libsys
+		global process
 
 		if self.kernel is not None:
 			raise RuntimeError("already booted")
 
-		libsys.fork_child_cleanup.add(self.void)
+		process.fork_child_cleanup.add(self.void)
 		for boot_init_call in main_thread_calls:
 			boot_init_call()
 
 		self.actuate(*tasks)
 		# replace boot() with protect() for main thread protection/watchdog
-		libsys.Fork.substitute(libsys.protect)
+		process.Fork.substitute(process.protect)
 
 	def main(self):
 		"""
@@ -667,7 +668,7 @@ class Process(object):
 		except BaseException as critical_loop_exception:
 			self.error(self.loop, critical_loop_exception, title = "Task Loop")
 			raise
-			raise libsys.Panic("exception escaped process loop") # programming error in Process.loop
+			raise process.Panic("exception escaped process loop") # programming error in Process.loop
 
 	def terminate(self, exit=None):
 		"""
@@ -681,7 +682,7 @@ class Process(object):
 		if not __process_index__:
 			if exit is None:
 				# no exit provided, so use our own exit code
-				libsys.interject(libsys.SystemExit(250).raised)
+				process.interject(process.Exit(250).raised)
 			else:
 				self.invocation.exit(exit)
 
@@ -790,7 +791,7 @@ class Process(object):
 		nunits = len(__process_index__[self]) - 1
 
 		p = [
-			('pid', libsys.current_process_id),
+			('pid', process.current_process_id),
 			('tasks', ntasks),
 			('threads', len(self.fabric.threading)),
 			('units', nunits),
@@ -922,7 +923,7 @@ class Process(object):
 					# Defer read until system event connect.
 					# Might allow SIGCHLD support on linux.
 					event = ('process', event[1])
-					args = (event[1], libsys.process_delta(event[1]),)
+					args = (event[1], libexec.reap(event[1]),)
 					remove_entry = True
 				elif event[0] == 'alarm':
 					append(event[1])
