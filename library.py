@@ -4534,9 +4534,9 @@ def context(max_depth=None):
 
 def pipeline(sector, kpipeline, input=None, output=None):
 	"""
-	# Execute a &..system.library.KPipeline object building an IO instance
+	# Execute a &..system.execution.PInvocation object building an IO instance
 	# from the input and output file descriptors associated with the
-	# first and last processes as described by its &..system.library.Pipeline.
+	# first and last processes as described by its &..system.execution.Pipeline.
 
 	# Additionally, a mapping of standard errors will be produced.
 	# Returns a tuple, `(input, output, stderrs)`.

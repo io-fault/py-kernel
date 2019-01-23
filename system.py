@@ -388,7 +388,7 @@ class Context(object):
 
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
 		"""
-		# Execute the &..system.library.KInvocation instance with stdin and stdout closed.
+		# Execute the &..system.execution.KInvocation instance with stdin and stdout closed.
 
 		# Returns the process identifier and standard error's file descriptor as a tuple.
 		"""
@@ -420,7 +420,7 @@ class Context(object):
 
 	def daemon_stderr(self, stderr, invocation, close=os.close):
 		"""
-		# Execute the &..system.library.KInvocation instance with stdin and stdout closed.
+		# Execute the &..system.execution.KInvocation instance with stdin and stdout closed.
 		# The &stderr parameter will be passed in as the standard error file descriptor,
 		# and then *closed* before returning.
 
@@ -450,7 +450,7 @@ class Context(object):
 
 	def system_execute(self, invocation:libexec.KInvocation):
 		"""
-		# Execute the &..system.library.KInvocation inheriting standard input, output, and error.
+		# Execute the &..system.execution.KInvocation inheriting standard input, output, and error.
 
 		# This is used almost exclusively by shell-type processes where the calling process
 		# suspends TTY I/O until the child exits.

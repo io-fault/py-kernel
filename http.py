@@ -5,7 +5,7 @@
 # interfaces are managed by &..web.
 
 # [ Properties ]
-# /HeaderSequence
+# /HeaderSequence/
 	# Type annotation for the header sequence used by &Layer instances,
 	# &Layer.header_sequence.
 """
@@ -681,7 +681,7 @@ class IO(libio.Transport):
 
 	def io_connect_pipeline(self, kpipeline):
 		"""
-		# Connect the input and output to a &..system.library.KPipeline.
+		# Connect the input and output to a &..system.execution.PInvocation.
 		# Received data will be sent to the pipeline,
 		# and data emitted from the pipeline will be sent to the remote endpoint.
 		"""
