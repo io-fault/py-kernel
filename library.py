@@ -2232,7 +2232,7 @@ class Subprocess(Processor):
 					os.kill(pid, 0) # Looking for ESRCH errors.
 
 					d = delta(pid)
-					if d is not None:
+					if not d.running:
 						untrack(pid)
 						proc.system_event_disconnect(('process', pid))
 						self.sp_exit(pid, d)
