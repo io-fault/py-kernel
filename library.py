@@ -2218,7 +2218,7 @@ class Subprocess(Processor):
 				track(pid)
 				proc.system_event_connect(('process', pid), self, callback)
 			except OSError as err:
-				if err.errno != os.ESRCH:
+				if err.errno != errno.ESRCH:
 					raise
 				# Doesn't exist or already exited. Try to reap.
 				self.ctx_enqueue_task(functools.partial(callback, pid))
@@ -2253,7 +2253,7 @@ class Subprocess(Processor):
 				else:
 					finished = True
 			except OSError as err:
-				if err.errno != os.ESRCH:
+				if err.errno != errno.ESRCH:
 					raise
 				untrack(pid)
 				proc.system_event_disconnect(('process', pid))
