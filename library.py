@@ -39,37 +39,6 @@ from . import system
 
 __shortname__ = 'libio'
 
-#ref://reflectd.idx/index-entry?qtl=10#resolution.status.data
-	#http://hostname/path/to/resource
-		# qtl: Query Time Limit (seconds)
-		#octets://gai.ai/domain.name?service=http&timeout|qtl=10#record-count-of-resolution
-
-		#if://path.ri/path/to/app
-		#if://machine/32:14:...:FA
-		#if://v4.ip/87.34.55.1
-		#if://address-space:system-ref/address
-		#if://.../127/0/1
-		#if://v6.ip:system-ref/::1
-		#transport://octets/80
-		#transport://http/host/path/to/interface
-		#octets://ip/::1
-		#octets://v6.ip:80/::1#fd
-		#octets://v4.ip:5555/127.0.0.1#fd
-		#octets://v1-2.tls/context-name#<STATUS>, context
-		#octets+flows://http/?constraints config [transformation]
-		#datagrams://...
-
-		#octets://port.kernel/socket#fd
-		#octets://port.kernel/input#fd
-		#octets://port.kernel/output#fd
-
-		#flows://v1-1.http/?constraints config [transformation]
-		#flows://host/...
-
-	#octets://file.kernel/input (path)
-	#octets://file.kernel/output/overwrite (path)
-	#octets://file.kernel/output/append (path)
-
 def parse_transport_indicator(ti:str, port = None):
 	"""
 	# Parse a Transport Indicator for constructing connection templates.
@@ -166,11 +135,11 @@ def endpoint(type:str, address:str, port:object):
 	# Endpoint constructor for fault.io applicaitons.
 
 	# [ Samples ]
-	# /IPv4
+	# /IPv4/
 		# `libio.endpoint('ip4', '127.0.0.1', 80)`
-	# /IPv6
+	# /IPv6/
 		# `libio.endpoint('ip6', '::1', 80)`
-	# /Local
+	# /Local/
 		# `libio.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
@@ -596,7 +565,7 @@ class Join(object):
 
 		# [ Parameters ]
 
-		# /callback
+		# /callback/
 			# The task to perform when all the dependencies have exited.
 		"""
 
@@ -1164,7 +1133,7 @@ class Call(Processor):
 		# direct initialization is better.
 
 		# [ Parameters ]
-		# /call
+		# /call/
 			# The callable to enqueue during actuation of the &Processor.
 		"""
 		self.source = call
@@ -2680,7 +2649,7 @@ class Network(Context):
 
 		# [ Parameters ]
 
-		# /slot
+		# /slot/
 			# The slot to acquire from the &Ports instance assigned to "/dev/ports".
 		"""
 		super().__init__()
@@ -2734,9 +2703,9 @@ class Network(Context):
 		# Spawn connections from the socket file descriptors sent from the upstream.
 
 		# [ Parameters ]
-		# /packet
+		# /packet/
 			# The sequence of sequences containing Kernel Port references (file descriptors).
-		# /transports
+		# /transports/
 			# The transport layers to configure &Transports transformers with.
 
 		# [ Effects ]
@@ -2769,12 +2738,12 @@ class Condition(object):
 
 	def __init__(self, focus, path, parameter = None):
 		"""
-		# [Parameters]
-		# /focus
+		# [ Parameters ]
+		# /focus/
 			# The root object that is safe to reference
-		# /path
+		# /path/
 			# The sequence of attributes to resolve relative to the &focus.
-		# /parameter
+		# /parameter/
 			# Determines the condition is a method and should be given this
 			# as its sole parameter. &None indicates that the condition is a property.
 		"""
@@ -3257,7 +3226,7 @@ class Iteration(Flow):
 		"""
 		# [ Parameters ]
 
-		# /iterator
+		# /iterator/
 			# The iterator that produces events.
 		"""
 
