@@ -2210,15 +2210,28 @@ class Subprocess(Processor):
 		"""
 
 		proc = self.context.process
-		delta = libexec.reap
 		track = proc.kernel.track
-		untrack = proc.kernel.untrack
 		callback = self.sp_exit
 
-		# Track it first.
 		for pid in self.active_processes:
-			track(pid)
-			proc.system_event_connect(('process', pid), self, callback)
+			try:
+				track(pid)
+				proc.system_event_connect(('process', pid), self, callback)
+			except OSError as err:
+				if err.errno != os.ESRCH:
+					raise
+				# Doesn't exist or already exited. Try to reap.
+				self.ctx_enqueue_task(functools.partial(callback, pid))
+
+	def check(self):
+		"""
+		# Initialize the system event callbacks for receiving process exit events.
+		"""
+
+		proc = self.context.process
+		reap = libexec.reap
+		untrack = proc.kernel.untrack
+		callback = self.sp_exit
 
 		# Validate that the process exists; it may have exited before .track() above.
 		# Apparently macos has a race condition here and a process that has exited
@@ -2231,7 +2244,7 @@ class Subprocess(Processor):
 				for pid in proc_set:
 					os.kill(pid, 0) # Looking for ESRCH errors.
 
-					d = delta(pid)
+					d = reap(pid)
 					if not d.running:
 						untrack(pid)
 						proc.system_event_disconnect(('process', pid))
@@ -2244,7 +2257,7 @@ class Subprocess(Processor):
 					raise
 				untrack(pid)
 				proc.system_event_disconnect(('process', pid))
-				self.sp_exit(pid, delta(pid))
+				self.sp_exit(pid, reap(pid))
 
 	def terminate(self, by=None):
 		"""
