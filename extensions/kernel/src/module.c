@@ -328,7 +328,7 @@ interface_track(PyObj self, PyObj args)
 	kev.filter = EVFILT_PROC;
 	kev.fflags = NOTE_EXIT;
 
-	if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 1, &ts))
+	if (!interface_kevent(kif, 1, &nkevents, &kev, 1, &kev, 0, &ts))
 	{
 		PyErr_SetFromErrno(PyExc_OSError);
 		return(NULL);
