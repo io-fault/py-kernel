@@ -2221,7 +2221,7 @@ class Subprocess(Processor):
 				if err.errno != errno.ESRCH:
 					raise
 				# Doesn't exist or already exited. Try to reap.
-				self.ctx_enqueue_task(functools.partial(callback, pid))
+				self.ctx_enqueue_task(functools.partial(callback, pid, libexec.reap(pid)))
 
 	def check(self):
 		"""
