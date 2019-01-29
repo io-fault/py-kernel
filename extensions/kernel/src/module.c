@@ -218,7 +218,7 @@ interface_init(Interface kif)
 	}
 
 	/*
-		// Init USER filter for wait() interruptions.
+		# Init USER filter for wait() interruptions.
 	*/
 	kev.udata = (void *) kif;
 	kev.ident = (uintptr_t) kif;
@@ -525,8 +525,8 @@ interface_alarm(PyObj self, PyObj args, PyObj kw)
 	int note;
 
 	/*
-	 * (link_object, period, unit)
-	 */
+		# (link_object, period, unit)
+	*/
 	if (!PyArg_ParseTupleAndKeywords(args, kw, "Ok|C", (char **) kwlist, &link, &l, &unit))
 		return(NULL);
 
@@ -991,45 +991,45 @@ PyDoc_STRVAR(interface_doc,
 PyTypeObject
 InterfaceType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
-	FACTOR_PATH("Interface"),   /* tp_name */
-	sizeof(struct Interface),    /* tp_basicsize */
-	0,                           /* tp_itemsize */
-	interface_dealloc,           /* tp_dealloc */
-	NULL,                        /* tp_print */
-	NULL,                        /* tp_getattr */
-	NULL,                        /* tp_setattr */
-	NULL,                        /* tp_compare */
-	NULL,                        /* tp_repr */
-	NULL,                        /* tp_as_number */
-	NULL,                        /* tp_as_sequence */
-	NULL,                        /* tp_as_mapping */
-	NULL,                        /* tp_hash */
-	NULL,                        /* tp_call */
-	NULL,                        /* tp_str */
-	NULL,                        /* tp_getattro */
-	NULL,                        /* tp_setattro */
-	NULL,                        /* tp_as_buffer */
+	FACTOR_PATH("Interface"),     /* tp_name */
+	sizeof(struct Interface),     /* tp_basicsize */
+	0,                            /* tp_itemsize */
+	interface_dealloc,            /* tp_dealloc */
+	NULL,                         /* tp_print */
+	NULL,                         /* tp_getattr */
+	NULL,                         /* tp_setattr */
+	NULL,                         /* tp_compare */
+	NULL,                         /* tp_repr */
+	NULL,                         /* tp_as_number */
+	NULL,                         /* tp_as_sequence */
+	NULL,                         /* tp_as_mapping */
+	NULL,                         /* tp_hash */
+	NULL,                         /* tp_call */
+	NULL,                         /* tp_str */
+	NULL,                         /* tp_getattro */
+	NULL,                         /* tp_setattro */
+	NULL,                         /* tp_as_buffer */
 	Py_TPFLAGS_BASETYPE|
 	Py_TPFLAGS_HAVE_GC|
-	Py_TPFLAGS_DEFAULT,          /* tp_flags */
-	interface_doc,               /* tp_doc */
-	interface_traverse,          /* tp_traverse */
-	interface_clear,             /* tp_clear */
-	NULL,                        /* tp_richcompare */
-	0,                           /* tp_weaklistoffset */
-	NULL,                        /* tp_iter */
-	NULL,                        /* tp_iternext */
-	interface_methods,           /* tp_methods */
-	interface_members,           /* tp_members */
-	NULL,                        /* tp_getset */
-	NULL,                        /* tp_base */
-	NULL,                        /* tp_dict */
-	NULL,                        /* tp_descr_get */
-	NULL,                        /* tp_descr_set */
-	0,                           /* tp_dictoffset */
-	NULL,                        /* tp_init */
-	NULL,                        /* tp_alloc */
-	interface_new,               /* tp_new */
+	Py_TPFLAGS_DEFAULT,           /* tp_flags */
+	interface_doc,                /* tp_doc */
+	interface_traverse,           /* tp_traverse */
+	interface_clear,              /* tp_clear */
+	NULL,                         /* tp_richcompare */
+	0,                            /* tp_weaklistoffset */
+	NULL,                         /* tp_iter */
+	NULL,                         /* tp_iternext */
+	interface_methods,            /* tp_methods */
+	interface_members,            /* tp_members */
+	NULL,                         /* tp_getset */
+	NULL,                         /* tp_base */
+	NULL,                         /* tp_dict */
+	NULL,                         /* tp_descr_get */
+	NULL,                         /* tp_descr_set */
+	0,                            /* tp_dictoffset */
+	NULL,                         /* tp_init */
+	NULL,                         /* tp_alloc */
+	interface_new,                /* tp_new */
 };
 
 #define PYTHON_TYPES() \
@@ -1050,7 +1050,7 @@ INIT(PyDoc_STR("Kernel interfaces for supporting nucleus based process managemen
 		if (PyModule_AddObject(mod, #NAME, (PyObj) &( NAME##Type )) < 0) \
 			goto error;
 
-	PYTHON_TYPES()
+		PYTHON_TYPES()
 	#undef ID
 
 	return(mod);
