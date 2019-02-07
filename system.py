@@ -846,7 +846,7 @@ class Process(object):
 			except BaseException as e:
 				self.error(task, e, title = 'Maintenance',)
 
-	def loop(self, len=len, partial=functools.partial, BaseException=BaseException):
+	def loop(self, partial=functools.partial, BaseException=BaseException):
 		"""
 		# Internal loop that processes the task queue. Executed by &boot in a thread
 		# managed by &fabric.
@@ -891,7 +891,7 @@ class Process(object):
 			ix.activity()
 
 			events = ()
-			waiting = (len(nwq) == 0 and len(cwq) == 0)
+			waiting = (not nwq and not cwq) # both are empty.
 
 			if self._tq_maintenance and (waiting or self.cycle % self.maintenance_frequency == 0):
 				# it's going to wait, so run maintenance
