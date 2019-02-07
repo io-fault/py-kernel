@@ -49,14 +49,14 @@ typedef struct kevent kevent_t; /* kernel event description */
 	SIGNAME(SIGUSR1) \
 	SIGNAME(SIGURG)
 
-/*
+/**
 	# SIGPOLL is POSIX+XSI and is apparently ignored on Darwin.
 	# SIGURG is apparently widely available.
 	# SIGIO doesn't exist on Linux.
 	# SIGINFO is only available on Darwin and BSD.
 */
 
-/*
+/**
 	# SIGNAME(SIGUSR2)
 
 	# SIGUSR2 is used to interrupt the main thread. This is used
@@ -395,7 +395,7 @@ interface_force(PyObj self)
 
 	/**
 		# Ignore force if we're not waiting or have already forced.
-	**/
+	*/
 	if (kif->kif_waiting > 0)
 	{
 		kev.udata = (void *) kif;
@@ -826,6 +826,10 @@ interface_wait(PyObj self, PyObj args)
 		if (PySet_Clear(kif->kif_cancellations))
 		{
 			/* error? Documentation (3.5) doesn't state error code. */
+			/*
+				# XXX: Exception needs to be communicated on a side channel.
+					# Destroying the collected events is dangerous.
+			*/
 			Py_DECREF(rob);
 			return(NULL);
 		}

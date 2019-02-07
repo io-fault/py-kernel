@@ -557,10 +557,10 @@ class Fabric(object):
 
 class Process(object):
 	"""
-	# The representation of the system process running Python. Usually referred
+	# The representation of the system process that is running. Usually referred
 	# to as `process` by &Context and other classes.
 
-	# Usually only one &Representation is active per-process, but it can be reasonable to launch multiple
+	# Usually only one &Process is active per-process, but it can be reasonable to launch multiple
 	# in order to perform operations that would otherwise expect its own space.
 
 	# [ System Events ]

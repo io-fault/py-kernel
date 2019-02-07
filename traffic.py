@@ -14,10 +14,10 @@
 
 # [ Properties ]
 
-# /allocate
+# /allocate/
 	# Access to &..traffic.kernel.Junction.rallocate for Transit allocations.
 
-# /adapter
+# /adapter/
 	# The &library.Adapter instance used by &.process.Representation to manage I/O events.
 """
 

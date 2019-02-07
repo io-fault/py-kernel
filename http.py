@@ -201,7 +201,7 @@ class Layer(libio.Layer):
 	)
 
 	@property
-	def connection(self):
+	def connection(self) -> bytes:
 		"""
 		# Return the connection header stripped and lowered or `b''` if no header present.
 		"""
@@ -556,7 +556,7 @@ class IO(libio.Transport):
 			res.add_header(b'Connection', b'close')
 
 		res.add_header(b'Location', location.encode('ascii'))
-		res.initiate((b'HTTP/1.1', b'302', b'Found'))
+		res.initiate((b'HTTP/1.1', b'302', b'Found')) # XXX: Refer to connection version.
 		self.io_write_null()
 
 	def http_response_content(self, cotype:bytes, colength:int):
@@ -606,7 +606,7 @@ class IO(libio.Transport):
 		# The response must be properly initialized before invoking this method.
 
 		# [ Parameters ]
-		# /path
+		# /path/
 			# A string containing the file's path.
 
 		# [ Engineering ]
@@ -912,7 +912,7 @@ class Protocol(object):
 
 	# [ Properties ]
 
-	# /overflow
+	# /overflow/
 		# Transfers that occurred past protocol boundaries. Used during protocol
 		# switching to properly maintain state.
 	"""
@@ -1005,11 +1005,11 @@ class Client(libio.Mitre):
 
 		# [ Parameters ]
 
-		# /receiver
+		# /receiver/
 			# The callback to be performed when a response for the request is received.
-		# /layer
+		# /layer/
 			# The request layer context. &Request.
-		# /flow
+		# /flow/
 			# The request body to be emittted. &None if there is no body to send.
 		"""
 
