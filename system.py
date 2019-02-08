@@ -29,8 +29,8 @@ import typing
 import signal # masking SIGINT/SIGTERM in threads.
 
 from . import traffic
-from .kernel import Interface as Kernel
 
+from ..system.events import Interface as Kernel
 from ..system import process
 from ..system import thread
 from ..system import memory
@@ -711,7 +711,7 @@ class Process(object):
 
 		self._logfile = sys.stderr
 
-		# .kernel.Interface instance
+		# f.system.events.Interface instance
 		self.kernel = None
 
 		self._init_exit()
