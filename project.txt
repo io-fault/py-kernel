@@ -7,14 +7,14 @@
 /name/
 	`io`
 /abstract/
-	Explicitly structured processing for managing complex applications
+	Application framework core for explicitly structured processes.
 /icon/
 	- (emoji)`⚗`
 
 /versioning/
 	continuous
 /status/
-	flux
+	volatile
 
 /controller/
 	fault.io
