@@ -5,12 +5,12 @@
 """
 
 import socket # getaddrinfo
-from . import library as libio
+from . import library as libkernel
 
 from ..internet import ri
 from ..internet import library as libi
 
-class DNS(libio.Context):
+class DNS(libkernel.Context):
 	"""
 	# Library managing the dispatch of DNS queries.
 	"""
@@ -27,7 +27,7 @@ class DNS(libio.Context):
 
 	def actuate(self):
 		super().actuate()
-		t = libio.Thread()
+		t = libkernel.Thread()
 		t.requisite(self.process_query)
 
 def service(service_name):

@@ -1,10 +1,8 @@
-"""
-"""
 import itertools
 
 from .. import security as library
 
-from .. import library as libio
+from .. import library as libkernel
 from . import library as libtest
 
 key = b"""
@@ -78,13 +76,13 @@ def test_Transports_io(test, chain=itertools.chain):
 	client = cctx.connect(None)
 	server = sctx.accept()
 
-	cti, cto = libio.Transports.create((client,))
-	cc = libio.Collection.list()
+	cti, cto = libkernel.Transports.create((client,))
+	cc = libkernel.Collection.list()
 
-	sti, sto = libio.Transports.create((server,))
-	sc = libio.Collection.list()
+	sti, sto = libkernel.Transports.create((server,))
+	sc = libkernel.Collection.list()
 
-	sector = libio.Sector()
+	sector = libkernel.Sector()
 	io_root.process(sector)
 	sector.process([sc, cc, cti, cto, sti, sto])
 	sti.f_connect(sc)

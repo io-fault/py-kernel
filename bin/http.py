@@ -16,7 +16,7 @@ import functools
 import collections
 import operator
 
-from .. import library as libio
+from .. import library as libkernel
 
 from .. import http
 from .. import command
@@ -64,13 +64,13 @@ def response_endpoint(protocol, request, response, connect):
 
 	with sector.allocate() as xact:
 		file = open('/dev/stderr', 'wb')
-		fe = xact.flow((libio.Iterate(), libio.Parallel()))
+		fe = xact.flow((libkernel.Iterate(), libkernel.Parallel()))
 		fe.sequence[0].requisite(terminal=True)
 		fe.sequence[1].requisite(output_thread, file)
 
 		if connect is not None:
 			file = open('/dev/stdout', 'wb')
-			fo = xact.flow((libio.Iterate(), libio.Parallel()))
+			fo = xact.flow((libkernel.Iterate(), libkernel.Parallel()))
 			fo.sequence[-1].requisite(output_thread, file)
 			sector.dispatch(fo)
 			fe.atexit(functools.partial(emitted_headers, sector, fo, connect))
@@ -88,7 +88,7 @@ def main(sector):
 	headers = list(zip(options[0::2], options[1::2]))
 	provided = set(x[0] for x in headers)
 
-	endpoint = libio.endpoint(protocol, endpoint, port)
+	endpoint = libkernel.endpoint(protocol, endpoint, port)
 
 	req = http.Request()
 	req.initiate((method.encode('ascii'), path.encode('utf-8'), b'HTTP/1.1'))
@@ -107,7 +107,7 @@ def main(sector):
 	if req.content:
 		with sector.allocate() as xact:
 			file = open('/dev/stdin', 'rb')
-			fi = xact.flow((libio.Parallel(),))
+			fi = xact.flow((libkernel.Parallel(),))
 			fi.sequence[0].requisite(input_thread, file)
 		sector.dispatch(fi)
 	else:

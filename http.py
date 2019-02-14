@@ -24,7 +24,7 @@ from ..internet import http as protocol
 from ..internet import media
 
 from ..system import memory
-from . import library as libio
+from . import library as libkernel
 
 length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
 length_strings = libc.compose(operator.methodcaller('encode', 'utf-8'), str, sum, functools.partial(map,len))
@@ -74,7 +74,7 @@ def ranges(length, range_header):
 
 			yield (decode_number(start), stop)
 
-class Layer(libio.Layer):
+class Layer(libkernel.Layer):
 	"""
 	# The HTTP layer of a connection; superclass of &Request and &Response that provide
 	# access to the parameters of a &Transaction.
@@ -460,7 +460,7 @@ class Response(Layer):
 	def OK(self, version=b'HTTP/1.1'):
 		self.initiate((version, b'200', b'OK'))
 
-class IO(libio.Transport):
+class IO(libkernel.Transport):
 	"""
 	# HTTP Transaction Context.
 	"""
@@ -483,14 +483,14 @@ class IO(libio.Transport):
 	def terminate(self, by=None):
 		self.exit()
 
-	def io_connect_input(self, flow:libio.Flow):
+	def io_connect_input(self, flow:libkernel.Flow):
 		r = self._xc_ci(flow)
 		del self._xc_ci
 		if self._xc_co is None:
 			self.terminate()
 	xact_ctx_connect_input = io_connect_input
 
-	def io_connect_output(self, flow:libio.Flow):
+	def io_connect_output(self, flow:libkernel.Flow):
 		r = self._xc_co(flow)
 		del self._xc_co
 		if self._xc_ci is None:
@@ -504,7 +504,7 @@ class IO(libio.Transport):
 		# Primarily used for performance testing.
 		"""
 
-		f = libio.Flow()
+		f = libkernel.Flow()
 		self.xact_dispatch(f)
 		self.xact_ctx_connect_output(f)
 		self.xact_ctx_connect_input(f)
@@ -570,14 +570,14 @@ class IO(libio.Transport):
 
 	def io_iterate_output(self, iterator:typing.Iterable):
 		"""
-		# Construct a Flow consisting of a single &libio.Iterate instance
+		# Construct a Flow consisting of a single &libkernel.Iterate instance
 		# used to stream output to the connection protocol state.
 
-		# The &libio.Flow will be dispatched into the &Connection for proper
+		# The &libkernel.Flow will be dispatched into the &Connection for proper
 		# fault isolation in cases that the iterator produces an exception.
 		"""
 
-		f = libio.Iteration(iterator)
+		f = libkernel.Iteration(iterator)
 		self.xact_dispatch(f)
 		self.response.initiate((self.request.version, b'200', b'OK'))
 		self.xact_ctx_connect_output(f)
@@ -613,7 +613,7 @@ class IO(libio.Transport):
 		# The Segments instance needs to be retrieved from a cache.
 		"""
 
-		f = libio.Iteration(((x,) for x in memory.Segments.open(str(path))))
+		f = libkernel.Iteration(((x,) for x in memory.Segments.open(str(path))))
 		self.xact_dispatch(f)
 		self.xact_ctx_connect_output(f)
 
@@ -625,12 +625,12 @@ class IO(libio.Transport):
 		# the given callback when the entity body has been transferred.
 
 		# This should only be used when connecting to trusted hosts as
-		# a &libio.Collection instance is used to buffer the entire
+		# a &libkernel.Collection instance is used to buffer the entire
 		# entire result. This risk can be mitigated by injecting
-		# a &libio.Constraint into the Flow.
+		# a &libkernel.Constraint into the Flow.
 		"""
 
-		f = libio.Collection.buffer()
+		f = libkernel.Collection.buffer()
 		self.xact_dispatch(f)
 		f.atexit(callback)
 		self.xact_ctx_connect_input(f)
@@ -707,12 +707,12 @@ def join(
 		repeat=itertools.repeat,
 		zip=zip,
 
-		fc_initiate=libio.FlowControl.initiate,
-		fc_terminate=libio.FlowControl.terminate,
-		fc_transfer=libio.FlowControl.transfer,
+		fc_initiate=libkernel.FlowControl.initiate,
+		fc_terminate=libkernel.FlowControl.terminate,
+		fc_transfer=libkernel.FlowControl.transfer,
 	):
 	"""
-	# Join &libio.Catenate flow events into a proper HTTP stream.
+	# Join &libkernel.Catenate flow events into a proper HTTP stream.
 	"""
 
 	serializer = protocol.assembly()
@@ -774,13 +774,13 @@ def fork(
 		EOM=protocol.EOM,
 		iter=iter, map=map, len=len,
 		chain=itertools.chain.from_iterable,
-		fc_initiate=libio.FlowControl.initiate,
-		fc_terminate=libio.FlowControl.terminate,
-		fc_transfer=libio.FlowControl.transfer,
-		fc_overflow=libio.FlowControl.overflow,
+		fc_initiate=libkernel.FlowControl.initiate,
+		fc_terminate=libkernel.FlowControl.terminate,
+		fc_transfer=libkernel.FlowControl.transfer,
+		fc_overflow=libkernel.FlowControl.overflow,
 	):
 	"""
-	# Split an HTTP stream into flow events for use by &libio.Division.
+	# Split an HTTP stream into flow events for use by &libkernel.Division.
 	"""
 
 	tokenizer = protocol.disassembly()
@@ -908,7 +908,7 @@ def fork(
 
 class Protocol(object):
 	"""
-	# Stack object for &libio.Transports.
+	# Stack object for &libkernel.Transports.
 
 	# [ Properties ]
 
@@ -927,7 +927,7 @@ class Protocol(object):
 
 	@property
 	def open_transactions(self):
-		return self.status[libio.FlowControl.initiate] - self.status[libio.FlowControl.terminate]
+		return self.status[libkernel.FlowControl.initiate] - self.status[libkernel.FlowControl.terminate]
 
 	@property
 	def terminated(self):
@@ -963,9 +963,9 @@ class Protocol(object):
 		f = (False).__bool__
 		return ((http.fork, f, f), (http.join, f, f))
 
-libio.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
+libkernel.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
 
-class Client(libio.Mitre):
+class Client(libkernel.Mitre):
 	"""
 	# Mitre initiating requests for an HTTP Connection.
 	"""
@@ -995,9 +995,9 @@ class Client(libio.Mitre):
 			rec(self, req[1], *res)
 
 	def m_request(self,
-			receiver:libio.ProtocolTransactionEndpoint,
+			receiver:libkernel.ProtocolTransactionEndpoint,
 			layer:Request,
-			flow:libio.Flow=None
+			flow:libkernel.Flow=None
 		):
 		"""
 		# Emit an HTTP request. The corresponding response will be joined to form a
@@ -1017,7 +1017,7 @@ class Client(libio.Mitre):
 		self.m_requests.append((receiver, layer))
 		connect(flow)
 
-class Server(libio.Mitre):
+class Server(libkernel.Mitre):
 	"""
 	# Mitre managing incoming server connections for HTTP.
 	"""
@@ -1041,7 +1041,7 @@ class Server(libio.Mitre):
 		for req, res in zip(events, responses):
 			ts = libtime.now()
 			io = IO(req[0], res[0], req[1], res[1], self.m_reference)
-			iox = libio.Transaction.create(io)
+			iox = libkernel.Transaction.create(io)
 
 			datetime = ts.select('rfc').encode('utf-8')
 			io.response.add_header(b'Date', datetime)

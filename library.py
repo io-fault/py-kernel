@@ -37,7 +37,7 @@ from ..time import library as libtime
 
 from . import system
 
-__shortname__ = 'libio'
+__shortname__ = 'libkernel'
 
 def parse_transport_indicator(ti:str, port = None):
 	"""
@@ -136,11 +136,11 @@ def endpoint(type:str, address:str, port:object):
 
 	# [ Samples ]
 	# /IPv4/
-		# `libio.endpoint('ip4', '127.0.0.1', 80)`
+		# `libkernel.endpoint('ip4', '127.0.0.1', 80)`
 	# /IPv6/
-		# `libio.endpoint('ip6', '::1', 80)`
+		# `libkernel.endpoint('ip6', '::1', 80)`
 	# /Local/
-		# `libio.endpoint('local', '/directory/path/to', 'socket_file')`
+		# `libkernel.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
 	return endpoint_classes[type](address, port)
@@ -3893,11 +3893,11 @@ class Null(Flow):
 		pass
 
 	def subresource(*args):
-		raise Exception("libio.Null cannot be acquired")
+		raise Exception("libkernel.Null cannot be acquired")
 	def atexit(*args):
-		raise Exception("libio.Null never exits")
+		raise Exception("libkernel.Null never exits")
 	def f_null_obstructions(*args):
-		raise Exception("libio.Null is never obstructed")
+		raise Exception("libkernel.Null is never obstructed")
 	f_clear = f_null_obstructions
 	f_obstruct = f_null_obstructions
 
@@ -4551,7 +4551,7 @@ def execute(*identity, **units):
 	# &.command.
 
 	# #!/pl/python
-		libio.execute(unit_name = (unit_initialization,))
+		libkernel.execute(unit_name = (unit_initialization,))
 
 	# Creates a &Unit instance that is passed to the initialization function where
 	# its hierarchy is then populated with &Sector instances.

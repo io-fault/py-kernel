@@ -1,7 +1,7 @@
 import itertools
 import json
 from .. import http as library
-from .. import library as libio
+from .. import library as libkernel
 from . import library as libtest
 
 def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.io.http', method=b'GET',
@@ -56,8 +56,8 @@ def test_fork(test):
 	g.send(None)
 	r_open, r_close = list(g.send(req()))
 	layer = r_open[1]
-	test/r_open[0] == libio.FlowControl.initiate
-	test/r_close[0] == libio.FlowControl.terminate
+	test/r_open[0] == libkernel.FlowControl.initiate
+	test/r_close[0] == libkernel.FlowControl.terminate
 	test/True == (r_close[1] is layer)
 
 	test.isinstance(layer, library.Request)
@@ -69,8 +69,8 @@ def test_fork(test):
 	# Content-Length body.
 	r_open, *body, r_close = list(g.send(req(body=b'content')))
 	layer = r_open[1]
-	test/r_open[0] == libio.FlowControl.initiate
-	test/r_close[0] == libio.FlowControl.terminate
+	test/r_open[0] == libkernel.FlowControl.initiate
+	test/r_close[0] == libkernel.FlowControl.terminate
 	test/True == (r_close[1] is layer)
 	test.isinstance(layer, library.Request)
 
@@ -89,8 +89,8 @@ def test_fork(test):
 	# Chunked body.
 	r_open, *body, r_close = list(g.send(req((b'Connection', b'close'), chunks=(b'first\n', b'second\n'))))
 	layer = r_open[1]
-	test/r_open[0] == libio.FlowControl.initiate
-	test/r_close[0] == libio.FlowControl.terminate
+	test/r_open[0] == libkernel.FlowControl.initiate
+	test/r_close[0] == libkernel.FlowControl.terminate
 	test/True == (r_close[1] is layer)
 	test.isinstance(layer, library.Request)
 
@@ -135,20 +135,20 @@ def test_Protocol(test):
 	Validate requests without bodies, sized bodies, and chunked transfers.
 
 	More of an integration test as its purpose is to tie &library.fork and
-	&library.join together for use with &libio.Transports.
+	&library.join together for use with &libkernel.Transports.
 	"""
 
 	ctx = libtest.Context()
 	ctl = libtest.Root()
-	S = libio.Sector()
+	S = libkernel.Sector()
 	S.context = ctx
 	S.controller = ctl
 	S.actuate()
 
 	http = library.Protocol.server()
-	fi, fo = libio.Transports.create((http,))
-	ic = libio.Collection.list()
-	oc = libio.Collection.list()
+	fi, fo = libkernel.Transports.create((http,))
+	ic = libkernel.Collection.list()
+	oc = libkernel.Collection.list()
 
 	S.process((fi, fo, ic, oc))
 	fi.f_connect(ic)
@@ -158,8 +158,8 @@ def test_Protocol(test):
 	fi.process(req())
 	r_open, r_close = ic.c_storage[0]
 	layer = r_open[1]
-	test/r_open[0] == libio.FlowControl.initiate
-	test/r_close[0] == libio.FlowControl.terminate
+	test/r_open[0] == libkernel.FlowControl.initiate
+	test/r_close[0] == libkernel.FlowControl.terminate
 	test/True == (r_close[1] is layer)
 
 	test.isinstance(layer, library.Request)

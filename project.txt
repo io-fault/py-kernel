@@ -3,9 +3,9 @@
 		&<http://if.fault.io/project/information>
 
 /identifier/
-	`http://fault.io/python/io`
+	`http://fault.io/python/kernel`
 /name/
-	`io`
+	`kernel`
 /abstract/
 	Application framework core for explicitly structured processes.
 /icon/

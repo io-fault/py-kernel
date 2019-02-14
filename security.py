@@ -1,7 +1,7 @@
 """
 # &.library.Transports support for PKI based security layer.
 
-# Much of the libio security functionality is structured around conditionally
+# Much of the libkernel security functionality is structured around conditionally
 # importing &.security in order to avoid the memory and processing
 # overhead involved.
 """
@@ -21,9 +21,9 @@ def operations(transport):
 		(transport.encipher, transport.pending_output, transport.pending_input),
 	)
 
-from . import library as libio
-libio.Transports.operation_set[Transport] = operations
-del libio
+from . import library as libkernel
+libkernel.Transports.operation_set[Transport] = operations
+del libkernel
 
 _public_context = None
 

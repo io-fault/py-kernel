@@ -9,7 +9,7 @@ import sys
 import inspect
 import functools
 
-from . import library as libio
+from . import library as libkernel
 
 def initialize(unit, main=None):
 	"""
@@ -18,7 +18,7 @@ def initialize(unit, main=None):
 	"""
 
 	# main/only sector; no (daemon) control interfaces
-	s = libio.Sector()
+	s = libkernel.Sector()
 	s.subresource(unit)
 	unit.place(s, "bin", "main")
 
@@ -30,9 +30,9 @@ def initialize(unit, main=None):
 		libs = ()
 
 	if inspect.isgeneratorfunction(main):
-		main_proc = libio.Coroutine(main)
+		main_proc = libkernel.Coroutine(main)
 	else:
-		main_proc = libio.Call.partial(main)
+		main_proc = libkernel.Call.partial(main)
 
 	enqueue = unit.context.enqueue
 	enqueue(s.actuate)
@@ -44,8 +44,8 @@ def execute(name='__main__'):
 
 	# #!/pl/python
 		if __name__ == '__main__':
-			from fault.io import command
+			from fault.kernel import command
 			command.execute()
 	"""
 
-	libio.execute(command=(initialize,))
+	libkernel.execute(command=(initialize,))
