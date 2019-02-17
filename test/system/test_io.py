@@ -1,12 +1,12 @@
-from .. import traffic
+from ... import system
 
 def test_adapter_properties(test):
-	a = traffic.Adapter.create("endpoint", "transformer")
+	a = system.Adapter.create("endpoint", "transformer")
 	test/a.endpoint == "endpoint"
 	test/a.transformer == "transformer"
 
 def test_delta(test):
-	d = traffic.Delta.construct()
+	d = system.Delta.construct()
 	test/d.endpoint == None
 	test/d.terminal == False
 	test/d.demand == None
@@ -45,7 +45,7 @@ def test_delta(test):
 	T.terminated = True
 	T.acquire(b'foo')
 	T.mslice = slice(0,3)
-	d = traffic.Delta.snapshot(T)
+	d = system.Delta.snapshot(T)
 	test/d.terminal == True
 	test/d.payload == b'foo'
 	test/d.demand == None
@@ -57,7 +57,7 @@ def test_delta(test):
 	T.acquire(b'bar')
 	T.exhausted = True
 	T.mslice = slice(0,3)
-	d = traffic.Delta.snapshot(T)
+	d = system.Delta.snapshot(T)
 	test/d.terminal == False
 	test/d.payload == b'bar'
 	test/d.demand == T.acquire
@@ -68,29 +68,29 @@ def new():
 	l = []
 	def add(x, l = l):
 		l.append(x)
-	a = traffic.Adapter(add, traffic.Delta.construct)
+	a = system.Adapter(add, system.Delta.construct)
 	return l, a
 
 def test_matrix_repr(test):
 	l, a = new()
-	test.isinstance(repr(traffic.Matrix(a)), str)
+	test.isinstance(repr(system.Matrix(a)), str)
 
 def test_matrix_empty(test):
 	l, a = new()
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	'system' in test/ix.routes
 	test/len(ix.arrays) == 0
 
 def test_matrix_routes(test):
 	l, a = new()
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	ix.route(foo = 'bar')
 	test/ix.routes['foo'] == 'bar'
 
 def test_matrix_termination(test):
 	def null(x):
 		pass
-	ix = traffic.Matrix((null, null))
+	ix = system.Matrix((null, null))
 	with ix.xact() as alloc:
 		alloc('octets://spawn/unidirectional')
 	ix.terminate()
@@ -112,7 +112,7 @@ def test_idle_array_terminates(test):
 
 	adapter = (testevents, incloops)
 
-	ix = traffic.Matrix(adapter)
+	ix = system.Matrix(adapter)
 	try:
 		ix._get() # kicks off the array's thread
 
@@ -150,7 +150,7 @@ def test_active_array_continues(test):
 
 	adapter = (testevents, incloops)
 
-	ix = traffic.Matrix(adapter)
+	ix = system.Matrix(adapter)
 	try:
 		ix._get() # kicks off the array's thread
 		with ix.xact() as st:
@@ -177,7 +177,7 @@ def test_active_array_continues(test):
 
 def test_matrix_transfer(test):
 	l, a = new()
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	try:
 		with ix.xact() as alloc:
 			r, w = alloc('octets://spawn/unidirectional')
@@ -214,7 +214,7 @@ def test_alloc_single_matrix(test):
 	# single channel allocations have a distinct branch
 	import time
 	l, a = new()
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	try:
 		with ix.xact() as alloc:
 			r = alloc(('octets', 'file', 'read'), '/dev/zero')
@@ -234,7 +234,7 @@ def test_matrix_overflow(test):
 	# Test the effect of the limit attribute.
 	"""
 	l, a = new()
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	ix.channels_per_array = 0
 	try:
 		with ix.xact() as alloc:
@@ -248,7 +248,7 @@ def test_matrix_overflow(test):
 
 def test_matrix_void(test):
 	l, a = new()
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	# empty, safe to run.
 	ix.void()
 	# XXX: needs to be tested in a fork
@@ -259,7 +259,7 @@ def test_matrix_xact_fail(test):
 	"""
 	l, a = new()
 
-	ix = traffic.Matrix(a)
+	ix = system.Matrix(a)
 	# empty, safe to run.
 	try:
 		with test/Exception as e:
