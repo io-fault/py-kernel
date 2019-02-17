@@ -4,31 +4,8 @@
 # Provides DNS resolvers and endpoint construction facilities.
 """
 
-import socket # getaddrinfo
-from . import library as libkernel
-
 from ..internet import ri
 from ..internet import library as libi
-
-class DNS(libkernel.Context):
-	"""
-	# Library managing the dispatch of DNS queries.
-	"""
-
-	def query(self, callback, domain):
-		"""
-		"""
-		pass
-
-	@staticmethod
-	def process_query(item):
-		callback, domain = item
-		records = socket.getaddrinfo(domain, 0)
-
-	def actuate(self):
-		super().actuate()
-		t = libkernel.Thread()
-		t.requisite(self.process_query)
 
 def service(service_name):
 	# Do not use directly.
