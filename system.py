@@ -150,7 +150,7 @@ class Context(object):
 		# Signal the &Process that I/O occurred for this context.
 		"""
 
-		self.process.interchange.force(id=self.association())
+		self.process.iomatrix.force(id=self.association())
 
 	# Primary access to processor resources: task queue, work thread, and threads.
 	def _sys_traffic_attach(self, *transits):
@@ -165,7 +165,7 @@ class Context(object):
 		self.attachments = []
 
 		unit = self.association()
-		ix = self.process.interchange
+		ix = self.process.iomatrix
 		ix.acquire(unit, new_transits)
 		ix.force(id=unit)
 
@@ -737,15 +737,15 @@ class Process(object):
 		self.processing_queue = Queue()
 		self._tq_maintenance = set()
 
-	def _init_traffic(self, Interchange=traffic.library.Interchange):
+	def _init_traffic(self, Matrix=traffic.Matrix):
 		execute = functools.partial(self.fabric.critical, self, traffic.adapter)
-		ix = Interchange(traffic.adapter, execute = execute)
+		ix = Matrix(traffic.adapter, execute = execute)
 		__traffic_index__[self] = ix
 
 	@property
-	def interchange(self):
+	def iomatrix(self):
 		"""
-		# The &..traffic.library.Interchange instance managing the I/O file descriptors used
+		# The &..traffic.Matrix instance managing the I/O file descriptors used
 		# by the &Process.
 		"""
 		return __traffic_index__[self]
@@ -763,7 +763,7 @@ class Process(object):
 		self._init_system_events()
 		self.kernel.void()
 		self.kernel = None
-		self.interchange.void()
+		self.iomatrix.void()
 
 	def report(self, target=sys.stderr):
 		"""
@@ -853,7 +853,7 @@ class Process(object):
 		"""
 
 		time_snapshot = libtime.now
-		ix = self.interchange
+		ix = self.iomatrix
 		cwq = self.processing_queue # current working queue; should be empty at start
 		nwq = self.loading_queue # next working queue
 		sec = self.system_event_connections

@@ -25,6 +25,7 @@ from ..internet import media
 
 from ..system import memory
 from . import library as libkernel
+from . import flows
 
 length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
 length_strings = libc.compose(operator.methodcaller('encode', 'utf-8'), str, sum, functools.partial(map,len))
@@ -483,14 +484,14 @@ class IO(libkernel.Transport):
 	def terminate(self, by=None):
 		self.exit()
 
-	def io_connect_input(self, flow:libkernel.Flow):
+	def io_connect_input(self, flow:flows.Channel):
 		r = self._xc_ci(flow)
 		del self._xc_ci
 		if self._xc_co is None:
 			self.terminate()
 	xact_ctx_connect_input = io_connect_input
 
-	def io_connect_output(self, flow:libkernel.Flow):
+	def io_connect_output(self, flow:flows.Channel):
 		r = self._xc_co(flow)
 		del self._xc_co
 		if self._xc_ci is None:
@@ -504,7 +505,7 @@ class IO(libkernel.Transport):
 		# Primarily used for performance testing.
 		"""
 
-		f = libkernel.Flow()
+		f = flows.Channel()
 		self.xact_dispatch(f)
 		self.xact_ctx_connect_output(f)
 		self.xact_ctx_connect_input(f)
@@ -570,14 +571,14 @@ class IO(libkernel.Transport):
 
 	def io_iterate_output(self, iterator:typing.Iterable):
 		"""
-		# Construct a Flow consisting of a single &libkernel.Iterate instance
+		# Construct a Flow consisting of a single &flows.Iterate instance
 		# used to stream output to the connection protocol state.
 
-		# The &libkernel.Flow will be dispatched into the &Connection for proper
+		# The &flows.Channel will be dispatched into the &Connection for proper
 		# fault isolation in cases that the iterator produces an exception.
 		"""
 
-		f = libkernel.Iteration(iterator)
+		f = flows.Iteration(iterator)
 		self.xact_dispatch(f)
 		self.response.initiate((self.request.version, b'200', b'OK'))
 		self.xact_ctx_connect_output(f)
@@ -613,7 +614,7 @@ class IO(libkernel.Transport):
 		# The Segments instance needs to be retrieved from a cache.
 		"""
 
-		f = libkernel.Iteration(((x,) for x in memory.Segments.open(str(path))))
+		f = flows.Iteration(((x,) for x in memory.Segments.open(str(path))))
 		self.xact_dispatch(f)
 		self.xact_ctx_connect_output(f)
 
@@ -625,12 +626,12 @@ class IO(libkernel.Transport):
 		# the given callback when the entity body has been transferred.
 
 		# This should only be used when connecting to trusted hosts as
-		# a &libkernel.Collection instance is used to buffer the entire
+		# a &flows.Collection instance is used to buffer the entire
 		# entire result. This risk can be mitigated by injecting
-		# a &libkernel.Constraint into the Flow.
+		# a &flows.Constraint into the Flow.
 		"""
 
-		f = libkernel.Collection.buffer()
+		f = flows.Collection.buffer()
 		self.xact_dispatch(f)
 		f.atexit(callback)
 		self.xact_ctx_connect_input(f)
@@ -707,12 +708,12 @@ def join(
 		repeat=itertools.repeat,
 		zip=zip,
 
-		fc_initiate=libkernel.FlowControl.initiate,
-		fc_terminate=libkernel.FlowControl.terminate,
-		fc_transfer=libkernel.FlowControl.transfer,
+		fc_initiate=flows.Event.initiate,
+		fc_terminate=flows.Event.terminate,
+		fc_transfer=flows.Event.transfer,
 	):
 	"""
-	# Join &libkernel.Catenate flow events into a proper HTTP stream.
+	# Join &flows.Catenate flow events into a proper HTTP stream.
 	"""
 
 	serializer = protocol.assembly()
@@ -774,13 +775,13 @@ def fork(
 		EOM=protocol.EOM,
 		iter=iter, map=map, len=len,
 		chain=itertools.chain.from_iterable,
-		fc_initiate=libkernel.FlowControl.initiate,
-		fc_terminate=libkernel.FlowControl.terminate,
-		fc_transfer=libkernel.FlowControl.transfer,
-		fc_overflow=libkernel.FlowControl.overflow,
+		fc_initiate=flows.Event.initiate,
+		fc_terminate=flows.Event.terminate,
+		fc_transfer=flows.Event.transfer,
+		fc_overflow=flows.Event.overflow,
 	):
 	"""
-	# Split an HTTP stream into flow events for use by &libkernel.Division.
+	# Split an HTTP stream into flow events for use by &flows.Division.
 	"""
 
 	tokenizer = protocol.disassembly()
@@ -908,7 +909,7 @@ def fork(
 
 class Protocol(object):
 	"""
-	# Stack object for &libkernel.Transports.
+	# Stack object for &flows.Transports.
 
 	# [ Properties ]
 
@@ -927,7 +928,7 @@ class Protocol(object):
 
 	@property
 	def open_transactions(self):
-		return self.status[libkernel.FlowControl.initiate] - self.status[libkernel.FlowControl.terminate]
+		return self.status[flows.Event.initiate] - self.status[flows.Event.terminate]
 
 	@property
 	def terminated(self):
@@ -963,9 +964,9 @@ class Protocol(object):
 		f = (False).__bool__
 		return ((http.fork, f, f), (http.join, f, f))
 
-libkernel.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
+flows.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
 
-class Client(libkernel.Mitre):
+class Client(flows.Mitre):
 	"""
 	# Mitre initiating requests for an HTTP Connection.
 	"""
@@ -997,7 +998,7 @@ class Client(libkernel.Mitre):
 	def m_request(self,
 			receiver:libkernel.ProtocolTransactionEndpoint,
 			layer:Request,
-			flow:libkernel.Flow=None
+			flow:flows.Channel=None
 		):
 		"""
 		# Emit an HTTP request. The corresponding response will be joined to form a
@@ -1017,7 +1018,7 @@ class Client(libkernel.Mitre):
 		self.m_requests.append((receiver, layer))
 		connect(flow)
 
-class Server(libkernel.Mitre):
+class Server(flows.Mitre):
 	"""
 	# Mitre managing incoming server connections for HTTP.
 	"""

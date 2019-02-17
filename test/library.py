@@ -2,10 +2,11 @@
 # Support for running tests outside of a &.library.Unit environment.
 """
 import collections
+from .. import library
 
 class ExitController(object):
 	"""
-	Root controller for tests.
+	# Root controller for tests.
 	"""
 	def __init__(self):
 		self.exits = []
@@ -23,9 +24,9 @@ class ExitController(object):
 
 class Context(object):
 	"""
-	Critical difference between test.library.Context
-	and io.library.Context is that tasks must be explicitly
-	ran in order to perform them.
+	# Critical difference between test.library.Context
+	# and io.library.Context is that tasks must be explicitly
+	# ran in order to perform them.
 	"""
 
 	process = None
@@ -72,7 +73,7 @@ class Context(object):
 	def cancel(self, task):
 		pass
 
-class Transit(object):
+class SystemChannel(object):
 	link = None
 	resource = None
 
@@ -89,7 +90,6 @@ class Transit(object):
 		pass
 
 class Root(object):
-	"Root Processor Mimic; core.Unit substitute."
 	def __init__(self):
 		self.exits = []
 
@@ -102,3 +102,18 @@ class Root(object):
 		self.processor = proc
 		proc.subresource(self)
 		proc.actuate()
+
+def sector(count=1):
+	"""
+	# Construct a root Sector and Context for testing.
+	"""
+	ctx = Context()
+	yield ctx
+	for x in range(count):
+		sect = library.Sector()
+		sect.context = ctx
+		x = ExitController()
+		sect.controller = x
+		sect.CONTROLLER = x
+		sect.actuate()
+		yield sect

@@ -3,6 +3,7 @@ import itertools
 from .. import security as library
 
 from .. import library as libkernel
+from .. import flows
 from . import library as libtest
 
 key = b"""
@@ -76,11 +77,11 @@ def test_Transports_io(test, chain=itertools.chain):
 	client = cctx.connect(None)
 	server = sctx.accept()
 
-	cti, cto = libkernel.Transports.create((client,))
-	cc = libkernel.Collection.list()
+	cti, cto = flows.Transports.create((client,))
+	cc = flows.Collection.list()
 
-	sti, sto = libkernel.Transports.create((server,))
-	sc = libkernel.Collection.list()
+	sti, sto = flows.Transports.create((server,))
+	sc = flows.Collection.list()
 
 	sector = libkernel.Sector()
 	io_root.process(sector)
@@ -135,18 +136,20 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/[x for x in l if x] == [b'xyz', server_inc[0]]
 
 	# termination can only occur when both sides have initiated termination.
-	cti.terminate()
+	cti.f_terminate()
 	test/client.terminated == False
 
-	cto.terminate()
+	cto.f_terminate()
 	io_context.flush()
 	test/client.terminated == True
 	test/server.terminated == True # recevied termination
 
-	sti.terminate()
-	sto.terminate()
+	sti.f_terminate()
+	sto.f_terminate()
 	io_context.flush()
 
+	for x in (sto, sti, cto, cti):
+		x.f_terminate()
 	test/sto.terminated == True
 	test/sti.terminated == True
 	test/cto.terminated == True
