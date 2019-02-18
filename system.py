@@ -34,8 +34,6 @@ import signal # masking SIGINT/SIGTERM in threads.
 import operator
 import time
 
-from . import traffic
-
 from ..system import io
 from ..system import events
 from ..system import process
