@@ -11,6 +11,7 @@ import collections
 import functools
 import weakref
 import typing
+import queue
 
 from . import core
 from .library import Processor
