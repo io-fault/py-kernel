@@ -1127,7 +1127,7 @@ class Process(object):
 		# Return the primary &.library.Unit instance associated with the process.
 		"""
 
-		return __process_index__[self][None]
+		return __process_index__[self]
 
 	@property
 	def iomatrix(self):
@@ -1144,18 +1144,16 @@ class Process(object):
 		# with the specified &Unit.
 		"""
 
-		proc = Class(identity, invocation = invocation)
-		lpd = {}
-		__process_index__[proc] = lpd
+		proc = Class(identity, invocation=invocation)
 
 		inits = []
+		unit = None
 		for identity, roots in units.items():
 			unit = Unit()
 			unit.requisite(identity, roots, process = proc, Context = Context)
-			lpd[identity] = unit
 			proc._enqueue(functools.partial(critical, None, unit.actuate))
 
-		lpd[None] = unit # determines primary program
+		__process_index__[proc] = unit
 		return proc
 
 	def log(self, data):
@@ -1307,8 +1305,7 @@ class Process(object):
 		"""
 
 		target.write("[%s]\n" %(libtime.now().select('iso'),))
-		for unit in set(__process_index__[self].values()):
-			unit.report(target)
+		__process_index__[self].report(target)
 
 	def __repr__(self):
 		return "{0}(identity = {1!r})".format(self.__class__.__name__, self.identity)
@@ -1325,13 +1322,11 @@ class Process(object):
 
 		# processing_queue is normally empty whenever report is called.
 		ntasks = sum(map(len, (self.loading_queue, self.processing_queue)))
-		nunits = len(__process_index__[self]) - 1
 
 		p = [
 			('pid', process.current_process_id),
 			('tasks', ntasks),
 			('threads', len(self.fabric.threading)),
-			('units', nunits),
 			('executable', sys.executable),
 
 			# Track basic (task loop) cycle stats.
