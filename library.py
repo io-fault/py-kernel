@@ -24,6 +24,7 @@ from ..system import files
 from ..system import process
 
 from ..internet import ri
+from ..internet import host
 
 from . import system
 
@@ -423,9 +424,9 @@ class Endpoint(tuple):
 
 endpoint_classes = {
 	'local': Local.create,
-	'ip4': libnet.Endpoint.create_ip4,
-	'ip6': libnet.Endpoint.create_ip6,
-	'domain': libnet.Reference.from_domain,
+	'ip4': host.Endpoint.create_ip4,
+	'ip6': host.Endpoint.create_ip6,
+	'domain': host.Reference.from_domain,
 }
 
 class ExceptionStructure(object):
