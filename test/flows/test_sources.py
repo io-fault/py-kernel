@@ -8,23 +8,13 @@ def test_Iteration(test):
 	e = S.CONTROLLER
 
 	i = flows.Iteration(range(100))
+	S.dispatch(c)
 	S.dispatch(i)
 	i.f_connect(c)
-	i.actuate()
 	ctx.flush()
 
 	test/c.c_storage == list(range(100))
 	test/i.terminated == True
-
-def test_Iteration_null_terminal(test):
-	ctx, S = testlib.sector()
-	e = S.CONTROLLER
-	i = flows.Iteration(range(100))
-	i.f_connect(flows.null)
-	S.dispatch(i)
-	ctx.flush()
-	# Validate empty iterator.
-	test/tuple(i.it_iterator) == ()
 
 if __name__ == '__main__':
 	import sys; from ....test import library as libtest

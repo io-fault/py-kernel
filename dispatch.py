@@ -47,14 +47,19 @@ class Call(core.Processor):
 
 		try:
 			self.product = self.source() # Execute Callable.
-			self.termination_completed()
-			self.exit()
+			self.finish_termination()
 		except BaseException as exc:
 			self.product = None
 			self.fault(exc)
 
 	def structure(self):
 		return ([('source', self.source)], ())
+
+	def terminate(self, by=None):
+		raise RuntimeError("cannot directly terminate Call processors")
+
+	def interrupt(self):
+		self.interrupted = True
 
 class Coroutine(core.Processor):
 	"""
@@ -63,6 +68,8 @@ class Coroutine(core.Processor):
 	# Manages the generator state in order to signal the containing &Sector of its
 	# exit. Generator coroutines are the common method for serializing the dispatch of
 	# work to relevant &Sector instances.
+
+	# ! WARNING: Untested.
 	"""
 
 	def __init__(self, coroutine):
@@ -76,11 +83,9 @@ class Coroutine(core.Processor):
 		super().terminate()
 		self.controller.exited(self)
 
-	@types.coroutine
 	def container(self):
 		"""
-		# ! INTERNAL:
-			# Private Method.
+		# ! INTERNAL: Private Method
 
 		# Container for the coroutine's execution in order
 		# to map completion to processor exit.
@@ -92,6 +97,8 @@ class Coroutine(core.Processor):
 		except BaseException as exc:
 			self.product = None
 			self.fault(exc)
+	if hasattr(types, 'coroutine'):
+		container = types.coroutine(container)
 
 	def actuate(self, partial=functools.partial):
 		"""
@@ -99,7 +106,7 @@ class Coroutine(core.Processor):
 		"""
 
 		state = self.container()
-		self.unit.stacks[self] = state
+		self.system.stacks[self] = state
 
 		self.enqueue(state.send)
 
@@ -114,6 +121,7 @@ class Coroutine(core.Processor):
 
 	def interrupt(self):
 		self.state.throw(KeyboardInterrupt)
+		self.interrupted = True
 
 class Thread(core.Processor):
 	"""
@@ -126,10 +134,10 @@ class Thread(core.Processor):
 	def trap(self):
 		final = None
 		try:
-			self.callable(self)
-			self.termination_started()
+			self.product = self.callable(self)
+			self.start_termination()
 			# Must be enqueued to exit.
-			final = self.exit
+			final = self.finish_termination
 		except BaseException as exc:
 			final = functools.partial(self.fault, exc)
 
@@ -140,7 +148,7 @@ class Thread(core.Processor):
 		# Execute the dedicated thread for the transformer.
 		"""
 
-		self.context.execute(self, self.trap)
+		self.system.execute(self, self.trap)
 
 class Subprocess(core.Processor):
 	"""
@@ -192,7 +200,7 @@ class Subprocess(core.Processor):
 
 			# Don't exit if interrupted; maintain position in hierarchy.
 			if not self.interrupted:
-				self.exit()
+				self.finish_termination()
 
 	def sp_signal(self, signo, send_signal=os.kill):
 		"""
@@ -217,7 +225,7 @@ class Subprocess(core.Processor):
 		# Initialize the system event callbacks for receiving process exit events.
 		"""
 
-		proc = self.context.process
+		proc = self.system.process
 		track = proc.kernel.track
 		callback = self.sp_exit
 
@@ -229,14 +237,14 @@ class Subprocess(core.Processor):
 				if err.errno != errno.ESRCH:
 					raise
 				# Doesn't exist or already exited. Try to reap.
-				self.ctx_enqueue_task(functools.partial(callback, pid, execution.reap(pid)))
+				self.enqueue(functools.partial(callback, pid, execution.reap(pid)))
 
 	def check(self):
 		"""
 		# Initialize the system event callbacks for receiving process exit events.
 		"""
 
-		proc = self.context.process
+		proc = self.system.process
 		reap = execution.reap
 		untrack = proc.kernel.untrack
 		callback = self.sp_exit
@@ -274,13 +282,18 @@ class Subprocess(core.Processor):
 		"""
 
 		if not self.terminating:
-			super().terminate(by=by)
+			self.start_termination()
 			self.sp_signal(15)
 
 	def interrupt(self, by=None, send_signal=os.kill):
 		"""
-		# Interrupt the running processes by issuing a SIGKILL signal.
+		# Interrupt the running processes by issuing a SIGKILL signal to all active processes.
+		# Exit status will be reaped, but not reported to &self.
 		"""
+		# XXX: disconnect exit event
+
+		if self.interrupted:
+			return False
 
 		for pid in self.active_processes:
 			try:
@@ -288,11 +301,12 @@ class Subprocess(core.Processor):
 			except ProcessLookupError:
 				pass
 
+		self.interrupted = True
+
 	def abort(self, by=None):
 		"""
 		# Interrupt the running processes by issuing a SIGQUIT signal.
 		"""
 
-		r = super().interrupt(by)
+		self.start_termination()
 		self.sp_signal(signal.SIGQUIT)
-		return r

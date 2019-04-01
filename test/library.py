@@ -1,8 +1,8 @@
 """
-# Support for running tests outside of a &.library.Unit environment.
+# Support for running tests without full system/executable contexts.
 """
 import collections
-from .. import library
+from .. import core
 
 class ExitController(object):
 	"""
@@ -22,25 +22,19 @@ class ExitController(object):
 	def interrupt(self, by=None):
 		self.interrupts.append(by)
 
-class Context(object):
+class Executable(object):
 	"""
 	# Critical difference between test.library.Context
 	# and io.library.Context is that tasks must be explicitly
 	# ran in order to perform them.
 	"""
 
-	process = None
-
 	def __init__(self):
 		self.tasks = []
 		self.faults = []
 
-	def _sys_traffic_attach(self, *ignored):
-		pass
-
 	def associate(self, processor):
-		self.association = lambda: processor
-		processor.context = self
+		processor.executable = self
 
 	def enqueue(self, *tasks, controller=None):
 		self.tasks.extend(tasks)
@@ -53,6 +47,7 @@ class Context(object):
 			faultor.controller.exited(faultor)
 
 	def __call__(self):
+		# Drainw task queue.
 		l = len(self.tasks)
 		e = self.tasks[:l]
 		del self.tasks[:l]
@@ -73,6 +68,9 @@ class Context(object):
 	def cancel(self, task):
 		pass
 
+	def _io_attach(self, *channel):
+		pass
+
 class SystemChannel(object):
 	link = None
 	resource = None
@@ -90,6 +88,8 @@ class SystemChannel(object):
 		pass
 
 class Root(object):
+	_pexe_contexts = ('executable',)
+
 	def __init__(self):
 		self.exits = []
 
@@ -98,7 +98,7 @@ class Root(object):
 
 	controller = None
 
-	def process(self, proc):
+	def dispatch(self, proc):
 		self.processor = proc
 		proc.subresource(self)
 		proc.actuate()
@@ -107,11 +107,13 @@ def sector(count=1):
 	"""
 	# Construct a root Sector and Context for testing.
 	"""
-	ctx = Context()
+	ctx = Executable()
 	yield ctx
 	for x in range(count):
-		sect = library.Sector()
-		sect.context = ctx
+		sect = core.Sector()
+		sect.executable = ctx
+		sect.enqueue = ctx.enqueue
+		sect._pexe_contexts = ('enqueue', 'executable',)
 		x = ExitController()
 		sect.controller = x
 		sect.CONTROLLER = x

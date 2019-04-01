@@ -1,10 +1,5 @@
 """
-# Process management classes.
-
-# Implements the thread management and process representation management necessary
-# to work with a set of &.library.Unit instances. &Context instances are indirectly
-# associated with the &.library.Unit instances in order to allow &.library.Processor
-# instances to cache access to &Context.enqueue.
+# Engine for running Processing Graphs on the local system.
 
 # [ Properties ]
 
@@ -14,11 +9,12 @@
 	# The &Adapter instance used by &.system.Process to manage I/O events.
 # /__process_index__/
 	# Indirect association of &Proces and &Context
-# /__traffic_index__/
+# /__io_index__/
 	# Indirect association of Logical Process objects and traffic Interchanges.
 	# Interchange holds references back to the process.
 """
 
+import array
 import os
 import sys
 import functools
@@ -43,8 +39,12 @@ from ..system import execution
 
 from ..time import library as libtime
 
+from . import core
+from . import flows
+from . import library as tmp
+
 __process_index__ = dict()
-__traffic_index__ = dict()
+__io_index__ = dict()
 
 allocate = io.Array.rallocate
 
@@ -94,7 +94,7 @@ def synchronize_io_events(arg, partial=functools.partial):
 		return # Nothing to do.
 
 	# array.link is a io.process.Representation()
-	array.link.context.enqueue(partial(deliver_io_events, array, queue))
+	array.link.enqueue(partial(deliver_io_events, array, queue))
 
 class Delta(tuple):
 	"""
@@ -526,7 +526,7 @@ class Matrix(object):
 def deliver_io_events(array, events, iter=iter):
 	"""
 	# Send the individual &events originally prepared by
-	# &separate_io_events to their associated &.library.KInput or &.library.KOutput flows.
+	# &separate_io_events to their associated &.library.KInput or &KOutput flows.
 	"""
 
 	complete = False
@@ -576,73 +576,358 @@ def deliver_io_events(array, events, iter=iter):
 				# TODO: Note as cleanup failure.
 				array.link.context.process.error((array, event), exc)
 
-class Context(object):
+class KChannel(flows.Channel):
 	"""
-	# Execution context class providing access to per-context resource acquisition.
-
-	# Manages allocation of kernel provided resources, system command execution, threading,
-	# I/O connections.
-
-	# Contexts are the view to the &Process and the Kernel of the system running
-	# the process. Subcontexts can be created to override the default functionality
-	# and provide a different environment.
-
-	# Contexts are associated with every &.library.Resource.
+	# Channel moving data in or out of the operating system's kernel.
+	# The &KInput and &KOutput implementations providing for the necessary specializations.
 	"""
+	k_status = None
 
-	inheritance = ('environment',)
+	def inject(self, events):
+		return self.f_emit(events)
 
-	def __init__(self, process, *api):
+	def f_clear(self, *args):
+		r = super().f_clear(*args)
+		if self.f_obstructed:
+			pass
+		return r
+
+	def __init__(self, channel=None):
+		self.channel = channel
+		self.acquire = channel.acquire
+		channel.link = self
+
+	def actuate(self):
+		self.system._io_attach(self.channel)
+
+	def k_meta(self):
+		if self.channel:
+			return self.channel.port, self.channel.endpoint()
+		else:
+			return self.k_status
+
+	def __repr__(self):
+		c = self.__class__
+		mn = c.__module__.rsplit('.', 1)[-1]
+		qn = c.__qualname__
+		port, ep = self.k_meta()
+
+		if self.channel is None:
+			res = "(no channel)"
+		else:
+			if self.channel.resource is None:
+				res = "none"
+			else:
+				res = str(len(self.channel.resource))
+
+		s = '<%s.%s(%s) RL:%s [%s] at %s>' %(
+			mn, qn,
+			str(ep),
+			res,
+			str(port),
+			hex(id(self))
+		)
+
+		return s
+
+	def structure(self):
+		p = []
+		kp, ep = self.k_meta()
+		p.append(('kport', kp.fileno))
+		p.append(('endpoint', str(ep)))
+		if self.channel is not None:
+			r = self.channel.resource
+			p.append(('resource', len(r) if r is not None else 'none'))
+
+		return (p, ())
+
+	def k_transition(self):
+		# Called when the resource was exhausted
+		# Unused atm and pending deletion.
+		raise NotImplementedError("Kernel flows must implement transition")
+
+	def k_kill(self):
 		"""
-		# Initialize a &Context instance with the given &process.
+		# Called by the controlling &Flow, acquire status information and
+		# unlink the channel.
 		"""
 
-		self.process = process
-		self.context = process
-		self.association = None
-		self.environment = ()
-		self.attachments = [] # io channels to be acquired by an array
+		t = self.channel
+		self.channel = None
+		self.k_status = (t.port, t.endpoint())
+		t.link = None # signals I/O loop to not inject.
+		t.terminate() # terminates one direction.
 
-		self._connect, self._input, self._output, self._listen = api
+		return t
 
-	def associate(self, resource, Ref=weakref.ref):
-		"""
-		# Associate the context with a particular &.library.Resource object, &resource.
+	def interrupt(self):
+		if self.channel is not None:
+			self.k_kill()
 
-		# Only one association may exist and implies that the context will be destroyed
-		# after the object is deleted.
+	def f_terminated(self):
+		# THIS METHOD IS NOT CALLED IF F_TERMINATE/INTERRUPT() WAS USED.
+		#assert not self.interrupted and not self.terminated
 
-		# Generally used by &.library.Sector instances that are augmenting the execution
-		# context for subprocessors.
-		"""
+		# Called when the termination condition is received,
+		# but *after* any transfers have been injected.
 
-		self.association = Ref(resource)
+		# &.traffic calls this when it sees termination of the channel.
+
+		if self.channel is None:
+			# terminate has already been ran; status is *likely* present
+			return
+
+		self.k_kill()
+
+		# No need to run channel.terminate() as this is only
+		# executed by io.traffic in response to shutdown.
+
+		# Exception is not thrown as the transport's error condition
+		# might be irrelevant to the success of the application.
+		# If a transaction was successfully committed and followed
+		# with a transport error, it's probably appropriate to
+		# show the transport issue, if any, as a warning.
+		self._f_terminated()
+
+	def f_transfer(self, event, source=None):
+		raise NotImplementedError("must be provided by subclass")
+
+	def inject(self, events):
+		self.f_emit(events)
 
 	@property
-	def unit(self):
+	def k_transferring(self, len=len):
 		"""
-		# The &Unit of the association.
+		# The length of the buffer being transferred into or out of the kernel.
+
+		# &None if no transfer is currently taking place.
 		"""
-		global Unit
+		x = self.channel
+		if x is not None:
+			x = x.resource
+			if x is not None:
+				return len(x)
 
-		point = self.association()
-		while point.controller is not None:
-			point = point.controller
+		return None
 
-		return point
+class KAllocate(KChannel):
+	"""
+	# Flow that continually allocates memory for a channel transferring data into the process.
+	"""
 
-	def faulted(self, resource):
+	ki_allocate, ki_resource_size = (None, None)
+
+	def k_transition(self):
 		"""
-		# Notify the controlling &Unit instance of the fault.
+		# Transition in the next buffer provided that the Flow was not obstructed.
 		"""
 
-		return self.unit.faulted(resource)
+		if self.f_obstructed:
+			# Don't allocate another buffer if the flow has been
+			# explicitly obstructed by the downstream.
+			return
+
+		alloc = self.ki_allocate(self.ki_resource_size)
+		self.acquire(alloc)
+
+	def f_transfer(self, event, source=None):
+		"""
+		# Normally ignored, but will induce a transition if no transfer is occurring.
+		"""
+
+		if self.channel.resource is None:
+			self.k_transition()
+
+class KAccept(KAllocate):
+	"""
+	# Receive integer arrays from the system I/O channel.
+	"""
+
+	ki_allocate, ki_resource_size = (array.array("i", [-1]).__mul__, 24)
+
+class KInput(KAllocate):
+	"""
+	# Receive octets from the system I/O channel.
+	"""
+
+	ki_allocate, ki_resource_size = (bytearray, 1024*4)
+
+class KOutput(KChannel):
+	"""
+	# Flow that transfers emitted events to be transferred into the kernel.
+
+	# The queue is limited to a certain number of items rather than a metadata constraint;
+	# for instance, the sum of the length of the buffer entries. This allows the connected
+	# Flows to dynamically choose the buffer size by adjusting the size of the events.
+	"""
+
+	ko_limit = 16
+
+	@property
+	def ko_overflow(self):
+		"""
+		# Queue entries exceeds limit.
+		"""
+		return len(self.ko_queue) > self.ko_limit
+
+	@property
+	def f_empty(self):
+		return (
+			self.channel is not None and \
+			len(self.ko_queue) == 0 and \
+			self.channel.resource is None
+		)
+
+	def __init__(self, channel, Queue=collections.deque):
+		super().__init__(channel=channel)
+		self.ko_queue = Queue()
+		self.k_transferred = None
+
+	def k_transition(self):
+		# Acquire the next buffer to be sent.
+		if self.ko_queue:
+			nb = self.ko_queue.popleft()
+			self.acquire(nb)
+			self.k_transferred = 0
+		else:
+			# Clear obstruction when and ONLY when the buffer is emptied.
+			# This is done to avoid thrashing.
+			self.k_transferred = None
+			self.f_clear(self)
+
+			if self.terminating:
+				self.channel.terminate()
+				self._f_terminated()
+
+	def f_transfer(self, event, source=None, len=len):
+		"""
+		# Enqueue a sequence of transfers to be processed by the Transit.
+		"""
+
+		# Events *must* be processed, so extend the queue unconditionally.
+		self.ko_queue.extend(event)
+
+		if self.k_transferred is None:
+			# nothing transferring, so there should be no transfer resources (Transit/Detour)
+			self.k_transition()
+		else:
+			# Set obstruction if the queue size exceeds the limit.
+			if len(self.ko_queue) > self.ko_limit:
+				self.f_obstruct(self, None,
+					core.Condition(self, ('ko_overflow',))
+				)
+
+	def f_terminate(self, context=None):
+		if self.terminating:
+			return False
+
+		# Flow-level Termination occurs when the queue is clear.
+		self.start_termination()
+		self.terminator = context
+
+		if self.f_empty:
+			# Only terminate channel if it's empty.
+			self.channel.terminate()
+
+		# Note termination signalled.
+		return True
+
+class Context(core.Context):
+	"""
+	# System Context implementation for supplying Processing Graphs with access
+	# to the local system.
+	"""
+
+	system_exit_status = 0
+
+	@staticmethod
+	def _connect_subflows(mitre, channels, *protocols):
+		from .flows import Transports, Catenation, Division
+		kin = KInput(channels[0])
+		kout = KOutput(channels[1])
+
+		ti, to = Transports.create(protocols)
+		co = Catenation()
+		di = Division()
+
+		return (kin, ti, di, mitre, co, to, kout) # _flow input
+
+	@staticmethod
+	def _listen(channel):
+		return KAccept(channel)
+
+	@staticmethod
+	def _input(channel):
+		return KInput(channel)
+
+	@staticmethod
+	def _output(channel):
+		return KOutput(channel)
+
+	@property
+	def scheduler(self):
+		"""
+		# The scheduler processor associated with the system context.
+		"""
+		only, = self.controller.processors[core.Scheduler]
+		return only
+
+	def xact_exit(self, xact:core.Transaction):
+		ctx = xact.xact_context
+		if ctx.exe_faults:
+			sys.stderr.writelines(x+"\n" for x in tmp.format(ctx.exe_identifier, xact))
+			sys.stderr.write("\n")
+			sys.stderr.flush()
+			for ident, procs in ctx.exe_faults.items():
+				sys.stderr.writelines(x+"\n" for x in tmp.format(ident, procs))
+				sys.stderr.write("\n")
+				sys.stderr.flush()
+
+	def xact_void(self, final:core.Transaction):
+		"""
+		# Final transaction exited; process complete.
+		"""
+		return
+		self.terminate()
+		self.process.terminate()
+
+	def __init__(self, process):
+		self.process = weakref.proxy(process)
+		self.executables = weakref.WeakValueDictionary()
+		self.attachments = []
+
+	def structure(self):
+		return self.process.structure()
+
+	def actuate(self):
+		# Allows the roots to perform scheduling.
+		self.provide('system')
+		assert self.controller.system is self
+
+	def allocate(self, xactctx):
+		"""
+		# Launch an Executable for running application processors.
+		"""
+		xact = core.Transaction.create(xactctx)
+		xact.executable = xactctx
+		xact.system = self
+		xactctx.system = self
+		self.executables[xactctx.exe_identifier] = xact
+		self.controller.dispatch(xact)
+
+	def report(self, target):
+		"""
+		# Send an overview of the logical process state to the given target.
+		"""
+
+		target("\n".join(tmp.format('main', self.controller)))
+		target("\n")
 
 	def defer(self, measure, task, maximum=6000, seconds=libtime.Measure.of(second=2)):
 		"""
 		# Schedule the task for execution after the period of time &measure elapses.
 
-		# &.library.Scheduler instances will resubmit a task if there is a substantial delay
+		# &.core.Scheduler instances will resubmit a task if there is a substantial delay
 		# remaining. When large duration defers are placed, the seconds unit are used
 		# and decidedly inexact, so resubmission is used with a finer grain.
 		"""
@@ -681,49 +966,43 @@ class Context(object):
 
 		raise Exception("not implemented")
 
-	def _sys_traffic_cycle(self):
+	def _io_cycle(self):
 		"""
 		# Signal the &Process that I/O occurred for this context.
 		"""
 
-		self.process.iomatrix.force(id=self.association())
+		self.process.iomatrix.force(id=self)
 
 	# Primary access to processor resources: task queue, work thread, and threads.
-	def _sys_traffic_attach(self, *channels):
+	def _io_attach(self, *channels):
 		# Enqueue flush once to clear new channels.
 		if not self.attachments:
-			self.enqueue(self._sys_traffic_flush)
+			self.enqueue(self._io_flush)
 		self.attachments.extend(channels)
 
-	def _sys_traffic_flush(self):
+	def _io_flush(self):
 		# Needs main task queue context.
 		new_channels = self.attachments
 		self.attachments = []
 
-		unit = self.association()
 		ix = self.process.iomatrix
-		ix.acquire(unit, new_channels)
-		ix.force(id=unit)
+		ix.acquire(self, new_channels)
+		ix.force(id=self)
+		del ix
 
-		del unit
-
-	def interfaces(self, processor):
+	def ctx_enqueue_task(self, task):
 		"""
-		# Iterator producing the stack of &Interface instances associated
-		# with the sector ancestry.
+		# Enqueue a task associated with the sector so that exceptions cause the sector to
+		# fault. This is the appropriate way for &Processor instances controlled by a sector
+		# to sequence processing.
 		"""
-		sector_scan = processor.controller
-		while not isinstance(sector_scan, Unit):
-			if isinstance(sector_scan, Sector):
-				yield from sector_scan.processors.get(Interface, ())
-			sector_scan = sector_scan.controller
+		return self.process.enqueue(task)
 
 	def enqueue(self, *tasks):
 		"""
 		# Enqueue the tasks for subsequent processing; used by threads to synchronize their effect.
 		"""
-
-		self.process.enqueue(*tasks)
+		return self.process.enqueue(*tasks)
 
 	def execute(self, controller, function, *parameters):
 		"""
@@ -732,7 +1011,7 @@ class Context(object):
 
 		return self.process.fabric.execute(controller, function, *parameters)
 
-	def environ(self, identifier):
+	def environ(self, identifier, default=None):
 		"""
 		# Access the environment from the perspective of the context.
 		# Context overrides may hide process environment variables.
@@ -741,7 +1020,7 @@ class Context(object):
 		if identifier in self.environment:
 			return self.environment[identifier]
 
-		return os.environ.get(identifier)
+		return os.environ.get(identifier, default)
 
 	def override(self, identifier, value):
 		"""
@@ -764,9 +1043,6 @@ class Context(object):
 		"""
 
 		alloc = allocate
-		unit = self.association()
-		if unit is None:
-			raise RuntimeError("context has no associated resource")
 
 		# io normally works with channels that are attached to
 		# an array, but in cases where it was never acquired, the
@@ -806,7 +1082,7 @@ class Context(object):
 			('octets', endpoint.protocol), (str(endpoint.address), endpoint.port)
 			# XXX: interface ref
 		)
-		return self._connect(mitre, channels, *protocols)
+		return self._connect_subflows(mitre, channels, *protocols)
 
 	def connect_subflows(self, endpoint, mitre, *protocols):
 		"""
@@ -825,7 +1101,7 @@ class Context(object):
 		"""
 
 		channels = allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
-		return self._connect(mitre, channels, *protocols)
+		return self._connect_subflows(mitre, channels, *protocols)
 
 	def accept_subflows(self, fd, mitre, *protocols):
 		"""
@@ -842,7 +1118,7 @@ class Context(object):
 		"""
 
 		channels = allocate('octets://acquire/socket', fd)
-		return self._connect(mitre, channels, *protocols)
+		return self._connect_subflows(mitre, channels, *protocols)
 
 	def read_file(self, path):
 		"""
@@ -860,7 +1136,7 @@ class Context(object):
 
 	def update_file(self, path, offset, size):
 		"""
-		# Allocate a transit for overwriting data at the given offset of
+		# Allocate a channel for overwriting data at the given offset of
 		# the designated file.
 		"""
 
@@ -903,8 +1179,8 @@ class Context(object):
 		alloc = allocate
 
 		for kp in kports:
-			socket_transit = alloc('sockets://acquire', kp)
-			yield (socket_transit.endpoint(), self._listen(socket_transit))
+			socket_channel = alloc('sockets://acquire', kp)
+			yield (socket_channel.endpoint(), self._listen(socket_transit))
 
 	def connect_output(self, fd):
 		"""
@@ -1122,12 +1398,19 @@ class Process(object):
 			if y.fabric.executing(x):
 				return y
 
-	def primary(self) -> bool:
+	def transaction(self) -> core.Transaction:
 		"""
 		# Return the primary &.library.Unit instance associated with the process.
 		"""
 
-		return __process_index__[self]
+		return __process_index__[self][0]
+
+	def task_queue_reference(self):
+		"""
+		# Return the weak reference to &enqueue.
+		"""
+		bmethod = __process_index__[self][1]
+		return weakref.proxy(bmethod)
 
 	@property
 	def iomatrix(self):
@@ -1135,32 +1418,20 @@ class Process(object):
 		# The &Matrix instance managing the I/O file descriptors used
 		# by the &Process.
 		"""
-		return __traffic_index__[self]
+		return __io_index__[self]
 
-	@classmethod
-	def spawn(Class, invocation, Unit, units, identity='root', critical=process.critical):
-		"""
-		# Construct a booted &Process using the given &invocation
-		# with the specified &Unit.
-		"""
-
-		proc = Class(identity, invocation=invocation)
-
-		inits = []
-		unit = None
-		for identity, roots in units.items():
-			unit = Unit()
-			unit.requisite(identity, roots, process = proc, Context = Context)
-			proc._enqueue(functools.partial(critical, None, unit.actuate))
-
-		__process_index__[proc] = unit
-		return proc
+	def actuate_root_transaction(self):
+		xact = self.transaction()
+		tqr = self.task_queue_reference()
+		xact.enqueue = tqr
+		xact._pexe_contexts = ('enqueue',)
+		xact.actuate()
+		core.set_actuated(xact)
 
 	def log(self, data):
 		"""
 		# Append only access to a *critical* process log. Usually points to &sys.stderr and
-		# primarily used for process related issues. Normally inappropriate for &Unit
-		# instances.
+		# primarily used for process related issues.
 		"""
 
 		self._logfile.write(data)
@@ -1174,31 +1445,26 @@ class Process(object):
 
 		return process.Fork.dispatch(self.boot, *tasks)
 
-	def actuate(self, *tasks):
-		# kernel interface: watch process exits, process signals, and timers.
-		self.kernel = events.Interface()
-		self.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
-		self.fabric.spawn(None, self.main, ())
-
-	def boot(self, main_thread_calls, *tasks):
+	def boot(self, *tasks):
 		"""
 		# Boot the Process with the given tasks enqueued in the Task queue.
 
 		# Only used inside the main thread for the initialization of the
 		# controlling processor.
 		"""
-		global process
 
 		if self.kernel is not None:
 			raise RuntimeError("already booted")
 
 		process.fork_child_cleanup.add(self.void)
-		for boot_init_call in main_thread_calls:
-			boot_init_call()
 
-		self.actuate(*tasks)
+		self.kernel = events.Interface()
+		self.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
+		self.fabric.spawn(None, self.main, ()) # Main task queue thread.
 		# replace boot() with protect() for main thread protection/watchdog
 		process.Fork.substitute(process.protect)
+
+		return self
 
 	def main(self):
 		"""
@@ -1208,31 +1474,27 @@ class Process(object):
 		# Normally
 		try:
 			self.loop()
+		except OSError as killed:
+			pass
 		except BaseException as critical_loop_exception:
 			self.error(self.loop, critical_loop_exception, title = "Task Loop")
 			raise
 			raise process.Panic("exception escaped process loop") # programming error in Process.loop
 
-	def terminate(self, exit=None):
+	def terminate(self):
 		"""
-		# Terminate the Process. If no contexts remain, exit the process.
+		# Terminate the process closing the task queue and running the invocation's exit.
 		"""
 		self._exit_stack.__exit__(None, None, None)
 
 		del __process_index__[self]
-		del __traffic_index__[self]
+		del __io_index__[self]
+		self.kernel.void()
 
-		if not __process_index__:
-			if exit is None:
-				# no exit provided, so use our own exit code
-				process.interject(process.Exit(250).raised)
-			else:
-				return self.invocation.exit(exit)
-
-	def __init__(self, identity, invocation=None):
+	def __init__(self, identifier):
 		"""
-		# Initialize the Process instance using the designated &identity.
-		# The identity is essentially arbitrary, but must be hashable as it's
+		# Initialize the Process instance using the designated &identifier.
+		# The identifier is essentially arbitrary, but must be hashable as it's
 		# used to distinguish one &Representation from another. However,
 		# usually there is only one process, so "root" or "main" is often used.
 
@@ -1241,15 +1503,12 @@ class Process(object):
 		"""
 
 		# Context Wide Resources
-		self.identity = identity
-		self.invocation = invocation # exit resource and invocation parameters
+		self.identifier = identifier
 
-		# track number of loop and designate maintenance frequency
+		# track number of loops
 		self.cycle_count = 0 # count of task cycles
 		self.cycle_start_time = None
 		self.cycle_start_time_decay = None
-
-		self.maintenance_frequency = 256 # in task cycles
 
 		self._logfile = sys.stderr
 
@@ -1260,8 +1519,7 @@ class Process(object):
 		self._init_fabric()
 		self._init_taskq()
 		self._init_system_events()
-		# XXX: does not handle term/void cases.
-		self._init_traffic()
+		self._init_io()
 
 	def _init_exit(self):
 		self._exit_stack = contextlib.ExitStack()
@@ -1277,12 +1535,11 @@ class Process(object):
 	def _init_taskq(self, Queue=collections.deque):
 		self.loading_queue = Queue()
 		self.processing_queue = Queue()
-		self._tq_maintenance = set()
 
-	def _init_traffic(self, Matrix=Matrix):
+	def _init_io(self, Matrix=Matrix):
 		execute = functools.partial(self.fabric.critical, self, io_adapter)
 		ix = Matrix(io_adapter, execute = execute)
-		__traffic_index__[self] = ix
+		__io_index__[self] = ix
 
 	def void(self):
 		"""
@@ -1299,35 +1556,31 @@ class Process(object):
 		self.kernel = None
 		self.iomatrix.void()
 
-	def report(self, target=sys.stderr):
+	def report(self):
 		"""
 		# Report a snapshot of the process' state to the given &target.
 		"""
 
-		target.write("[%s]\n" %(libtime.now().select('iso'),))
-		__process_index__[self].report(target)
+		self.log("[%s]\n" %(libtime.now().select('iso'),))
+		xact = __process_index__[self][0]
+		xact.xact_context.report(self.log)
 
 	def __repr__(self):
-		return "{0}(identity = {1!r})".format(self.__class__.__name__, self.identity)
+		return "{0}(identifier = {1!r})".format(self.__class__.__name__, self.identifier)
 
 	actuated = True
 	terminated = False
 	terminating = None
 	interrupted = None
 	def structure(self):
-		"""
-		# Structure information for the &Unit device entry.
-		"""
 		sr = ()
 
 		# processing_queue is normally empty whenever report is called.
 		ntasks = sum(map(len, (self.loading_queue, self.processing_queue)))
 
 		p = [
-			('pid', process.current_process_id),
 			('tasks', ntasks),
 			('threads', len(self.fabric.threading)),
-			('executable', sys.executable),
 
 			# Track basic (task loop) cycle stats.
 			('cycles', self.cycle_count),
@@ -1335,27 +1588,11 @@ class Process(object):
 			('decay', self.cycle_start_time_decay),
 		]
 
-		python = os.environ.get('PYTHON', sys.executable)
-		if python is not None:
-			p.append(('python', python))
-
 		return (p, sr)
-
-	def maintain(self, task):
-		"""
-		# Add a task that is repeatedly executed after each task cycle.
-		"""
-
-		if task in self._tq_maintenance:
-			self._tq_maintenance.discard(task)
-		else:
-			self._tq_maintenance.add(task)
 
 	def error(self, context, exception, title = "Unspecified Execution Area"):
 		"""
-		# Exception handler for the &Representation instance.
-
-		# This handler is called for unhandled exceptions.
+		# Handler for untrapped exceptions.
 		"""
 
 		exc = exception
@@ -1366,16 +1603,6 @@ class Process(object):
 		formatting = ''.join(formatting)
 
 		self.log("[Exception from %s: %r]\n%s" %(title, context, formatting))
-
-	def maintenance(self):
-		# tasks to run after every cycle
-		tasks = list(self._tq_maintenance)
-
-		for task in tasks:
-			try:
-				task() # maintenance task
-			except BaseException as e:
-				self.error(task, e, title = 'Maintenance',)
 
 	def loop(self, partial=functools.partial, BaseException=BaseException):
 		"""
@@ -1424,11 +1651,6 @@ class Process(object):
 			events = ()
 			waiting = (not nwq and not cwq) # both are empty.
 
-			if self._tq_maintenance and (waiting or self.cycle % self.maintenance_frequency == 0):
-				# it's going to wait, so run maintenance
-				# XXX need to be able to peek at the kqueue events
-				self.maintenance()
-
 			try:
 				# Change the interval to encourage switching in Python threads.
 				setswitchinterval(default_interval)
@@ -1472,7 +1694,7 @@ class Process(object):
 					append(partial(callback, *args))
 				else:
 					# note unhandled system events
-					print('unhandled event', event)
+					self.log('[!# WARNING: unhandled event %r]\n' % (event,))
 
 			# for event
 		# while True
@@ -1518,3 +1740,21 @@ class Process(object):
 
 		self.loading_queue.extend(tasks)
 		self.kernel.force()
+
+def spawn(identifier, executables, critical=process.critical, partial=functools.partial):
+	"""
+	# Construct a &Process using the given &invocation
+	# with the specified &Unit.
+	"""
+
+	process = Process(identifier)
+	system = Context(process)
+	xact = core.Transaction.create(system)
+	enqueue = process.enqueue
+	__process_index__[process] = (xact, enqueue)
+	process._enqueue(partial(critical, None, process.actuate_root_transaction))
+
+	for x in executables:
+		process._enqueue(partial(system.allocate, x))
+
+	return process

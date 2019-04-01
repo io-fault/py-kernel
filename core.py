@@ -7,8 +7,18 @@ import builtins
 import operator
 import weakref
 import collections
+import itertools
+import traceback
 
 from ..time import library as libtime
+
+def set_actuated(processor):
+	processor._pexe_state = 1
+	return processor
+
+def set_terminated(processor):
+	processor._pexe_state = -1
+	return processor
 
 class Join(object):
 	"""
@@ -166,10 +176,9 @@ Inexorable = Condition(builtins, ('False',))
 
 class Resource(object):
 	"""
-	# Base class for the Resource and Processor hierarchy making up a fault.io process.
+	# Base class for &Processor.
 
 	# [ Properties ]
-
 	# /context/
 		# The execution context that can be used to enqueue tasks,
 		# and provides access to the root &Unit.
@@ -200,13 +209,6 @@ class Resource(object):
 	del _set_controller_reference
 
 	@property
-	def unit(self):
-		"""
-		# Return the &Unit that contains this &Resource instance.
-		"""
-		return self.context.association()
-
-	@property
 	def sector(self, isinstance=isinstance):
 		"""
 		# Identify the &Sector holding the &Resource by scanning the &controller stack.
@@ -232,8 +234,10 @@ class Resource(object):
 		# Assign &ascent as the controller of &self and inherit its &Context.
 		"""
 
+		self._pexe_contexts = ascent._pexe_contexts
+		for field in ascent._pexe_contexts:
+			setattr(self, field, getattr(ascent, field))
 		self.controller_reference = Ref(ascent)
-		self.context = ascent.context
 
 	def relocate(self, ascent):
 		"""
@@ -259,33 +263,39 @@ class Resource(object):
 		# implementation in the class hierarchy will be called (&sequence) in order
 		# to acquire a reasonable representation of the Resource's contents.
 
-		# Implementations are used by &format and &sequence.
+		# Implementations are used by &.library.format and &.library.sequence.
 		"""
 
 		return None
 
-class Device(Resource):
+class ExceptionStructure(object):
 	"""
-	# A resource that is loaded by &Unit instances into (io.resource)`/dev`
-
-	# Devices often have special purposes that regular &Resource instances do not
-	# normally fulfill. The name is a metaphor for operating system kernel devices
-	# as they are often associated with kernel features.
+	# Exception associated with an interface supporting the sequencing of processor trees.
 	"""
 
-	@classmethod
-	def connect(Class, unit):
-		"""
-		# Load an instance of the &Device into the given &unit.
-		"""
+	actuated=True
+	terminated=False
+	interrupted=False
+	def __init__(self, identity, exception):
+		self.identity = identity
+		self.exception = exception
 
-		dev = Class()
-		unit.place(dev, 'dev', Class.device_entry)
-		dev.subresource(unit)
+	def __getitem__(self, k):
+		return (self.identity, self)[k]
 
-		return dev
+	def structure(self):
+		# exception reporting facility
+		exc = self.exception
 
-@collections.abc.Awaitable.register
+		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
+		formatting = ''.join(formatting)
+
+		p = [
+			('traceback', formatting),
+		]
+
+		return (p, ())
+
 class Processor(Resource):
 	"""
 	# A resource that maintains an abstract computational state. Processors are
@@ -330,6 +340,7 @@ class Processor(Resource):
 		('terminated', -1), # Termination completed and the processor will exit().
 		('deallocating', 0), # Unused state.
 	)
+	_pexe_contexts = ()
 
 	@property
 	def actuated(self) -> bool:
@@ -347,12 +358,6 @@ class Processor(Resource):
 	def status(self, _states={k:v for v,k in _pexe_states}):
 		return _states[self._pexe_state]
 
-	def termination_started(self):
-		self._pexe_state = 2
-
-	def termination_completed(self):
-		self._pexe_state = -1
-
 	@property
 	def interrupted(self) -> typing.Union[bool]:
 		if self.controller:
@@ -362,6 +367,7 @@ class Processor(Resource):
 			return None
 
 	# Origin of the interrupt or terminate
+	interrupted = False
 	terminator = None
 
 	product = None
@@ -385,42 +391,37 @@ class Processor(Resource):
 
 		return self._pexe_state > 0 and not self.interrupted
 
-	def controlled(self, subprocessor):
-		"""
-		# Whether or not the given &Processor is directly controlled by &self.
-		"""
-
-		# Generic Processor has no knowledge of subresources.
-		return False
-
 	def actuate(self):
 		"""
 		# Initialize the Processor for use within the controlling Sector.
+
+		# Initialization method called after a &Processor has been given execution context.
+		# &Processor.actuate performs no actions and does not need to be called when
+		# overridden.
 		"""
 		pass
 
-	def process(self, event):
-		"""
-		# Processing entry point for performing work of primary interest.
-		"""
+	def start_termination(self):
+		self._pexe_state = 2
 
-		pass
+	def finish_termination(self):
+		self._pexe_state = -1
+		self.exit()
 
 	def terminate(self, by=None):
 		"""
-		# Request that the Processor terminate.
-		# Causes the Processor to progress into a `'terminating'` or `'terminated'` state
-		# given that the Processor allows it.
-
-		# Processors that do not support direct termination requests should document why
-		# in their documentation strings.
+		# Terminate the Processor using &interrupt and exit.
+		# If &self did not implement &interrupt, a &RuntimeError will be raised.
 		"""
 
-		if not self.functioning or self.terminating:
+		if self.terminated:
 			return False
 
-		self.termination_started()
-		self.terminator = by
+		self.interrupt()
+		if not self.interrupted:
+			raise RuntimeError("processor was not interrupted")
+
+		self.finish_termination()
 		return True
 
 	def interrupt(self, context=None):
@@ -451,23 +452,23 @@ class Processor(Resource):
 			self.exceptions = set()
 
 		self.exceptions.add((association, exception))
-		self.exit = (lambda x: x)
-		self.context.faulted(self)
+		self.exit = (lambda: None) # Inhibit normal exit signals
+		self.executable.faulted(self)
 
-	def _fio_fault_trap(self, trapped_task):
+	def _fault_trap(self, trapped_task):
 		try:
 			trapped_task() # Executed relative to &Sector instance.
 		except BaseException as exc:
 			self.fault(exc)
 
-	def ctx_enqueue_task(self, task, partial=functools.partial, trap=_fio_fault_trap):
+	def ctx_enqueue_task(self, task, partial=functools.partial, trap=_fault_trap):
 		"""
 		# Enqueue a task associated with the sector so that exceptions cause the sector to
 		# fault. This is the appropriate way for &Processor instances controlled by a sector
 		# to sequence processing.
 		"""
-		self.context.enqueue(partial(trap, self, task))
-	del _fio_fault_trap
+		self.enqueue(partial(trap, self, task))
+	del _fault_trap
 
 	def exit(self):
 		"""
@@ -552,7 +553,7 @@ class Processor(Resource):
 
 		eec = self.exit_event_connections
 		if eec is not None:
-			self.context.enqueue(*[partial(x, processor) for x in eec.pop(processor, ())])
+			self.executable.enqueue(*[partial(x, processor) for x in eec.pop(processor, ())])
 			if not eec:
 				del self.exit_event_connections
 
@@ -633,16 +634,13 @@ class Sector(Processor):
 	exits = None
 	processors = None
 	product = None
-	interrupted = False
+
+	def iterprocessors(self):
+		return itertools.chain.from_iterable(self.processors.values())
 
 	def structure(self):
 		p = ()
-
-		sr = [
-			(hex(id(x)), x)
-			for x in itertools.chain.from_iterable(self.processors.values())
-		]
-
+		sr = [(hex(id(x)), x) for x in self.iterprocessors()]
 		return (p, sr)
 
 	def __init__(self, *processors, Processors=functools.partial(collections.defaultdict,set)):
@@ -663,15 +661,12 @@ class Sector(Processor):
 		"""
 
 		try:
-			for Class, sset in list(self.processors.items()):
-				for proc in sset:
-					proc.subresource(self)
-					proc.actuate()
-					proc._pexe_state = 1
+			for proc in list(self.iterprocessors()):
+				proc.subresource(self)
+				proc.actuate()
+				proc._pexe_state = 1
 		except BaseException as exc:
 			self.fault(exc)
-
-		return super().actuate()
 
 	def scheduling(self):
 		"""
@@ -689,27 +684,6 @@ class Sector(Processor):
 		"""
 
 		self.processors[processor.__class__].discard(processor)
-
-	def acquire(self, processor):
-		"""
-		# Add a process to the Sector; the processor is assumed to have been actuated.
-		"""
-
-		processor.subresource(self)
-		self.processors[processor.__class__].add(processor)
-
-	def process(self, events):
-		"""
-		# Load the sequence of &Processor instances into the Sector and actuate them.
-		"""
-
-		structs = self.processors
-
-		for ps in events:
-			ps.subresource(self)
-			structs[ps.__class__].add(ps)
-			ps.actuate()
-			ps._pexe_state = 1
 
 	_sector_terminated = Processor.exit
 
@@ -764,7 +738,12 @@ class Sector(Processor):
 
 		if self.exits is None:
 			self.exits = set()
-			self.ctx_enqueue_task(self.reap)
+			try:
+				self.executable.enqueue(self.reap)
+			except:
+				self.exits.add(processor)
+				self.reap()
+				return
 
 		self.exits.add(processor)
 
@@ -796,13 +775,12 @@ class Sector(Processor):
 		return gc.actuate()
 
 	def _flow(self, series):
-		# XXX: Replace .flow() or create a more stable access point. (implicit or explicit)
-		self.process(series)
-
 		x = series[0]
+		self.dispatch(x)
 		for n in series[1:]:
 			x.f_connect(n)
 			x = n
+			self.dispatch(n)
 
 	def reap(self, set=set):
 		"""
@@ -819,9 +797,10 @@ class Sector(Processor):
 		classes = set()
 
 		for x in exits:
-			struct[x.__class__].discard(x)
+			slot = x.placement()
+			struct[slot].discard(x)
 			self.exit_event_emit(x)
-			classes.add(x.__class__)
+			classes.add(slot)
 
 		for c in classes:
 			if not struct[c]:
@@ -911,13 +890,13 @@ class Scheduler(Processor):
 		self.persistent = True
 
 		controller = self.controller
+		sched = getattr(controller, 'scheduler', None)
 
-		if not isinstance(controller, Sector):
-			# Controller is the Unit, so the execution context is used
-			# to provide the scheduling primitives.
+		if True:
+			# System
 			self.x_ops = (
-				self.context.defer,
-				self.context.cancel
+				self.system.defer,
+				self.system.cancel
 			)
 		else:
 			controller = controller.controller
@@ -927,6 +906,8 @@ class Scheduler(Processor):
 					sched = controller.scheduler
 					break
 				controller = controller.controller
+			else:
+				raise RuntimeError("no scheduling ancestor")
 
 			self.x_ops = (
 				sched.defer,
@@ -1083,7 +1064,7 @@ class Recurrence(Processor):
 		# Enqueue the initial execution of the recurrence.
 		"""
 
-		self.ctx_enqueue_task(self._recur_occur)
+		self.executable.enqueue(self._recur_occur)
 
 	def recur_execute(self):
 		if self._recur_inhibit:
@@ -1114,3 +1095,227 @@ class Recurrence(Processor):
 	def interrupt(self):
 		self._recur_inhibit = True
 
+class Context(Processor):
+	"""
+	# The base class for &Transaction Context processors.
+
+	# Subclasses define the initialization process of a Transaction
+	# and the structures used to provide depending processors with the
+	# necessary information for performing their tasks.
+
+	# [ Namespaces ]
+	# Context Processors employ two hard namespaces in its methods.
+	# The `xact_ctx_` and the `xact_`. Methods and properties
+	# that exist under `xact_ctx_` refer to generic Context operations
+	# whereas `xact_` refers to operations that primary effect the
+	# &Transaction sector containing the context.
+	"""
+
+	def placement(self):
+		return Context
+
+	def require(self, identifier):
+		pass
+
+	def provide(self, identifier):
+		"""
+		# Export &self as a named context inherited by all descending processors.
+		"""
+		assert identifier is not None
+
+		ctl = self.controller
+		if identifier not in ctl._pexe_contexts:
+			ctl._pexe_contexts = ctl._pexe_contexts + (identifier,)
+			setattr(ctl, identifier, self)
+
+	def xact_exit_if_empty(self):
+		"""
+		# Check for processors other than &self, there are none, exit the transaction.
+		"""
+		sector = self.controller
+		sector.reap()
+
+		ip = sector.iterprocessors()
+		ctx = next(ip)
+
+		try:
+			next(ip)
+		except StopIteration:
+			super().terminate()
+			self.exit()
+
+	def xact_contextstack(self) -> typing.Iterable['Context']:
+		"""
+		# The complete context stack of the &Transaction excluding &self.
+		# First entry is nearest to &self; last is furthest ascent.
+		"""
+		s = self.controller
+
+		while s is not None:
+			s = s.controller
+			try:
+				yield s.xact_context
+			except AttributeError:
+				pass
+
+	@property
+	def xact_subxacts(self):
+		return self.controller.processors[Transaction]
+
+	def xact_dispatch(self, processor:Processor):
+		"""
+		# Dispatch the given &processor into the &Transaction.
+		"""
+		xact = self.controller
+		xact.dispatch(processor)
+		return self
+
+	def xact_initialized(self):
+		"""
+		# Called when the Transaction Context has been fully initialized with respect to
+		# the proposed event set determined by actuation.
+		"""
+		pass
+
+	def xact_exit(self, xact):
+		"""
+		# Subtransaction &xact exited.
+		"""
+		pass
+
+	def xact_void(self, xact):
+		"""
+		# All subtransactions exited; &xact was final.
+		"""
+		self.terminate()
+
+	def interrupt(self):
+		"""
+		# Update Transaction Context callbacks to null operations.
+
+		# Sets &interrupted to &True and should be called by subclasses if overridden.
+		"""
+		xact_event = (lambda x: None)
+		self.xact_exit = xact_event
+		self.xact_void = xact_event
+		self.xact_dispatch = xact_event
+		self.interrupted = True
+
+class Transaction(Sector):
+	"""
+	# A &Sector with Execution Context.
+
+	# Transactions are sectors with a single &Context instance that is used to manage
+	# the state of the Sector. Regular Sectors exit when all the processors are shutdown,
+	# and Transactions do too. However, the &Context is the controlling processor and
+	# must be the last to exit.
+
+	# [ Properties ]
+
+	# /xact_context/
+		# The Processor that will be dispatched to initialize the Transaction
+		# Sector and control its effect. Also, the receiver of &Processor.terminate.
+	"""
+
+	@classmethod
+	def create(Class, xc:Context):
+		"""
+		# Create a &Transaction sector with the given &Context initializaed
+		# as the first Processor to be actuated.
+
+		# This is the appropriate way to instantiate &Transaction instances
+		"""
+
+		xact = Class(xc)
+		xact.xact_context = xc
+
+		return xact
+
+	def isinstance(self, ContextClass):
+		"""
+		# Whether the Transaction's context, &xact_context, is an instance of the given &ContextClass.
+		"""
+		return isinstance(self.xact_context, ContextClass)
+
+	def terminate(self, by=None):
+		"""
+		# Invoke the &Context.terminate method of the &xact_context property.
+		# The termination of the Transaction is managed entirely by the Context.
+		"""
+
+		return self.xact_context.terminate(by=by)
+
+	def placement(self):
+		"""
+		# Define the set index to use when dispatched by a &Sector.
+
+		# By default, &Sector instances place &Processor instances into
+		# &set objects that stored inside a dictionary. The index used
+		# for placement is allowed to be overridden in order to optimize
+		# the groups and allow better runtime introspection.
+		"""
+
+		return Transaction
+
+	def iterprocesses():
+		yield self.xact_context
+		yield from super().iterprocessors()
+
+	def exited(self, processor):
+		if processor.placement() == Transaction:
+			# Signal context about subtransaction exit.
+			subxacts = self.processors[Transaction]
+			self.xact_context.xact_exit(processor)
+			if len(subxacts) == 1:
+				self.xact_context.xact_void(processor) # Signal empty transaction.
+
+		return super().exited(processor)
+
+class Executable(Context):
+	"""
+	# Logical Process segment.
+
+	# Enclosure providing context variables and fault handling for a logical executable within
+	# the process.
+	"""
+
+	def __init__(self, invocation, identifier=None):
+		self.exe_identifier = identifier or self.__name__.lower()
+		self.exe_invocation = invocation
+		self.exe_faults = {}
+		self.exe_faults_count = 0
+
+	def actuate(self):
+		self.require('system')
+		self.provide('executable')
+		self.controller.scheduling()
+		self.enqueue(self.xact_exit_if_empty)
+
+	def faulted(self, proc:Processor) -> None:
+		"""
+		# Place the sector into the faults directory using the hex identifier
+		# as its name.
+		"""
+
+		self.exe_faults_count += 1
+		self.exe_faults['@'+hex(id(proc))] = proc
+
+		sector = proc.sector
+		if sector.interrupted:
+			# assume that the existing interruption
+			# has already managed the exit.
+			pass
+		else:
+			sector.interrupt()
+			if not sector.terminated:
+				# It wasn't interrupted and it wasn't terminated,
+				# so it should be safe to signal its exit.
+				sector.controller.exited(sector)
+
+	def structure(self):
+		p = [
+			('identifier', self.exe_identifier),
+			('faults', self.exe_faults_count),
+		]
+
+		return (p, ())

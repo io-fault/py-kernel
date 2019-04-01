@@ -8,12 +8,12 @@ from ... import flows
 from .. import library as testlib
 
 def test_Collection(test):
-	ctx = testlib.Context()
+	ctx = testlib.Executable()
 	exit = testlib.ExitController()
 
 	c = flows.Collection.dict()
 	c.controller = exit
-	c.context = ctx
+	c.executable = ctx
 
 	f = flows.Channel()
 	f.controller = exit
@@ -30,7 +30,7 @@ def test_Collection(test):
 		("string-key", 1),
 	]
 	for x in events:
-		f.process(x)
+		f.f_transfer(x)
 
 	test/c.c_storage == {1:"value1",2:"override",3:"value3","string-key":1}
 
@@ -46,13 +46,13 @@ def test_Collection(test):
 
 	events = [1, 2, 3, 3, 3, 4, 5]
 	for x in events:
-		f.process(x)
+		f.f_transfer(x)
 
 	test/sorted(list(c.c_storage)) == [1,2,3,4,5]
 
 	b = flows.Collection.buffer()
 	b.actuate()
-	b.process([b'data', b' ', b'more'])
+	b.f_transfer([b'data', b' ', b'more'])
 	test/b.c_storage == b'data more'
 
 if __name__ == '__main__':

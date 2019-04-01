@@ -14,7 +14,6 @@ import typing
 import queue
 
 from . import core
-from .library import Processor
 
 # Little like an enum, but emphasis on the concept rather than enumeration.
 class Event(object):
@@ -40,12 +39,13 @@ class Event(object):
 			if v is self:
 				return k
 
-Event.initiate = Event()
-Event.clear = Event()
-Event.transfer = Event()
-Event.obstruct = Event()
-Event.terminate = Event()
-Event.overflow = Event()
+fe_initiate = Event.initiate = Event()
+fe_clear = Event.clear = Event()
+fe_transfer = Event.transfer = Event()
+fe_obstruct = Event.obstruct = Event()
+fe_terminate = Event.terminate = Event()
+fe_overflow = Event.overflow = Event()
+
 Event.operations = (
 	Event.terminate,
 	Event.obstruct,
@@ -54,7 +54,7 @@ Event.operations = (
 	Event.initiate,
 )
 
-class Channel(Processor):
+class Channel(core.Processor):
 	"""
 	# A Processor consisting of an arbitrary set of operations that
 	# can connect to other &Channel instances in order to make a series
@@ -113,7 +113,7 @@ class Channel(Processor):
 	f_downstream = None
 	f_upstream = None
 
-	def f_connect(self, flow:Processor, partial=functools.partial, Ref=weakref.ref):
+	def f_connect(self, flow:core.Processor, partial=functools.partial, Ref=weakref.ref):
 		"""
 		# Connect the Channel to the given object supporting the &Flow interface.
 		# Normally used with other Channels, but other objects may be connected.
@@ -133,8 +133,7 @@ class Channel(Processor):
 		self.f_downstream = flow
 		flow.f_upstream = Ref(self)
 		flow.f_watch(self.f_obstruct, self.f_clear)
-		self.f_emit = flow.process
-	connect = f_connect
+		self.f_emit = flow.f_transfer
 
 	def f_disconnect(self):
 		"""
@@ -189,12 +188,6 @@ class Channel(Processor):
 
 		return (p, sr)
 
-	def actuate(self):
-		"""
-		# Actuate the Channel for use within the controlling Sector.
-		"""
-		super().actuate()
-
 	def terminate(self, by=None):
 		"""
 		# Drain the Channel and finish termination by signalling the controller
@@ -205,9 +198,9 @@ class Channel(Processor):
 			return False
 
 		self.terminator = by
-		self.termination_started()
+		self.start_termination()
 
-		self.ctx_enqueue_task(self._f_terminated)
+		self.enqueue(self._f_terminated)
 		return True
 
 	def f_terminate(self, context=None):
@@ -225,20 +218,17 @@ class Channel(Processor):
 		# of the conceptual flow is complete.
 		"""
 
-		self.process = self.f_discarding
+		self.f_transfer = self.f_discarding
 		self.f_emit = self.f_discarding
-
-		self.termination_completed()
 
 		if self.f_downstream:
 			self.f_downstream.f_ignore(self.f_obstruct, self.f_clear)
 			self.f_downstream.f_terminate(context=self)
 
-		if self.controller:
-			self.exit()
+		self.finish_termination()
 
 	def interrupt(self):
-		self.process = self.f_discarding
+		self.f_transfer = self.f_discarding
 		self.f_emit = self.f_discarding
 
 		if self.f_downstream:
@@ -251,9 +241,9 @@ class Channel(Processor):
 			if dsc is not None and dsc.functioning:
 				dsc.exited(ds)
 
-		return True
+		self.interrupted = True
 
-	def process(self, event, source=None):
+	def f_transfer(self, event, source=None):
 		"""
 		# Emit the &event directly to the downstream.
 		"""
@@ -380,14 +370,14 @@ class Mitre(Channel):
 	"""
 	f_type = 'mitre'
 
-	def f_connect(self, flow:Processor):
+	def f_connect(self, flow:core.Processor):
 		"""
 		# Connect the given flow as downstream without inheriting obstructions.
 		"""
 
 		# Similar to &Channel, but obstruction notifications are not carried upstream.
 		self.f_downstream = flow
-		self.f_emit = flow.process
+		self.f_emit = flow.f_transfer
 
 class Sockets(Mitre):
 	"""
@@ -398,7 +388,7 @@ class Sockets(Mitre):
 		self.m_reference = reference
 		self.m_router = router
 
-	def process(self, event, source=None):
+	def f_transfer(self, event, source=None):
 		"""
 		# Accept the event, but do nothing as Terminals do not propogate events.
 		"""
@@ -419,7 +409,7 @@ class Transformation(Channel):
 	def __init__(self, transform):
 		self.tf_transform = transform
 
-	def process(self, event, source=None):
+	def f_transfer(self, event, source=None):
 		self.f_emit(self.tf_transform(event))
 
 	terminate = Channel._f_terminated
@@ -438,7 +428,7 @@ class Iteration(Channel):
 		"""
 
 		if super().f_clear(*args):
-			self.ctx_enqueue_task(self.it_transition)
+			self.enqueue(self.it_transition)
 			return True
 		return False
 
@@ -457,7 +447,7 @@ class Iteration(Channel):
 				# the obstruction is cleared.
 				break
 		else:
-			self.terminate(by='end of iterator')
+			self._f_terminated()
 
 	def __init__(self, iterator):
 		"""
@@ -470,11 +460,10 @@ class Iteration(Channel):
 		self.it_iterator = iter(iterator)
 
 	def actuate(self):
-		super().actuate()
 		if not self.f_obstructed:
-			self.ctx_enqueue_task(self.it_transition)
+			self.enqueue(self.it_transition)
 
-	def process(self, it, source=None):
+	def f_transfer(self, it, source=None):
 		"""
 		# Raises exception as &Iteration is a source.
 		"""
@@ -488,7 +477,6 @@ class Collection(Channel):
 	f_type = 'terminal'
 
 	def __init__(self, storage, operation):
-		super().__init__()
 		self.c_storage = storage
 		self.c_operation = operation
 
@@ -533,7 +521,7 @@ class Collection(Channel):
 			initial = bytearray()
 		return Class(initial, partial(Class._buffer_operation, barray=initial))
 
-	def process(self, obj, source=None):
+	def f_transfer(self, obj, source=None):
 		self.c_operation(obj)
 
 class Parallel(Channel):
@@ -567,7 +555,7 @@ class Parallel(Channel):
 		if self.terminated or self.terminating or self.interrupted:
 			return False
 
-		self.termination_started()
+		self.start_termination()
 		self._pf_put(None)
 		return True
 
@@ -577,12 +565,12 @@ class Parallel(Channel):
 		"""
 		try:
 			self.pf_target(self, self.pf_queue, *self.pf_parameters)
-			self.ctx_enqueue_task(self._f_terminated)
+			self.enqueue(self._f_terminated)
 		except BaseException as exc:
-			self.context.enqueue(functools.partial(self.fault, exc))
+			self.enqueue(functools.partial(self.fault, exc))
 			pass # The exception is managed by .fault()
 
-	def process(self, event):
+	def f_transfer(self, event, source=None):
 		"""
 		# Send the event to the queue that the Thread is connected to.
 		# Injections performed by the thread will be enqueued into the main task queue.
@@ -595,9 +583,8 @@ class Parallel(Channel):
 		# Execute the dedicated thread for the transformer.
 		"""
 
-		super().actuate()
-		self.process = self._pf_put
-		self.context.execute(self, self.trap)
+		self.f_transfer = self._pf_put
+		self.system.execute(self, self.trap)
 
 class Transports(Channel):
 	"""
@@ -692,10 +679,10 @@ class Transports(Channel):
 		return self._tf_opposite()
 
 	def tf_empty(self):
-		self.process(())
+		self.f_transfer(())
 
 	def terminal(self):
-		self.process(())
+		self.f_transfer(())
 
 		if not self.tf_stack:
 			self._f_terminated()
@@ -706,9 +693,9 @@ class Transports(Channel):
 			if o.terminating and o.functioning:
 				# Terminate other side if terminating and functioning.
 				self.tf_stack[-1].terminate(-self.tf_polarity)
-				o.process(())
+				o.f_transfer(())
 
-	def process(self, events, source=None):
+	def f_transfer(self, events, source=None):
 		"""
 		# Process the given events with the referenced I/O operations.
 
@@ -739,12 +726,12 @@ class Transports(Channel):
 			# No processing if empty.
 			self.f_emit(events)
 
-		# Termination must be checked everytime unless process() was called from here
+		# Termination must be checked everytime unless f_transfer() was called from here
 		if opposite_has_work:
 			# Use recursion on purpose and allow
 			# the maximum stack depth to block an infinite loop.
 			# from a poorly implemented protocol.
-			self._tf_opposite().process(())
+			self._tf_opposite().f_transfer(())
 			x = 0
 			for ops in self.tf_operations:
 				if ops[2]():
@@ -776,8 +763,9 @@ class Transports(Channel):
 				# send/output
 				del self.tf_operations[0]
 				del opp.tf_operations[-1]
-				opp.f_downstream.f_terminate()
-				opp.f_disconnect()
+				if opp.f_downstream:
+					opp.f_downstream.f_terminate()
+					opp.f_disconnect()
 		else:
 			if not stack:
 				# empty stack. check for terminating conditions.
@@ -802,7 +790,7 @@ class Transports(Channel):
 			# Receive termination effectively interrupts receive transfers.
 			# When a terminating receive is expected to perform transfers,
 			# we can safely interrupt if it's not satisfied by an empty transfer.
-			self.termination_started()
+			self.start_termination()
 			for x in stack:
 				x.terminate(1)
 			self.tf_empty()
@@ -822,337 +810,6 @@ class Transports(Channel):
 		"""
 		pass
 
-class Kernel(Channel):
-	"""
-	# Flow moving data in or out of the operating system's kernel.
-	# The &KInput and &KOutput implementations providing for the necessary specializations.
-	"""
-	k_status = None
-
-	def inject(self, events):
-		return self.f_emit(events)
-
-	def f_clear(self, *args):
-		r = super().f_clear(*args)
-		if self.f_obstructed:
-			pass
-		return r
-
-	def __init__(self, transit=None):
-		self.transit = transit
-		self.acquire = transit.acquire
-		transit.link = self
-		super().__init__()
-
-	def actuate(self):
-		self.context._sys_traffic_attach(self.transit)
-
-	def k_meta(self):
-		if self.transit:
-			return self.transit.port, self.transit.endpoint()
-		else:
-			return self.k_status
-
-	def __repr__(self):
-		c = self.__class__
-		mn = c.__module__.rsplit('.', 1)[-1]
-		qn = c.__qualname__
-		port, ep = self.k_meta()
-
-		if self.transit is None:
-			res = "(no transit)"
-		else:
-			if self.transit.resource is None:
-				res = "none"
-			else:
-				res = str(len(self.transit.resource))
-
-		s = '<%s.%s(%s) RL:%s [%s] at %s>' %(
-			mn, qn,
-			str(ep),
-			res,
-			str(port),
-			hex(id(self))
-		)
-
-		return s
-
-	def structure(self):
-		p = []
-		kp, ep = self.k_meta()
-		p.append(('kport', kp.fileno))
-		p.append(('endpoint', str(ep)))
-		if self.transit is not None:
-			r = self.transit.resource
-			p.append(('resource', len(r) if r is not None else 'none'))
-
-		return (p, ())
-
-	def k_transition(self):
-		# Called when the resource was exhausted
-		# Unused atm and pending deletion.
-		raise NotImplementedError("Kernel flows must implement transition")
-
-	def k_kill(self):
-		"""
-		# Called by the controlling &Flow, acquire status information and
-		# unlink the transit.
-		"""
-
-		t = self.transit
-		self.transit = None
-		self.k_status = (t.port, t.endpoint())
-		t.link = None # signals I/O loop to not inject.
-		t.terminate() # terminates one direction.
-
-		return t
-
-	def interrupt(self):
-		if self.transit is not None:
-			self.k_kill()
-
-	def f_terminated(self):
-		# THIS METHOD IS NOT CALLED IF TERMINATE/INTERRUPT() WAS USED.
-		#assert not self.interrupted and not self.terminated
-
-		# Called when the termination condition is received,
-		# but *after* any transfers have been injected.
-
-		# &.traffic calls this when it sees termination of the transit.
-
-		if self.transit is None:
-			# terminate has already been ran; status is *likely* present
-			pass
-		else:
-			self.k_kill()
-
-			# No need to run transit.terminate() as this is only
-			# executed by io.traffic in response to shutdown.
-
-			# Exception is not thrown as the transport's error condition
-			# might be irrelevant to the success of the application.
-			# If a transaction was successfully committed and followed
-			# with a transport error, it's probably appropriate to
-			# show the transport issue, if any, as a warning.
-			if not self.terminated:
-				self.exit()
-			if 0:
-				self.f_obstruct('kernel port closed', None, Inexorable)
-
-	def process(self, event, source=None):
-		raise NotImplementedError("kernel flows must implement process")
-
-	def inject(self, events):
-		self.f_emit(events)
-
-	@property
-	def k_transferring(self, len=len):
-		"""
-		# The length of the buffer being transferred into or out of the kernel.
-
-		# &None if no transfer is currently taking place.
-		"""
-		x = self.transit
-		if x is not None:
-			x = x.resource
-			if x is not None:
-				return len(x)
-
-		return None
-
-class KInput(Kernel):
-	"""
-	# Flow that continually allocates memory for a transit transferring data into the process.
-	"""
-
-	allocate_integer_array = (array.array("i", [-1]).__mul__, 24)
-	allocate_byte_array = (bytearray, 1024*4)
-
-	@classmethod
-	def sockets(Class, transit):
-		"""
-		# Allocate a &KInput instance for transferring accepted sockets.
-		"""
-		return Class(transit, allocate=Class.allocate_integer_array)
-
-	def __init__(self, transit, allocate=allocate_byte_array):
-		super().__init__(transit=transit)
-
-		self.ki_allocate = allocate[0]
-		self.ki_resource_size = allocate[1]
-
-	def f_terminated(self):
-		if self.transit is None:
-			# terminate has already been ran; status is *likely* present
-			return
-
-		self.k_kill()
-
-		# Exception is not thrown as the transport's error condition
-		# might be irrelevant to the success of the application.
-		# If a transaction was successfully committed and followed
-		# with a transport error, it's probably appropriate to
-		# show the transport issue, if any, as a warning.
-		self._f_terminated()
-
-	def k_transition(self):
-		"""
-		# Transition in the next buffer provided that the Flow was not obstructed.
-		"""
-
-		if self.f_obstructed:
-			# Don't allocate another buffer if the flow has been
-			# explicitly obstructed by the downstream.
-			return
-
-		alloc = self.ki_allocate(self.ki_resource_size)
-		self.acquire(alloc)
-
-	def process(self, event, source=None):
-		"""
-		# Normally ignored, but will induce a transition if no transfer is occurring.
-		"""
-
-		if self.transit.resource is None:
-			self.k_transition()
-
-class KOutput(Kernel):
-	"""
-	# Flow that transfers emitted events to be transferred into the kernel.
-
-	# The queue is limited to a certain number of items rather than a metadata constraint;
-	# for instance, the sum of the length of the buffer entries. This allows the connected
-	# Flows to dynamically choose the buffer size by adjusting the size of the events.
-	"""
-
-	ko_limit = 16
-
-	@property
-	def ko_overflow(self):
-		"""
-		# Queue entries exceeds limit.
-		"""
-		return len(self.ko_queue) > self.ko_limit
-
-	@property
-	def f_empty(self):
-		return (
-			self.transit is not None and \
-			len(self.ko_queue) == 0 and \
-			self.transit.resource is None
-		)
-
-	def __init__(self, transit, Queue=collections.deque):
-		super().__init__(transit=transit)
-		self.ko_queue = Queue()
-		self.k_transferred = None
-
-	def k_transition(self):
-		# Acquire the next buffer to be sent.
-		if self.ko_queue:
-			nb = self.ko_queue.popleft()
-			self.acquire(nb)
-			self.k_transferred = 0
-		else:
-			# Clear obstruction when and ONLY when the buffer is emptied.
-			# This is done to avoid thrashing.
-			self.k_transferred = None
-			self.f_clear(self)
-
-			if self.terminating:
-				self.transit.terminate()
-
-	def process(self, event, source=None, len=len):
-		"""
-		# Enqueue a sequence of transfers to be processed by the Transit.
-		"""
-
-		# Events *must* be processed, so extend the queue unconditionally.
-		self.ko_queue.extend(event)
-
-		if self.k_transferred is None:
-			# nothing transferring, so there should be no transfer resources (Transit/Detour)
-			self.k_transition()
-		else:
-			# Set obstruction if the queue size exceeds the limit.
-			if len(self.ko_queue) > self.ko_limit:
-				self.f_obstruct(self, None,
-					core.Condition(self, ('ko_overflow',))
-				)
-
-	def f_terminate(self, context=None):
-		if self.terminating:
-			return False
-
-		# Flow-level Termination occurs when the queue is clear.
-		self.termination_started()
-		self.terminator = context
-
-		if self.f_empty:
-			# Only terminate transit if it's empty.
-			self.transit.terminate()
-			self.exit()
-
-		# Note termination signalled.
-		return True
-
-	def terminate(self, by=None):
-		self.f_terminate(by)
-
-class Null(Channel):
-	"""
-	# Flow that has no controller, ignores termination, and emits no events.
-
-	# Conceptual equivalent of (system:filepath)`/dev/null`.
-	"""
-	controller = None
-	f_type = 'terminal'
-
-	def __init__(self):
-		pass
-
-	@property
-	def f_emit(self):
-		"""
-		Immutable property inhibiting invalid connections.
-		"""
-		return self.f_discarding
-
-	@f_emit.setter
-	def f_emit(self, value):
-		"""
-		# Desregard update likely setting f_discarding.
-		"""
-		pass
-
-	def subresource(*args):
-		raise Exception("libkernel.Null cannot be acquired")
-	def atexit(*args):
-		raise Exception("libkernel.Null never exits")
-	def f_null_obstructions(*args):
-		raise Exception("libkernel.Null is never obstructed")
-	f_clear = f_null_obstructions
-	f_obstruct = f_null_obstructions
-
-	def f_connect(self, downstream:Channel):
-		"""
-		# Induces termination in downstream.
-		"""
-		downstream.terminate(by=self)
-
-	def f_watch(*args):
-		pass
-	def f_ignore(*args):
-		pass
-
-	def terminate(self, by=None):
-		pass
-	def interrupt(self):
-		pass
-	def process(self, event, source=None):
-		pass
-null = Null()
-
 class Funnel(Channel):
 	"""
 	# A union of events that emits data received from a set of &Flow instances.
@@ -1165,7 +822,6 @@ class Funnel(Channel):
 
 class Traces(Channel):
 	def __init__(self):
-		super().__init__()
 		self.monitors = dict()
 
 	def monitor(self, identity, callback):
@@ -1174,10 +830,10 @@ class Traces(Channel):
 
 		# [ Parameters ]
 
-		# /identity
+		# /identity/
 			# Arbitrary hashable used to refer to the callback.
 
-		# /callback
+		# /callback/
 			# Unary callable that receives all events processed by Trace.
 		"""
 
@@ -1188,7 +844,7 @@ class Traces(Channel):
 			x(event)
 
 		self.f_emit(event)
-	process = trace_process
+	f_transfer = trace_process
 
 	@staticmethod
 	def log(event, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
@@ -1270,7 +926,7 @@ class Catenation(Channel):
 		if layer == self.cat_order[0]:
 			# Only send if &:HoL.
 			if not self.cat_events:
-				self.ctx_enqueue_task(self.cat_flush)
+				self.enqueue(self.cat_flush)
 			self.cat_events.append((fc_xfer, layer, events))
 		else:
 			if q is not None:
@@ -1280,7 +936,9 @@ class Catenation(Channel):
 			else:
 				raise Exception("flow has not been connected")
 
-	def process(self, events, source):
+	def f_transfer(self, events, source):
+		# XXX: eliminate branch; distinct semantics
+
 		if source in self.cat_connections:
 			return self.cat_transfer(events, source)
 		else:
@@ -1296,6 +954,7 @@ class Catenation(Channel):
 		if layer == self.cat_order[0]:
 			# Head of line.
 			self.cat_transition()
+			# assert layer != self.cat_order[0]
 		else:
 			# Not head of line. Update entry's termination state.
 			self.cat_connections[subflow] = (q, layer, True)
@@ -1307,9 +966,10 @@ class Catenation(Channel):
 			# Not termination from an upstream subflow.
 			# Note as terminating.
 			if not self.terminating:
-				self.termination_started()
+				self.start_termination()
 				self.cat_flush()
 		else:
+			# XXX: Eliminate branch
 			self.cat_terminate(context)
 
 	def terminate(self, by=None):
@@ -1353,7 +1013,7 @@ class Catenation(Channel):
 			self.cat_flows[layer] = flow
 
 			if not self.cat_events:
-				self.ctx_enqueue_task(self.cat_flush)
+				self.enqueue(self.cat_flush)
 			self.cat_events.append((fc_init, layer))
 			if flow is None:
 				self.cat_transition()
@@ -1380,7 +1040,7 @@ class Catenation(Channel):
 
 		# Terminate signal or None is fine.
 		if not self.cat_events:
-			self.ctx_enqueue_task(self.cat_flush)
+			self.enqueue(self.cat_flush)
 
 		add = self.cat_events.append
 		add((fc_init, l))
@@ -1413,14 +1073,14 @@ class Catenation(Channel):
 			del self.cat_connections[f]
 
 		if not self.cat_events:
-			self.ctx_enqueue_task(self.cat_flush)
+			self.enqueue(self.cat_flush)
 		self.cat_events.append((fc_terminate, l))
 
 		# Drain new head of line queue.
 		if self.cat_order:
 			if self.cat_order[0] in self.cat_flows:
 				# Connected, drain and clear any obstructions.
-				self.ctx_enqueue_task(self.cat_drain)
+				self.enqueue(self.cat_drain)
 
 class Division(Channel):
 	"""
@@ -1434,12 +1094,11 @@ class Division(Channel):
 	f_type = 'fork'
 
 	def __init__(self):
-		super().__init__()
 		self.div_queues = collections.defaultdict(collections.deque)
 		self.div_flows = dict() # connections
 		self.div_initiations = []
 
-	def process(self, events, source=None):
+	def f_transfer(self, events, source=None):
 		"""
 		# Direct the given events to their corresponding action in order to
 		# map protocol stream events to &Flow instances.
@@ -1508,7 +1167,7 @@ class Division(Channel):
 
 		# drain the queue
 		q = self.div_queues[layer]
-		fp = flow.process
+		fp = flow.f_transfer
 		p = q.popleft
 
 		while q:
@@ -1531,7 +1190,7 @@ class Division(Channel):
 			# block if overflow
 		else:
 			# Connected flow.
-			flow.process(subflow_transfer, source=self)
+			flow.f_transfer(subflow_transfer, source=self)
 
 	def div_overflow(self, fc, data):
 		"""
@@ -1555,7 +1214,7 @@ class Division(Channel):
 			flow = self.div_flows.pop(layer)
 			if flow is None:
 				# no flow connected, but expected to be.
-				# just leave a note for .connect that it has been closed.
+				# just leave a note for .f_connect that it has been closed.
 				self.div_flows[layer] = fc_terminate
 			else:
 				flow.f_ignore(self.f_obstruct, self.f_clear)
@@ -1571,4 +1230,3 @@ class Division(Channel):
 		Event.transfer: div_transfer,
 		Event.overflow: div_overflow,
 	}
-

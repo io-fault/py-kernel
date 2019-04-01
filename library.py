@@ -17,6 +17,7 @@ import collections.abc
 import typing
 import codecs
 import contextlib
+import weakref
 
 from ..system import execution
 from ..system import thread
@@ -153,10 +154,10 @@ def sequence(identity, resource, perspective, traversed, depth=0):
 		if not resources:
 			continue
 
-		for identity, subresource in resources:
+		for lid, subresource in resources:
 			subtraversed = set(traversed)
 
-			yield from sequence(identity, subresource, Class, subtraversed, depth=depth)
+			yield from sequence(lid, subresource, Class, subtraversed, depth=depth)
 
 def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 	"""
@@ -191,7 +192,7 @@ def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 				yield '%s%s: %s' %(tabs(depth), field, string)
 		else:
 			# resource
-			identity, resource = value
+			lid, resource = value
 			rc = resource.__class__
 			if '__shortname__' in sys.modules[rc.__module__].__dict__:
 				modname = sys.modules[rc.__module__].__shortname__
@@ -209,9 +210,10 @@ def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 			else:
 				actuated = terminated = interrupted = ""
 
-			yield '%s/%s [%s] %s%s%s' %(
-				tabs(depth), identity, rc_id,
-				actuated, terminated, interrupted
+			yield '%s%s%s%s %s [%s]' %(
+				tabs(depth),
+				actuated, terminated, interrupted,
+				lid, rc_id,
 			)
 
 def controllers(resource):
@@ -274,41 +276,6 @@ class Local(tuple):
 
 	def __str__(self):
 		return '[' + (self[0].rstrip('/') + '/') +self[1]+']'
-
-class Coprocess(tuple):
-	"""
-	# A reference to a coprocess interface. Used by &.libdaemon based processes
-	# in order to refer to each other.
-
-	# Used by distributed services in order to refer to custom listening interfaces.
-	"""
-
-	__slots__ = ()
-
-	@property
-	def protocol(self):
-		return 'coprocess'
-
-	@property
-	def interface(self):
-		"""
-		Relative Process Identifier
-		"""
-
-		return self[0]
-
-	@property
-	def port(self):
-		"""
-		The Host header to use to connect to.
-		"""
-
-	@classmethod
-	def create(Class, coprocess_id, port):
-		return Class((int(coprocess_id), str(port)))
-
-	def __str__(self):
-		return "[if/" + ':'.join((self[0], self[1])) + ']'
 
 class Endpoint(tuple):
 	"""
@@ -429,34 +396,6 @@ endpoint_classes = {
 	'domain': host.Reference.from_domain,
 }
 
-class ExceptionStructure(object):
-	"""
-	# Exception associated with an interface supporting the sequencing of processor trees.
-	"""
-
-	actuated=True
-	terminated=False
-	interrupted=False
-	def __init__(self, identity, exception):
-		self.identity = identity
-		self.exception = exception
-
-	def __getitem__(self, k):
-		return (self.identity, self)[k]
-
-	def structure(self):
-		# exception reporting facility
-		exc = self.exception
-
-		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
-		formatting = ''.join(formatting)
-
-		p = [
-			('traceback', formatting),
-		]
-
-		return (p, ())
-
 class Projection(object):
 	"""
 	# A set of credentials and identities used by a &Sector to authorize actions by the entity.
@@ -504,497 +443,10 @@ class Layer(object):
 
 	context = None
 
-from .core import Resource, Device, Processor, Sector, Scheduler, Recurrence
+from .core import Resource, Processor, Sector, Scheduler, Recurrence
+from .core import Context, Transaction, Executable
 from .dispatch import Call, Coroutine, Thread, Subprocess
 from .kills import Fatal
-
-class Unit(Processor):
-	"""
-	# An asynchronous logical process. Unit instances are the root level objects
-	# associated with the &Process instance. There can be a set of &Unit instances
-	# per process, but usually only one exists.
-
-	# Units differ from most &Processor classes as it provides some additional
-	# interfaces for managing exit codes and assigned standard I/O interfaces
-	# provided as part of the system process.
-
-	# Units are constructed from a set of roots that build out the &Sector instances
-	# within the runtime tree which looks similar to an in memory filesystem.
-	"""
-
-	@staticmethod
-	def _connect_subflows(mitre, transit, *protocols):
-		from .flows import KInput, KOutput, Transports, Catenation, Division
-		kin = KInput(transit[0])
-		kout = KOutput(transit[1])
-
-		ti, to = Transports.create(protocols)
-		co = Catenation()
-		di = Division()
-
-		return (kin, ti, di, mitre, co, to, kout) # _flow input
-
-	@staticmethod
-	def _listen(transit):
-		from .flows import KInput
-		return KInput.sockets(transit)
-
-	@staticmethod
-	def _input(transit):
-		from .flows import KInput
-		return KInput(transit)
-
-	@staticmethod
-	def _output(transit):
-		from .flows import KOutput
-		return KOutput(transit)
-
-	@property
-	def ports(self):
-		"""
-		# (io.location)`/dev/ports` accessor
-		"""
-
-		return self.u_index[('dev','ports')]
-
-	@property
-	def scheduler(self):
-		"""
-		# (io.location)`/dev/scheduler` accessor
-		"""
-
-		return self.u_index[('dev','scheduler')]
-
-	def load_ports_device(self):
-		"""
-		# Load the &Ports 'device'. Usually used by daemon processes.
-		"""
-
-		ports = Ports()
-		self.place(ports, 'dev', 'ports')
-		ports.subresource(self)
-
-	def device(self, entry:str):
-		"""
-		# Return the device resource placed at the given &entry.
-		"""
-
-		return self.u_index.get(('dev', entry))
-
-	@property
-	def faults(self):
-		"""
-		# The (rt:path)`/dev/faults` resource.
-		"""
-		return self.device('faults')
-
-	def faulted(self, resource:Resource, path=None) -> None:
-		"""
-		# Place the sector into the faults directory using the hex identifier
-		# as its name.
-
-		# If the path, a sequence of strings, is provided, qualify the identity
-		# with the string representation of the path, `'/'.join(path)`.
-		"""
-
-		faultor = resource.sector
-		if faultor is None:
-			# Resource does not have a sector or is a root Processor
-			# in the Unit.
-			faultor = resource
-			path = self.u_reverse_index.get(faultor)
-
-		if path is not None:
-			self.place(faultor, 'faults', '/'+'/'.join(path)+'@'+hex(id(faultor)))
-		else:
-			self.place(faultor, 'faults', hex(id(faultor)))
-
-		if faultor.interrupted:
-			# assume that the existing interruption
-			# has already managed the exit.
-			pass
-		else:
-			faultor.interrupt()
-			if not faultor.terminated:
-				# It wasn't interrupted and it wasn't terminated,
-				# so it should be safe to signal its exit.
-				faultor.controller.exited(faultor)
-
-	def structure(self):
-		index = [('/'.join(k), v) for k, v in self.u_index.items() if v is not None]
-		index.sort(key=lambda x: x[0])
-
-		sr = []
-		p = []
-
-		for entry in index:
-			if entry[0].startswith('dev/') or isinstance(entry[1], Resource):
-				sr.append(entry)
-			else:
-				# proeprty
-				p.append(entry)
-
-		return (p, sr)
-
-	def dispatch(self, path, processor):
-		processor.subresource(self)
-		self.place(processor, *path)
-		try:
-			processor.actuate()
-			processor._pexe_state = 1
-		except:
-			raise
-
-	def __init__(self):
-		"""
-		# Initialze the &Unit instance with the an empty hierarchy.
-
-		# &Unit instances maintain state and it is inappropriate to call
-		# the initialization function during its use. New instances should
-		# always be created.
-		"""
-		super().__init__()
-
-		self.identity = self.identifier = None
-		self.u_exit = set()
-		self.u_faults = dict()
-
-		# total index; tuple -> sector
-		self.u_index = dict()
-		self.u_reverse_index = dict()
-
-		self.u_roots = []
-
-		# tree containing sectors; navigation access
-		self.u_hierarchy = dict(
-			bin = dict(), # Sectors that determine Unit's continuation
-			libexec = dict(),
-			etc = dict(),
-			dev = dict(faults=self.u_faults),
-			faults = self.u_faults,
-		)
-
-		self.u_index[('dev',)] = None
-		self.u_index[('dev', 'faults',)] = None
-		self.u_index[('faults',)] = None
-
-		self.u_index[('bin',)] = None
-		self.u_index[('etc',)] = None
-		self.u_index[('lib',)] = None
-		self.u_index[('libexec',)] = None
-
-	def requisite(self,
-			identity:collections.abc.Hashable,
-			roots:typing.Sequence[typing.Callable],
-			process=None, context=None, Context=None
-		):
-		"""
-		# Ran to finish &Unit initialization; extends the sequences of roots used
-		# to initialize the root sectors.
-		"""
-
-		self.identity = identity
-
-		# Create the context for base system interfaces.
-		if context is None:
-			api = (self._connect_subflows, self._input, self._output, self._listen)
-			context = Context(process, *api)
-			context.associate(self)
-
-			# References to context exist on every &Processor instance,
-			# inherited from their controller.
-			self.context = context
-
-		self.u_roots.extend(roots)
-
-	def atexit(self, callback):
-		"""
-		# Add a callback to be executed *prior* to the Unit exiting.
-		"""
-		self.u_exit.add(callback)
-
-	def exited(self, processor:Processor):
-		"""
-		# Processor exit handler. Register faults and check for &Unit exit condition.
-		"""
-
-		addr = self.u_reverse_index.pop(processor)
-		del self.u_index[addr]
-
-		p = self.u_hierarchy
-		for x in addr[:-1]:
-			p = p[x]
-		del p[addr[-1]]
-
-		if processor.exceptions:
-			# Redundant with Sector.exited
-			# But special for Unit exits as we have the address
-			self.faulted(processor, path = addr)
-
-		if addr[0] == 'bin' and not self.u_hierarchy['bin']:
-			# Exit condition, /bin/* is empty. Check for Unit control callback.
-			exits = self.u_exit
-			if exits:
-				for unit_exit_cb in exits:
-					status = unit_exit_cb(self)
-					if status in (None, bool(status)):
-						# callbacks are allowed to remain
-						# in order to allow /control to
-						# restart the process if so desired.
-						exits.discard(unit_exit_cb)
-
-			if not exits:
-				ctl = self.u_index.get(('control',))
-				if ctl:
-					ctl.atexit(self.terminate)
-					ctl.terminate()
-				else:
-					# Unit has no more executables, and there
-					# are no more remaining, so terminate.
-					self.context.process.enqueue(self.terminate)
-
-	def actuate(self):
-		"""
-		# Execute the Unit by enqueueing the initialization functions.
-
-		# This should only be called by the controller of the program.
-		# Normally, it is called automatically when the program is loaded by the process.
-		"""
-
-		self._pexe_state = 1
-
-		# Allows the roots to perform scheduling.
-		scheduler = Scheduler()
-		scheduler.subresource(self)
-		self.place(scheduler, 'dev', 'scheduler')
-		scheduler.actuate()
-		scheduler._pexe_state = 1
-
-		self.place(self.context.process, 'dev', 'process')
-
-		for sector_init in self.u_roots:
-			sector_init(self)
-
-	def terminate(self):
-		if self.terminated is not True:
-			if self.context.process.primary() is self:
-				if self.u_hierarchy['faults']:
-					self.context.process.report()
-				self.context.process.terminate(getattr(self, 'result', 0))
-				self._pexe_state = -1
-			else:
-				self._pexe_state = -1
-
-	def place(self, obj:collections.abc.Hashable, *destination):
-		"""
-		# Place the given resource in the process unit at the specified location.
-		"""
-
-		self.u_index[destination] = obj
-
-		try:
-			# build out path
-			p = self.u_hierarchy
-			for x in destination:
-				if x in p:
-					p = p[x]
-				else:
-					p[x] = dict()
-
-			if destination[0] != 'faults':
-				# Don't place into reverse index.
-				self.u_reverse_index[obj] = destination
-		except:
-			del self.u_index[destination]
-			raise
-
-	def delete(self, *address):
-		"""
-		# Remove a &Sector from the index and tree.
-		"""
-
-		obj = self.u_index[address]
-		del self.u_reverse_index[obj]
-		del self.u_index[address]
-
-	def listdir(self, *address, list=list):
-		"""
-		# List the contents of an address.
-		# This only includes subdirectories.
-		"""
-
-		p = self.u_hierarchy
-		for x in address:
-			if x in p:
-				p = p[x]
-			else:
-				break
-		else:
-			return list(p.keys())
-
-		# no directory
-		return None
-
-	def report(self, target=sys.stderr):
-		"""
-		# Send an overview of the logical process state to the given target.
-		"""
-
-		target.writelines(x+'\n' for x in format(self.identity, self))
-		target.write('\n')
-		target.flush()
-
-class Context(Processor):
-	"""
-	# The base class for &Transaction Context processors.
-
-	# Subclasses define the initialization process of a Transaction
-	# and the structures used to provide depending processors with the
-	# necessary information for performing their tasks.
-
-	# [ Namespaces ]
-	# Context Processors employ two hard namespaces in its methods.
-	# The `xact_ctx_` and the `xact_`. Methods and properties
-	# that exist under `xact_ctx_` refer to generic Context operations
-	# whereas `xact_` refers to operations that primary effect the
-	# &Transaction sector containing the context.
-
-	# [ Properties ]
-
-	# /xact_ctx_events/
-		# Storage for initialization event completion, and
-		# general storage area for the controlling &Transaction.
-
-	# /xact_ctx_private/
-		# Whether the initialized Transaction is directly managing transactions
-		# created from uncontrolled sources.
-		# &None means that context privacy is irrelevant.
-	"""
-
-	xact_ctx_private = None
-	xact_ctx_events = None
-
-	@property
-	def xact_ctx_contexts(self) -> 'Context':
-		"""
-		# The complete context of the &Transaction.
-		# Ascends the controllers yielding their &Context instances until
-		# the controller is no longer a Transaction.
-		"""
-		s = self.controller
-
-		while isinstance(s, Transaction):
-			s = s.controller
-			yield s.xact_context
-
-	def xact_dispatch(self, processor:Processor):
-		"""
-		# Dispatch the given &processor into the &Transaction.
-		"""
-		return self.controller.dispatch(processor)
-
-	def xact_ctx_init(self, events:set):
-		"""
-		# Initiailze the set of events that are necessary for initialization to be complete.
-		"""
-		self.xact_ctx_events = {k:None for k in events}
-
-	def process(self, *events):
-		"""
-		# Note the event with its associated value and terminate initialization
-		# if no further events are needed.
-		"""
-
-		if self.xact_ctx_events is None:
-			self.xact_ctx_events = {}
-
-		self.xact_ctx_events.update(events)
-
-		if None not in set(self.xact_ctx_events.values()):
-			self.terminate()
-
-class Transaction(Sector):
-	"""
-	# A &Sector with Execution Context.
-
-	# Transactions are sectors with a single &Context instance that is used to manage
-	# the state of the Sector. Regular Sectors exit when all the processors are shutdown,
-	# and Transactions do too. However, the &Context is the controlling processor and
-	# must be the last to exit.
-
-	# [ Properties ]
-
-	# /xact_context/
-		# The Processor that will be dispatched to initialize the Transaction
-		# Sector and control its effect. Also, the receiver of &Processor.terminate.
-	"""
-
-	@classmethod
-	def create(Class, xc:Context):
-		"""
-		# Create a &Transaction sector with the given &Context initializaed
-		# as the first Processor to be actuated.
-
-		# This is the appropriate way to instantiate &Transaction instances
-		"""
-
-		xact = Class(xc)
-		xact.xact_context = xc
-
-		return xact
-
-	def terminate(self, by=None):
-		"""
-		# Invoke the &Context.terminate method of the &xact_context property.
-		# The termination of the Transaction is managed entirely by the Context.
-		"""
-
-		return self.xact_context.terminate(by=by)
-
-class System(Transaction):
-	"""
-	# A Sector that is identified as an independent system providing access to functionality
-	# using a set of &Interface instances.
-
-	# Systems are distinct from &Sector instances most notably in that a System will usually
-	# exit from an explicit terminate or a fault. Sectors naturally terminate when all
-	# processors exit and Systems will do the same. However, Systems will almost always
-	# have &Interface processors keeping the System in a functioning state.
-	# Systems also have environment data that can be easily referenced by the running
-	# processors.
-
-	# [ Properties ]
-
-	# /sys_identifier/
-		# URL identifying the System's implementation.
-		# Ideally, a valid URL providing documentation.
-	# /sys_properties/
-		# Storage dictionary for System properties.
-		# Usually accessed using &sys_data for automatic initialization of data sets.
-	"""
-
-	@property
-	def sys_closed(self) -> bool:
-		"""
-		# Whether the System has running Interface processors that explicitly
-		# support external interactions.
-		"""
-
-		if Interface in self.processors:
-			if len(self.processors[Interface]) > 0:
-				return False
-
-		return True
-
-	def sys_if(self, Class:type) -> typing.Sequence[type]:
-		"""
-		# Return the set of Interface instances with the given &Class.
-		"""
-
-		return [
-			x for x in self.processors[Interface]
-			if isinstance(x, Class)
-		]
 
 class Transport(Context):
 	"""
@@ -1178,45 +630,6 @@ class Timeout(Processor):
 			# Condition not met, try timeout again later.
 			self.to_schedule()
 
-class Interface(Processor):
-	"""
-	# A &Processor that is identified as a source of work for a Sector.
-	# Significant in that if all &Interface instances are terminated, the Sector
-	# itself should eventually terminate as well.
-
-	# Subclasses are encouraged to use the (namespace)`if_` prefix to define methods
-	# that are intended for outside use.
-
-	# Methods that are present on interface instances can be used arbitrarily by
-	# dependencies without establishing connections.
-
-	# [ Properties ]
-
-	# /if_identifier/
-		# An identifier for the interface allowing Systems to be queried for particular
-		# interface types.
-	"""
-
-	if_identifier = None
-
-	def placement(self):
-		"""
-		# Returns &Interface. Constant placement for subclasses so
-		# that &Interface instances may be quickly identified in &Sector processor sets.
-		"""
-		return Interface
-
-	def if_connect(self, *parameters) -> Processor:
-		"""
-		# Establish a formal connection to the System requesting a particular
-		# API set that can be used in conjunction with preserved state.
-
-		# The returned &Processor is constructed to be dispatched in a local sector
-		# which provides access to the functionality of a remote Transaction.
-		"""
-
-		raise NotImplementedError("interface subclass does not provide connections")
-
 class Network(Context):
 	"""
 	# An Interface used to manage the set of system listening interfaces and
@@ -1333,7 +746,7 @@ def Encoding(
 	"""
 
 	emit = transformer.f_emit
-	del transformer # don't hold the reference, we only need emit.
+	del transformer # don't hold direct reference, only need emit.
 	escape_state = 0
 
 	# using incremental decoder to handle partial writes.
@@ -1347,132 +760,6 @@ def Encoding(
 	while True:
 		input = (yield output)
 		output = operation(input)
-
-class Ports(Device):
-	"""
-	# Ports manages the set of listening sockets used by a &Unit.
-	# Ports consist of a mapping of a set identifiers and the set of actual listening
-	# sockets.
-
-	# In addition to acquisition, &Ports inspects the environment for inherited
-	# port sets. This is used to communicate socket inheritance across &/unix/man/2/exec calls.
-
-	# The environment variables used to inherit interfaces across &/unix/man/2/exec
-	# starts at &/env/FIOD_DEVICE_PORTS; it contains a list of slots used to hold the set
-	# of listening sockets used to support the slot. Often, daemons will use
-	# multiple slots in order to distinguish between secure and insecure.
-	"""
-
-	actuated = True
-	terminated = False
-	interrupted = False
-	device_entry = 'ports'
-
-	def structure(self):
-		p = [
-			('sets[%r]'%(sid,), binds)
-			for sid, binds in self.sets.items()
-		]
-		sr = ()
-		return (p, sr)
-
-	def __init__(self):
-		self.sets = collections.defaultdict(dict)
-
-	def discard(self, slot):
-		"""
-		# Close the file descriptors associated with the given slot.
-		"""
-
-		close = os.close
-		for k, fd in self.sets[slot].items():
-			close(fd)
-
-		del self.sets[slot]
-
-	def bind(self, slot, *endpoints):
-		"""
-		# Bind the given endpoints and add them to the set identified by &slot.
-		"""
-
-		add = self.sets[slot].__setitem__
-
-		# remove any existing file system sockets
-		for x in endpoints:
-			if x.protocol == 'local':
-				if not x.route.exists():
-					continue
-
-				if x.route.type() == "socket":
-					x.route.void()
-				else:
-					# XXX: more appropriate error
-					raise RuntimeError("cannot overwrite file that is not a socket file")
-
-		for ep, fd in zip(endpoints, self.context.bindings(*endpoints)):
-			add(ep, fd)
-
-	def close(self, slot, *endpoints):
-		"""
-		# Close the file descriptors associated with the given slot and endpoint.
-		"""
-
-		sd = self.sets[slot]
-
-		for x in endpoints:
-			fd = sd.pop(x, None)
-			if fd is not None:
-				os.close(fd)
-
-	def acquire(self, slot:collections.abc.Hashable):
-		"""
-		# Acquire a set of listening &Transformer instances.
-		# Each instance should be managed by a &Flow that constructs
-		# the I/O &Transformer instances from the received socket connections.
-
-		# Internal endpoints are usually managed as a simple transparent relay
-		# where the constructed Relay instances are simply passed through.
-		"""
-
-		return self.sets[slot]
-
-	def replace(self, slot, *endpoints):
-		"""
-		# Given a new set of interface bindings, update the slot in &sets so
-		# they match. Interfaces not found in the new set will be closed.
-		"""
-
-		current_endpoints = set(self.sets[slot])
-		new_endpoints = set(endpoints)
-
-		delta = new_endpoints - current_endpoints
-		self.bind(slot, *delta)
-
-		current_endpoints.update(delta)
-		removed = current_endpoints - new_endpoints
-		self.close(slot, removed)
-
-		return removed
-
-	def load(self, route):
-		"""
-		# Load the Ports state from the given file.
-
-		# Used by &.bin.rootd and &.bin.sectord to manage inplace restarts.
-		"""
-
-		with route.open('rb') as f:
-			self.sets = pickle.load(f)
-
-	def store(self, route):
-		"""
-		# Store the Ports state from the given file.
-
-		# Used by &.bin.rootd and &.bin.sectord to manage inplace restarts.
-		"""
-
-		with route.open('wb') as f:
-			pickle.dump(str(route), f)
 
 def context(max_depth=None):
 	"""
@@ -1520,70 +807,3 @@ def pipeline(sector, kpipeline, input=None, output=None):
 		raise
 
 	return sp, input, output, stderr
-
-def execute(*identity, **units):
-	"""
-	# Initialize a &system.Process to manage the invocation from the (operating) system.
-	# This is the low-level means to invoke a &..io process from an executable module that
-	# wants more control over the initialization process than what is offered by
-	# &.command.
-
-	# #!/pl/python
-		libkernel.execute(unit_name = (unit_initialization,))
-
-	# Creates a &Unit instance that is passed to the initialization function where
-	# its hierarchy is then populated with &Sector instances.
-	"""
-
-	if identity:
-		ident, = identity
-	else:
-		ident = 'root'
-
-	sys_inv = process.Invocation.system() # Information about the system's invocation.
-
-	spr = system.Process.spawn(sys_inv, Unit, units, identity=ident)
-	# import root function
-	process.control(spr.boot, ())
-
-_parallel_lock = thread.amutex()
-@contextlib.contextmanager
-def parallel(*tasks, identity='parallel'):
-	"""
-	# Allocate a logical process assigned to the stack for parallel operation.
-	# Primarily used by blocking programs looking to leverage &.io functionality.
-
-	# A context manager that waits for completion in order to exit.
-
-	# ! WARNING:
-		# Tentative interface: This will be replaced with a safer implementation.
-		# Concurrency is not properly supported and the shutdown process needs to be
-		# handled gracefully.
-	"""
-
-	_parallel_lock.acquire()
-	unit = None
-	try:
-		join = thread.amutex()
-		join.acquire()
-
-		inv = process.Invocation(lambda x: join.release())
-		# TODO: Separate parallel's Process initialization from job dispatching.
-		spr = system.Process.spawn(
-			inv, Unit, {identity:tasks}, identity=identity,
-			critical=functools.partial
-		)
-		spr.actuate()
-
-		unit = spr.primary()
-		# TODO: Yield a new root sector associated with the thread that spawned it.
-		yield unit
-	except:
-		# TODO: Exceptions should interrupt the managed Sector.
-		join.release()
-		if unit is not None:
-			unit.terminate()
-		raise
-	finally:
-		join.acquire()
-		_parallel_lock.release()

@@ -13,10 +13,10 @@ def test_Flow_operation(test):
 	f.actuate()
 	end.actuate()
 
-	f.process("event")
+	f.f_transfer("event")
 	test/endpoint == ["event"]
 
-	f.process("event2")
+	f.f_transfer("event2")
 	test/endpoint == ["event", "event2"]
 
 def test_Flow_obstructions(test):

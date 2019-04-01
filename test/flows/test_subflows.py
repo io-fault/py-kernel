@@ -53,8 +53,6 @@ def test_Catenation(test):
 	i2 = flows.Iteration(range(100))
 	i3 = flows.Iteration(range(100, 200, 2))
 
-	list(map(S.acquire, (i1, i2, i3)))
-
 	# reserve slots
 	x.cat_reserve(1)
 	x.cat_reserve(2)
@@ -65,7 +63,7 @@ def test_Catenation(test):
 
 	# Data sent to the flow should be enqueued.
 	# with test.annotate("enqueued flows do not emit")
-	i2.actuate()
+	S.dispatch(i2)
 	ctx.flush()
 	test/c.c_storage == []
 	test/len(x.cat_connections[i2][0]) > 0
@@ -79,7 +77,7 @@ def test_Catenation(test):
 	test/x.cat_connections[i1][0] == None # head of line shouldn't have queue.
 
 	x.cat_connect(3, i3)
-	i3.actuate()
+	S.dispatch(i3)
 	ctx.flush()
 	test/c.c_storage == [] # i3 is not yet hol and...
 	# i3 is obstructed prior to cat_connect; queue should be empty.
@@ -91,7 +89,7 @@ def test_Catenation(test):
 	test/obc.focus == x
 	test/obc.path == ('cat_overflowing',)
 
-	i1.actuate()
+	S.dispatch(i1)
 	ctx.flush()
 	test/i1.f_obstructed == False
 	test/i1.terminated == True
@@ -145,18 +143,19 @@ def test_Division(test):
 
 	class Local(flows.Mitre):
 		accepted = []
-		def process(self, requests, source=None):
+		def f_transfer(self, requests, source=None):
 			responses = self.f_emit(Layer() for x in requests)
 			# received connection
 			self.accepted.extend(requests)
 
 	x = Type()
 	mitre = Local()
-	S.process((mitre, x))
+	S.dispatch(mitre)
+	S.dispatch(x)
 	x.f_connect(mitre)
 
 	# no content
-	x.process([(fc_init, 1)])
+	x.f_transfer([(fc_init, 1)])
 	ctx()
 	test/mitre.accepted[0][0] == 1
 	ctx()
@@ -164,11 +163,11 @@ def test_Division(test):
 	test.isinstance(mitre.accepted[0][1], typing.Callable)
 	c = flows.Collection.list()
 	S.dispatch(c)
-	x.process([(fc_xfer, 1, (b'data',))])
+	x.f_transfer([(fc_xfer, 1, (b'data',))])
 	x.div_connect(1, c)
 	test/c.c_storage == [(b'data',)]
 	test/c.terminated == False
-	x.process([(fc_terminate, 1)])
+	x.f_transfer([(fc_terminate, 1)])
 	ctx()
 	test/c.terminated == True
 

@@ -67,7 +67,7 @@ TU5G4ur07EfyALq7
 """
 
 def test_Transports_io(test, chain=itertools.chain):
-	io_context = libtest.Context()
+	io_context = libtest.Executable()
 	io_root = libtest.Root()
 	io_context.associate(io_root)
 
@@ -84,8 +84,9 @@ def test_Transports_io(test, chain=itertools.chain):
 	sc = flows.Collection.list()
 
 	sector = libkernel.Sector()
-	io_root.process(sector)
-	sector.process([sc, cc, cti, cto, sti, sto])
+	io_root.dispatch(sector)
+	for x in [sc, cc, cti, cto, sti, sto]:
+		sector.dispatch(x)
 	sti.f_connect(sc)
 	cti.f_connect(cc)
 
@@ -93,14 +94,14 @@ def test_Transports_io(test, chain=itertools.chain):
 	cto.f_connect(sti)
 
 	if 0:
-		co.process((b'',))
-		so.process((b'',))
+		co.f_transfer((b'',))
+		so.f_transfer((b'',))
 		while io_context.tasks:
 			io_context()
 
 	# Should enqueue writes until SSLOK.
-	cto.process((b'abc',))
-	sto.process((b'xyz',))
+	cto.f_transfer((b'abc',))
+	sto.f_transfer((b'xyz',))
 
 	io_context.flush()
 
@@ -117,7 +118,7 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/[x for x in l if x] == [b'abc']
 
 	inc = [b'A slight increase to the data transfer']
-	cto.process(inc)
+	cto.f_transfer(inc)
 
 	io_context()
 
@@ -127,7 +128,7 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/[x for x in l if x] == [b'abc', inc[0]]
 
 	server_inc = [b'A slight increase to the data transfer(server out)']
-	sto.process(server_inc)
+	sto.f_transfer(server_inc)
 
 	io_context()
 	l = []
