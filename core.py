@@ -1128,6 +1128,21 @@ class Context(Processor):
 			ctl._pexe_contexts = ctl._pexe_contexts + (identifier,)
 			setattr(ctl, identifier, self)
 
+	def xact_empty(self) -> bool:
+		"""
+		# Whether the Transaction has any processors aside from the Context.
+		"""
+		sector = self.controller
+		ip = sector.iterprocessors()
+		ctx = next(ip)
+
+		try:
+			next(ip)
+		except StopIteration:
+			return True
+
+		return False
+
 	def xact_exit_if_empty(self):
 		"""
 		# Check for processors other than &self, there are none, exit the transaction.

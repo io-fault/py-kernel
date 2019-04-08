@@ -4,18 +4,55 @@ import importlib.util
 import typing
 import itertools
 
-from ... import flows
+from ... import flows as library
 from .. import library as testlib
+
+def test_Terminal(test):
+	"""
+	# Check that terminals don't stop events (trailing processors).
+	# Check that f_terminate performs the designated callback.
+	"""
+	called = False
+	arg = None
+	def callback(flow):
+		nonlocal called, arg
+		called = True
+		arg = flow
+
+	ctx = testlib.Executable()
+	exit = testlib.ExitController()
+	t = library.Terminal(callback)
+	t.controller = exit
+	t.executable = ctx
+	t.actuate()
+
+	test/called == False
+	test/arg == None
+
+	# Validate continuation; terminals dont stop transfers despite the contradiction.
+	l = []
+	def append(i, **kw):
+		nonlocal l
+		l.append(i)
+	t.f_emit = append
+	t.f_transfer('test')
+	test/l[0] == 'test'
+
+	# Primary functionality; callback performed at termination.
+	t.f_terminate()
+	test/t.terminated == True
+	test/called == True
+	test/arg == t
 
 def test_Collection(test):
 	ctx = testlib.Executable()
 	exit = testlib.ExitController()
 
-	c = flows.Collection.dict()
+	c = library.Collection.dict()
 	c.controller = exit
 	c.executable = ctx
 
-	f = flows.Channel()
+	f = library.Channel()
 	f.controller = exit
 	f.context = ctx
 	f.actuate()
@@ -34,11 +71,11 @@ def test_Collection(test):
 
 	test/c.c_storage == {1:"value1",2:"override",3:"value3","string-key":1}
 
-	c = flows.Collection.set()
+	c = library.Collection.set()
 	c.controller = exit
 	c.context = ctx
 
-	f = flows.Channel()
+	f = library.Channel()
 	f.controller = exit
 	f.context = ctx
 	f.actuate()
@@ -50,7 +87,7 @@ def test_Collection(test):
 
 	test/sorted(list(c.c_storage)) == [1,2,3,4,5]
 
-	b = flows.Collection.buffer()
+	b = library.Collection.buffer()
 	b.actuate()
 	b.f_transfer([b'data', b' ', b'more'])
 	test/b.c_storage == b'data more'

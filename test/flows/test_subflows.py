@@ -52,40 +52,50 @@ def test_Catenation(test):
 	i1 = flows.Iteration(range(0, -50, -1))
 	i2 = flows.Iteration(range(100))
 	i3 = flows.Iteration(range(100, 200, 2))
+	in1 = flows.Inlet(x, i1)
+	in2 = flows.Inlet(x, i2)
+	in3 = flows.Inlet(x, i3)
+
+	i1.f_connect(in1)
+	i2.f_connect(in2)
+	i3.f_connect(in3)
+	S.dispatch(in1)
+	S.dispatch(in2)
+	S.dispatch(in3)
 
 	# reserve slots
 	x.cat_reserve(1)
 	x.cat_reserve(2)
-	x.cat_connect(2, i2) # validate blocking of 1
+	x.cat_connect(2, in2) # validate blocking of 1
 
 	x.cat_reserve(3)
-	i3.f_obstruct(test, None)
+	in3.f_obstruct(test, None)
 
 	# Data sent to the flow should be enqueued.
 	# with test.annotate("enqueued flows do not emit")
 	S.dispatch(i2)
 	ctx.flush()
 	test/c.c_storage == []
-	test/len(x.cat_connections[i2][0]) > 0
+	test/len(x.cat_connections[in2][0]) > 0
 	test/i2.f_obstructed == True
 
-	# connect fi, but don't transfer anything yet.
-	x.cat_connect(1, i1)
+	# connect i1, but don't transfer anything yet.
+	x.cat_connect(1, in1)
 	ctx.flush()
 	test/c.c_storage[0] == [(fc_initiate, 1)]
 	del c.c_storage[:]
-	test/x.cat_connections[i1][0] == None # head of line shouldn't have queue.
+	test/x.cat_connections[in1][0] == None # head of line shouldn't have queue.
 
-	x.cat_connect(3, i3)
+	x.cat_connect(3, in3)
 	S.dispatch(i3)
 	ctx.flush()
 	test/c.c_storage == [] # i3 is not yet hol and...
 	# i3 is obstructed prior to cat_connect; queue should be empty.
-	test/list(x.cat_connections[i3][0]) == []
+	test/list(x.cat_connections[in3][0]) == []
 
 	test/i2.f_obstructed == True # Still obstructed by i1.
 	# Check obstruction occurrence from enqueued transfers.
-	obc = i2.f_obstructions[x][1]
+	obc = in2.f_obstructions[x][1]
 	test/obc.focus == x
 	test/obc.path == ('cat_overflowing',)
 
@@ -112,13 +122,13 @@ def test_Catenation(test):
 
 	test/x.terminated == False
 	# termination completes when queue is empty.
-	x.f_terminate(test)
+	x.f_terminate()
 	test/x.terminated == False
 
 	# i3 was obstructed prior to cat_connect meaning, the queue
 	# should be empty. It was connected after x.cat_connect(1, i1).
-	test/x.cat_connections[i3][0] == None
-	i3.f_clear(test)
+	test/x.cat_connections[in3][0] == None
+	in3.f_clear(test)
 	ctx.flush()
 	expect = list(zip(itertools.repeat(fc_transfer), itertools.repeat(3), range(100, 200, 2)))
 	expect.append((fc_terminate, 3))

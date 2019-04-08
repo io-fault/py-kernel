@@ -21,10 +21,6 @@ def operations(transport):
 		(transport.encipher, transport.pending_output, transport.pending_input),
 	)
 
-from . import flows
-flows.Transports.operation_set[Transport] = operations
-del flows
-
 _public_context = None
 
 def public(certificates=()):

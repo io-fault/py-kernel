@@ -4,7 +4,7 @@
 # [ Properties ]
 # /ProtocolTransactionEndpoint/
 	# The typing decorator that identifies receivers
-	# for protocol transactions. (Such as http requests or reponses.)
+	# for protocol transactions.
 """
 import os
 import sys

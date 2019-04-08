@@ -556,7 +556,7 @@ def deliver_io_events(array, events, iter=iter):
 				if demand is not None:
 					kp.k_transition() # Accept the next memory transfer.
 
-				if term:
+				if term and not (kp.terminated or kp.interrupted):
 					kp.f_terminated()
 
 				link = None
@@ -582,9 +582,6 @@ class KChannel(flows.Channel):
 	# The &KInput and &KOutput implementations providing for the necessary specializations.
 	"""
 	k_status = None
-
-	def inject(self, events):
-		return self.f_emit(events)
 
 	def f_clear(self, *args):
 		r = super().f_clear(*args)
@@ -644,7 +641,7 @@ class KChannel(flows.Channel):
 	def k_transition(self):
 		# Called when the resource was exhausted
 		# Unused atm and pending deletion.
-		raise NotImplementedError("Kernel flows must implement transition")
+		raise NotImplementedError("kernel flows must implement transition")
 
 	def k_kill(self):
 		"""
@@ -663,6 +660,7 @@ class KChannel(flows.Channel):
 	def interrupt(self):
 		if self.channel is not None:
 			self.k_kill()
+		super().interrupt()
 
 	def f_terminated(self):
 		# THIS METHOD IS NOT CALLED IF F_TERMINATE/INTERRUPT() WAS USED.
@@ -691,9 +689,6 @@ class KChannel(flows.Channel):
 
 	def f_transfer(self, event, source=None):
 		raise NotImplementedError("must be provided by subclass")
-
-	def inject(self, events):
-		self.f_emit(events)
 
 	@property
 	def k_transferring(self, len=len):
@@ -852,18 +847,6 @@ class Context(core.Context):
 
 		return (kin, ti, di, mitre, co, to, kout) # _flow input
 
-	@staticmethod
-	def _listen(channel):
-		return KAccept(channel)
-
-	@staticmethod
-	def _input(channel):
-		return KInput(channel)
-
-	@staticmethod
-	def _output(channel):
-		return KOutput(channel)
-
 	@property
 	def scheduler(self):
 		"""
@@ -887,9 +870,11 @@ class Context(core.Context):
 		"""
 		# Final transaction exited; process complete.
 		"""
-		return
-		self.terminate()
+		self.controller.interrupt()
 		self.process.terminate()
+
+	def terminate(self):
+		pass
 
 	def __init__(self, process):
 		self.process = weakref.proxy(process)
@@ -989,20 +974,6 @@ class Context(core.Context):
 		ix.acquire(self, new_channels)
 		ix.force(id=self)
 		del ix
-
-	def ctx_enqueue_task(self, task):
-		"""
-		# Enqueue a task associated with the sector so that exceptions cause the sector to
-		# fault. This is the appropriate way for &Processor instances controlled by a sector
-		# to sequence processing.
-		"""
-		return self.process.enqueue(task)
-
-	def enqueue(self, *tasks):
-		"""
-		# Enqueue the tasks for subsequent processing; used by threads to synchronize their effect.
-		"""
-		return self.process.enqueue(*tasks)
 
 	def execute(self, controller, function, *parameters):
 		"""
@@ -1125,14 +1096,14 @@ class Context(core.Context):
 		# Open a set of files for reading through a &.library.KernelPort.
 		"""
 
-		return self._input(allocate('octets://file/read', path))
+		return KInput(allocate('octets://file/read', path))
 
 	def append_file(self, path):
 		"""
 		# Open a set of files for appending through a &.library.KernelPort.
 		"""
 
-		return self._output(allocate('octets://file/append', path))
+		return KOutput(allocate('octets://file/append', path))
 
 	def update_file(self, path, offset, size):
 		"""
@@ -1143,21 +1114,21 @@ class Context(core.Context):
 		t = allocate(('octets', 'file', 'overwrite'), path)
 		position = os.lseek(t.port.fileno, 0, offset)
 
-		return self._output(t)
+		return KOutput(t)
 
 	def listen(self, interfaces):
 		"""
-		# On POSIX systems, this performs (system:manual)`bind` *and*
+		# On POSIX systems, this performs (system/manual)`bind` *and*
 		# (system/manual)`listen` system calls for receiving socket connections.
 
-		# Returns a generator producing (interface, Flow) pairs.
+		# Returns a generator producing (interface, KAccept) pairs.
 		"""
 
 		alloc = allocate
 
 		for x in interfaces:
 			t = alloc(('sockets', x.protocol), (str(x.address), x.port))
-			yield (x, self._listen(t))
+			yield (x, KAccept(t))
 
 	def acquire_listening_sockets(self, kports):
 		"""
@@ -1180,7 +1151,7 @@ class Context(core.Context):
 
 		for kp in kports:
 			socket_channel = alloc('sockets://acquire', kp)
-			yield (socket_channel.endpoint(), self._listen(socket_transit))
+			yield (socket_channel.endpoint(), KAccept(socket_transit))
 
 	def connect_output(self, fd):
 		"""
@@ -1188,7 +1159,7 @@ class Context(core.Context):
 		# of file descriptors.
 		"""
 
-		return self._output(allocate('octets://acquire/output', fd))
+		return KOutput(allocate('octets://acquire/output', fd))
 
 	def connect_input(self, fd):
 		"""
@@ -1196,7 +1167,7 @@ class Context(core.Context):
 		# of file descriptors.
 		"""
 
-		return self._input(allocate('octets://acquire/input', fd))
+		return KInput(allocate('octets://acquire/input', fd))
 
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
 		"""
@@ -1287,8 +1258,8 @@ class Context(core.Context):
 		"""
 		global Iteration, Flow
 
-		segs = Segments.open(path, range)
-		return Iteration(segs)
+		segs = Segments.open(path)
+		return flows.Iteration((x,) for x in segs)
 
 class Fabric(object):
 	"""

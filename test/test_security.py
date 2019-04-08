@@ -77,10 +77,10 @@ def test_Transports_io(test, chain=itertools.chain):
 	client = cctx.connect(None)
 	server = sctx.accept()
 
-	cti, cto = flows.Transports.create((client,))
+	cti, cto = flows.Transports.create([(client, library.operations(client))])
 	cc = flows.Collection.list()
 
-	sti, sto = flows.Transports.create((server,))
+	sti, sto = flows.Transports.create([(server, library.operations(server))])
 	sc = flows.Collection.list()
 
 	sector = libkernel.Sector()
