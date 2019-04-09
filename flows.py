@@ -25,33 +25,32 @@ class Event(object):
 	__slots__ = ()
 
 	def __int__(self):
-		ops = self.__class__.operations
+		ops = flow_events
 		l = len(ops)
 		for op, i in zip(ops, range(l)):
 			if op is self:
 				return i - (l // 2)
 
 	def __repr__(self):
-		return self.__class__.__name__ + '.' + self.__str__()
+		return self.__str__()
 
 	def __str__(self):
-		for k, v in self.__class__.__dict__.items():
-			if v is self:
-				return k
+		index = {v:k for k, v in globals().items() if k.startswith('fe_')}
+		return index[self]
 
-fe_initiate = Event.initiate = Event()
-fe_clear = Event.clear = Event()
-fe_transfer = Event.transfer = Event()
-fe_obstruct = Event.obstruct = Event()
-fe_terminate = Event.terminate = Event()
-fe_overflow = Event.overflow = Event()
+fe_initiate  = Event()
+fe_clear = Event()
+fe_transfer = Event()
+fe_obstruct = Event()
+fe_terminate = Event()
+fe_overflow = Event()
 
-Event.operations = (
-	Event.terminate,
-	Event.obstruct,
-	Event.transfer,
-	Event.clear,
-	Event.initiate,
+flow_events = (
+	fe_terminate,
+	fe_obstruct,
+	fe_transfer,
+	fe_clear,
+	fe_initiate,
 )
 
 class Channel(core.Processor):
@@ -438,15 +437,15 @@ class Inlet(Channel):
 		self.i_key = key
 
 	def f_transfer(self, event):
-		self.i_integral.int_transfer(self, event)
+		self.i_integral.int_transfer(self.i_key, event)
 		self.f_emit(event)
 
 	def interrupt(self):
-		self.i_integral.int_interrupt(self)
+		self.i_integral.int_interrupt(self.i_key)
 		super().interrupt()
 
 	def f_terminate(self):
-		self.i_integral.int_terminate(self)
+		self.i_integral.int_terminate(self.i_key)
 		super().f_terminate()
 
 class Mitre(Channel):
@@ -967,29 +966,28 @@ class Catenation(Channel):
 	# [ Properties ]
 
 	# /cat_order/
-		# Queue of &Layer instances dictating the order of the flows.
+		# Queue of channels dictating the order of the flows.
 	# /cat_connections/
 		# Mapping of connected &Flow instances to their corresponding
 		# queue, &Layer, and termination state.
 	# /cat_flows/
-		# Connection identifier mapping to a connected &Flow.
+		# Channel identifier associated with weak reference to upstream.
 	"""
 	f_type = 'join'
 
 	def __init__(self, Queue=collections.deque):
 		self.cat_order = Queue() # order of flows deciding next in line
 
-		# TODO: Likely need a weakkeydict here for avoiding cycles.
-		self.cat_connections = dict() # Flow -> (Queue, Layer, Termination)
-		self.cat_flows = dict() # Layer -> Flow
+		self.cat_connections = dict() # Channel-Id -> (Queue, Layer, Termination, Flow Reference)
+		self.cat_flows = dict() # Channel-Id -> Flow Reference
 		self.cat_events = [] # event aggregator
 
-	def cat_overflowing(self, flow):
+	def cat_overflowing(self, channel_id):
 		"""
 		# Whether the given flow's queue has too many items.
 		"""
 
-		q = self.cat_connections[flow][0]
+		q = self.cat_connections[channel_id][0]
 
 		if q is None:
 			# front flow does not have a queue
@@ -999,24 +997,25 @@ class Catenation(Channel):
 		else:
 			return False
 
-	def int_transfer(self, source, events, fc_xfer=Event.transfer):
+	def int_transfer(self, channel_id, events, fc_xfer=fe_transfer):
 		"""
 		# Emit point for Sequenced Flows
 		"""
 
 		# Look up layer for protocol join downstream.
-		q, layer, term = self.cat_connections[source]
+		q, layer, term, upstream = self.cat_connections[channel_id]
 
-		if layer == self.cat_order[0]:
+		if channel_id == self.cat_order[0]:
 			# Only send if &:HoL.
 			if not self.cat_events:
 				self.enqueue(self.cat_flush)
-			self.cat_events.append((fc_xfer, layer, events))
+			self.cat_events.append((fc_xfer, channel_id, events))
 		else:
 			if q is not None:
 				q.append(events)
-				if not source.f_obstructed and self.cat_overflowing(source):
-					source.f_obstruct(self, None, core.Condition(self, ('cat_overflowing',), source))
+				us = upstream()
+				if not us.f_obstructed and self.cat_overflowing(channel_id):
+					us.f_obstruct(self, None, core.Condition(self, ('cat_overflowing',), channel_id))
 			else:
 				raise Exception("flow has not been connected")
 
@@ -1026,17 +1025,17 @@ class Catenation(Channel):
 			(x, functools.partial(self.cat_connect, x)) for x in events
 		]
 
-	def int_terminate(self, source):
-		cxn = self.cat_connections[source]
-		q, layer, term = cxn
+	def int_terminate(self, channel_id):
+		cxn = self.cat_connections[channel_id]
+		q, layer, term, upstream = cxn
 
-		if layer == self.cat_order[0]:
+		if channel_id == self.cat_order[0]:
 			# Head of line.
 			self.cat_transition()
 			# assert layer != self.cat_order[0]
 		else:
 			# Not head of line. Update entry's termination state.
-			self.cat_connections[source] = (q, layer, True)
+			self.cat_connections[channel_id] = (q, layer, True, upstream)
 
 	def f_terminate(self):
 		# Not termination from an upstream subflow.
@@ -1063,70 +1062,74 @@ class Catenation(Channel):
 			# No reservations in a terminating state finishes termination.
 			self._f_terminated()
 
-	def cat_reserve(self, layer):
+	def cat_reserve(self, channel_id):
 		"""
 		# Reserve a position in the sequencing of the flows. The given &layer is the reference
 		# object used by &cat_connect in order to actually connect flows.
 		"""
 
-		self.cat_order.append(layer)
+		self.cat_order.append(channel_id)
 
-	def cat_connect(self, layer, flow, fc_init=Event.initiate, Queue=collections.deque):
+	def cat_connect(self, channel_id, layer, flow, fc_init=fe_initiate, Queue=collections.deque):
 		"""
 		# Connect the flow to the given layer signalling that its ready to process events.
 		"""
 
 		assert bool(self.cat_order) is True # Presume layer enqueued.
+		if flow is not None:
+			flowref = weakref.ref(flow)
+		else:
+			flowref = (lambda: None)
 
-		if self.cat_order[0] == layer:
+		if self.cat_order[0] == channel_id:
 			# HoL connect, emit open.
 			if flow is not None:
-				self.cat_connections[flow] = (None, layer, None)
+				self.cat_connections[channel_id] = (None, layer, None, flowref)
 
-			self.cat_flows[layer] = flow
+			self.cat_flows[channel_id] = flowref
 
 			if not self.cat_events:
 				self.enqueue(self.cat_flush)
-			self.cat_events.append((fc_init, layer))
+			self.cat_events.append((fc_init, channel_id, layer))
 			if flow is None:
 				self.cat_transition()
 		else:
 			# Not head of line, enqueue events iff flow is not None.
-			self.cat_flows[layer] = flow
+			self.cat_flows[channel_id] = flowref
 			if flow is not None:
-				self.cat_connections[flow] = (Queue(), layer, None)
+				self.cat_connections[channel_id] = (Queue(), layer, None, flowref)
 
-	def cat_drain(self, fc_init=Event.initiate, fc_xfer=Event.transfer):
+	def cat_drain(self, fc_init=fe_initiate, fc_xfer=fe_transfer):
 		"""
 		# Drain the new head of line emitting any queued events and
 		# updating its entry in &cat_connections to immediately send events.
 		"""
 
-		assert bool(self.cat_order) is True # Presume  layer enqueued.
+		assert bool(self.cat_order) is True # Presume channel enqueued.
 
 		# New head of line.
-		f = self.cat_flows[self.cat_order[0]]
-		q, l, term = self.cat_connections[f]
+		channel_id = self.cat_order[0]
+		q, l, term, fr = self.cat_connections[channel_id]
 
 		# Terminate signal or None is fine.
 		if not self.cat_events:
 			self.enqueue(self.cat_flush)
 
 		add = self.cat_events.append
-		add((fc_init, l))
+		add((fc_init, channel_id, l))
 		pop = q.popleft
 		while q:
-			add((fc_xfer, l, pop()))
+			add((fc_xfer, channel_id, pop()))
 
 		if term is None:
-			self.cat_connections[f] = (None, l, term)
-			f.f_clear(self)
+			self.cat_connections[channel_id] = (None, l, term, fr)
+			fr().f_clear(self)
 		else:
 			# Termination was caught and stored.
 			# The enqueued data was the total transfer.
 			self.cat_transition()
 
-	def cat_transition(self, fc_terminate=Event.terminate, exiting_flow=None, getattr=getattr):
+	def cat_transition(self, fc_terminate=fe_terminate, exiting_flow=None, getattr=getattr):
 		"""
 		# Move the first enqueued flow to the front of the line;
 		# flush out the buffer and remove ourselves as an obstruction.
@@ -1135,16 +1138,18 @@ class Catenation(Channel):
 		assert bool(self.cat_order) is True
 
 		# Kill old head of line.
-		l = self.cat_order.popleft()
-		f = self.cat_flows.pop(l)
+		channel_id = self.cat_order.popleft()
+		f = self.cat_flows.pop(channel_id)()
 		if f is not None:
 			# If Flow is None, cat_connect(X, None)
 			# was used to signal layer only send.
-			del self.cat_connections[f]
+			l = self.cat_connections.pop(channel_id)[1]
+		else:
+			l = None
 
 		if not self.cat_events:
 			self.enqueue(self.cat_flush)
-		self.cat_events.append((fc_terminate, l))
+		self.cat_events.append((fc_terminate, channel_id, None))
 
 		# Drain new head of line queue.
 		if self.cat_order:
@@ -1183,7 +1188,7 @@ class Division(Channel):
 			self.f_emit(self.div_initiations)
 			self.div_initiations = []
 
-	def interrupt(self, by=None, fc_terminate=Event.terminate):
+	def interrupt(self, by=None, fc_terminate=fe_terminate):
 		"""
 		# Interruptions on distributions translates to termination.
 		"""
@@ -1215,7 +1220,7 @@ class Division(Channel):
 		# Note initiation and associate connect callback.
 		self.div_initiations.append((layer, connect))
 
-	def div_connect(self, layer, flow, fc_terminate=Event.terminate):
+	def div_connect(self, layer, flow, fc_terminate=fe_terminate):
 		"""
 		# Associate the &flow with the &layer allowing transfers into the flow.
 
@@ -1253,7 +1258,7 @@ class Division(Channel):
 		# Enqueue or transfer the events to the flow associated with the layer context.
 		"""
 
-		flow = self.div_flows[layer] # KeyError when no Event.initiate occurred.
+		flow = self.div_flows[layer] # KeyError when no fe_initiate occurred.
 
 		if flow is None:
 			self.div_queues[layer].append(subflow_transfer)
@@ -1275,7 +1280,7 @@ class Division(Channel):
 			self.div_container_overflow.append(data)
 		self.f_terminate()
 
-	def div_terminate(self, fc, layer, fc_terminate=Event.terminate):
+	def div_terminate(self, fc, layer, fc_terminate=fe_terminate):
 		"""
 		# End of Layer context content. Flush queue and remove entries.
 		"""
@@ -1293,10 +1298,10 @@ class Division(Channel):
 			assert layer not in self.div_queues[layer]
 
 	div_operations = {
-		Event.initiate: div_initiate,
-		Event.terminate: div_terminate,
-		Event.obstruct: None,
-		Event.clear: None,
-		Event.transfer: div_transfer,
-		Event.overflow: div_overflow,
+		fe_initiate: div_initiate,
+		fe_terminate: div_terminate,
+		fe_obstruct: None,
+		fe_clear: None,
+		fe_transfer: div_transfer,
+		fe_overflow: div_overflow,
 	}

@@ -15,18 +15,17 @@ def test_event_identifiers(test):
 	"""
 	# Validate primitives.
 	"""
-	Type = flows.Event
 
-	test/Type.initiate != Type.terminate
-	test/Type.clear != Type.obstruct
-	test/Type.initiate == Type.initiate
+	test/flows.fe_initiate != flows.fe_terminate
+	test/flows.fe_clear != flows.fe_obstruct
+	test/flows.fe_initiate == flows.fe_initiate
 
-	test/str(Type.initiate) == 'initiate'
-	test/repr(Type.initiate) == 'Event.initiate'
+	test/str(flows.fe_initiate) == 'fe_initiate'
+	test/repr(flows.fe_initiate) == 'fe_initiate'
 
-	test/int(Type.initiate) == 2
-	test/int(Type.transfer) == 0
-	test/int(Type.terminate) == -2
+	test/int(flows.fe_initiate) == 2
+	test/int(flows.fe_transfer) == 0
+	test/int(flows.fe_terminate) == -2
 
 def test_Catenation(test):
 	"""
@@ -34,9 +33,9 @@ def test_Catenation(test):
 	"""
 
 	Type = flows.Catenation
-	fc_terminate = flows.Event.terminate
-	fc_initiate = flows.Event.initiate
-	fc_transfer = flows.Event.transfer
+	fc_terminate = flows.fe_terminate
+	fc_initiate = flows.fe_initiate
+	fc_transfer = flows.fe_transfer
 	ctx, S = testlib.sector()
 
 	# output flow
@@ -52,9 +51,9 @@ def test_Catenation(test):
 	i1 = flows.Iteration(range(0, -50, -1))
 	i2 = flows.Iteration(range(100))
 	i3 = flows.Iteration(range(100, 200, 2))
-	in1 = flows.Inlet(x, i1)
-	in2 = flows.Inlet(x, i2)
-	in3 = flows.Inlet(x, i3)
+	in1 = flows.Inlet(x, 1)
+	in2 = flows.Inlet(x, 2)
+	in3 = flows.Inlet(x, 3)
 
 	i1.f_connect(in1)
 	i2.f_connect(in2)
@@ -66,7 +65,7 @@ def test_Catenation(test):
 	# reserve slots
 	x.cat_reserve(1)
 	x.cat_reserve(2)
-	x.cat_connect(2, in2) # validate blocking of 1
+	x.cat_connect(2, 2, in2) # validate blocking of 1
 
 	x.cat_reserve(3)
 	in3.f_obstruct(test, None)
@@ -76,22 +75,22 @@ def test_Catenation(test):
 	S.dispatch(i2)
 	ctx.flush()
 	test/c.c_storage == []
-	test/len(x.cat_connections[in2][0]) > 0
+	test/len(x.cat_connections[2][0]) > 0
 	test/i2.f_obstructed == True
 
 	# connect i1, but don't transfer anything yet.
-	x.cat_connect(1, in1)
+	x.cat_connect(1, 1, in1)
 	ctx.flush()
-	test/c.c_storage[0] == [(fc_initiate, 1)]
+	test/c.c_storage[0] == [(fc_initiate, 1, 1)]
 	del c.c_storage[:]
-	test/x.cat_connections[in1][0] == None # head of line shouldn't have queue.
+	test/x.cat_connections[1][0] == None # head of line shouldn't have queue.
 
-	x.cat_connect(3, in3)
+	x.cat_connect(3, 3, in3)
 	S.dispatch(i3)
 	ctx.flush()
 	test/c.c_storage == [] # i3 is not yet hol and...
 	# i3 is obstructed prior to cat_connect; queue should be empty.
-	test/list(x.cat_connections[in3][0]) == []
+	test/list(x.cat_connections[3][0]) == []
 
 	test/i2.f_obstructed == True # Still obstructed by i1.
 	# Check obstruction occurrence from enqueued transfers.
@@ -110,11 +109,11 @@ def test_Catenation(test):
 	test/i2.f_obstructed == False
 
 	expect = list(zip(itertools.repeat(fc_transfer), itertools.repeat(1), range(0,-50,-1)))
-	expect.append((fc_terminate, 1))
-	expect.append((fc_initiate, 2))
+	expect.append((fc_terminate, 1, None))
+	expect.append((fc_initiate, 2, 2))
 	expect.extend(zip(itertools.repeat(fc_transfer), itertools.repeat(2), range(100)))
-	expect.append((fc_terminate, 2))
-	expect.append((fc_initiate, 3))
+	expect.append((fc_terminate, 2, None))
+	expect.append((fc_initiate, 3, 3))
 
 	test/list(itertools.chain.from_iterable(c.c_storage)) == expect
 	test/i2.terminated == True
@@ -127,11 +126,11 @@ def test_Catenation(test):
 
 	# i3 was obstructed prior to cat_connect meaning, the queue
 	# should be empty. It was connected after x.cat_connect(1, i1).
-	test/x.cat_connections[in3][0] == None
+	test/x.cat_connections[3][0] == None
 	in3.f_clear(test)
 	ctx.flush()
 	expect = list(zip(itertools.repeat(fc_transfer), itertools.repeat(3), range(100, 200, 2)))
-	expect.append((fc_terminate, 3))
+	expect.append((fc_terminate, 3, None))
 	test/list(itertools.chain.from_iterable(c.c_storage)) == expect
 	test/i3.terminated == True
 
@@ -144,9 +143,9 @@ def test_Division(test):
 	# Subflow siphoning.
 	"""
 
-	fc_xfer = flows.Event.transfer
-	fc_terminate = flows.Event.terminate
-	fc_init = flows.Event.initiate
+	fc_xfer = flows.fe_transfer
+	fc_terminate = flows.fe_terminate
+	fc_init = flows.fe_initiate
 
 	Type = flows.Division
 	ctx, S = testlib.sector()
