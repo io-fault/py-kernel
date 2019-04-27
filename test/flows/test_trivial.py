@@ -23,6 +23,7 @@ def test_Transformation(test):
 	c.controller = ec
 	t.executable = ctx
 	c.executable = ctx
+	t.enqueue = ctx.enqueue
 	t.f_connect(c)
 
 	t.f_transfer(10)
@@ -32,7 +33,7 @@ def test_Transformation(test):
 	t.f_transfer(30)
 	test/i == 3
 
-	t.terminate()
+	t.f_terminate()
 	test/t.terminated == True
 	test/c.c_storage == [11,21,31]
 	ctx()

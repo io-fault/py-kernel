@@ -16,7 +16,7 @@ class Fatal(core.Processor):
 		sector.dispatch(fp)
 
 	def actuate(self):
-		self.ctx_enqueue_task(functools.partial(self.process, None))
+		self.critical(functools.partial(self.process, None))
 
 	def process(self, event):
 		raise Exception(event)

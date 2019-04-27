@@ -601,7 +601,7 @@ class Timeout(Processor):
 		self.to_effect = effect
 
 	def actuate(self):
-		self.ctx_enqueue_task(self.to_schedule)
+		self.critical(self.to_schedule)
 
 	def terminate(self, by=None):
 		"""
@@ -623,7 +623,7 @@ class Timeout(Processor):
 		if self.to_condition:
 			try:
 				self.to_effect() # Timeout occurred. [Timeout Effect Faulted]
-				self.ctx_enqueue_task(self.terminate)
+				self.critical(self.terminate)
 			except BaseException as exc:
 				self.fault(exc)
 		else:
@@ -761,49 +761,3 @@ def Encoding(
 		input = (yield output)
 		output = operation(input)
 
-def context(max_depth=None):
-	"""
-	# Finds the &Processor instance that caused the function to be invoked.
-
-	# Used to discover the execution context when it wasn't explicitly
-	# passed forward.
-	"""
-
-	f = sys._getframe().f_back
-	while f:
-		if f.f_code.co_name == '_fio_fault_trap':
-			# found the _fio_fault_trap method.
-			# return the processor that caused this to be executed.
-			return f.f_locals['self']
-		f = f.f_back
-
-	return None # (context) Processor is not available in this stack.
-
-def pipeline(sector, kpipeline, input=None, output=None):
-	"""
-	# Execute a &..system.execution.PInvocation object building an IO instance
-	# from the input and output file descriptors associated with the
-	# first and last processes as described by its &..system.execution.Pipeline.
-
-	# Additionally, a mapping of standard errors will be produced.
-	# Returns a tuple, `(input, output, stderrs)`.
-
-	# Where stderrs is a sequence of file descriptors of the standard error of each process
-	# participating in the pipeline.
-	"""
-
-	ctx = sector.context
-	pl = kpipeline()
-
-	try:
-		input = ctx.acquire('output', pl.input)
-		output = self.acquire('input', pl.output)
-
-		stderr = list(self.acquire('input', pl.standard_errors))
-
-		sp = Subprocess(*pl.process_identifiers)
-	except:
-		pl.void()
-		raise
-
-	return sp, input, output, stderr

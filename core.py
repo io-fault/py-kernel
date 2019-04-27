@@ -320,11 +320,6 @@ class Processor(Resource):
 	# associated with an exception. The term interrupt is used as it is nearly analogous with UNIX
 	# process interrupts (unix.signal)`SIGINT`.
 
-	# [ Properties ]
-	# /terminating/
-		# Whether the Processor is in a termination state. &None if
-		# the Processor was never terminating.
-
 	# [ Engineering ]
 	# The Processor state is managed using a set of booleans. Considering the
 	# number of processors that will be present in any complex system, condensing
@@ -344,14 +339,23 @@ class Processor(Resource):
 
 	@property
 	def actuated(self) -> bool:
+		"""
+		# Whether the processor has been actuated, normally within a Sector.
+		"""
 		return self._pexe_state != 0
 
 	@property
 	def terminating(self) -> bool:
+		"""
+		# Whether the processor has started terminate.
+		"""
 		return self._pexe_state == 2
 
 	@property
 	def terminated(self) -> bool:
+		"""
+		# Whether the processor has been terminated.
+		"""
 		return self._pexe_state == -1
 
 	@property
@@ -461,7 +465,7 @@ class Processor(Resource):
 		except BaseException as exc:
 			self.fault(exc)
 
-	def ctx_enqueue_task(self, task, partial=functools.partial, trap=_fault_trap):
+	def critical(self, task, partial=functools.partial, trap=_fault_trap):
 		"""
 		# Enqueue a task associated with the sector so that exceptions cause the sector to
 		# fault. This is the appropriate way for &Processor instances controlled by a sector
@@ -1064,7 +1068,7 @@ class Recurrence(Processor):
 		# Enqueue the initial execution of the recurrence.
 		"""
 
-		self.executable.enqueue(self._recur_occur)
+		self.critical(self._recur_occur)
 
 	def recur_execute(self):
 		if self._recur_inhibit:
@@ -1288,10 +1292,26 @@ class Transaction(Sector):
 
 class Executable(Context):
 	"""
-	# Logical Process segment.
+	# Logical Work Unit Context.
 
 	# Enclosure providing context variables and fault handling for a logical executable within
-	# the process.
+	# the process. Executables are the container for a unit of work. They can be fault tolerant
+	# or sensitive. Subclassing &Executable is common for system processes and protocol transactions.
+
+	# [ Properties ]
+
+	# /exe_identifier/
+		# A, usually, unique identifier for the executable.
+		# The transaction context that the executable is dispatched within determines
+		# any constraints, if any.
+	# /exe_invocation/
+		# The primary set of parameters used by the executable.
+	# /exe_faults/
+		# The set of sectors that were faulted within the context; usually keyed by
+		# the identifier of the processor that was blamed.
+	# /exe_faults_count/
+		# The total number of faults that occurred. In cases where faults have been
+		# purged from &exe_faults, the count allows recognition of the purge.
 	"""
 
 	def __init__(self, invocation, identifier=None):
@@ -1329,8 +1349,8 @@ class Executable(Context):
 
 	def structure(self):
 		p = [
-			('identifier', self.exe_identifier),
-			('faults', self.exe_faults_count),
+			('exe_identifier', self.exe_identifier),
+			('exe_faults', self.exe_faults_count),
 		]
 
 		return (p, ())

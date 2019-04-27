@@ -71,12 +71,12 @@ class Channel(core.Processor):
 		# when an instance is created.
 
 		# /(id)`source`/
-			# Channel that primarily emits events for downstream processing.
+			# Channel that primarily emits independent events for downstream processing.
 		# /(id)`terminal`/
 			# Channel processes events, but emits nothing.
 		# /(id)`switch`/
 			# Channel that takes events and distributes their transformation
-			# to a mapping of receiving flows. (Diffusion)
+			# to a mapping of receiving flows.
 		# /(id)`join`/
 			# Channel that receives events from a set of sources and combines
 			# them into a single stream.
@@ -229,30 +229,17 @@ class Channel(core.Processor):
 	def interrupt(self):
 		self.f_transfer = self.f_discarding
 		self.f_emit = self.f_discarding
-
-		if self.f_downstream:
-			# XXX: interrupts should not terminate the flow
-			# However, &Relay will terminate the receiver.
-
-			# interrupt the downstream and
-			# notify exit iff the downstream's
-			# controller is functioning.
-			ds = self.f_downstream
-			ds.f_terminate()
-			dsc = ds.controller
-			if dsc is not None and dsc.functioning:
-				dsc.exited(ds)
-
+		self.f_terminate = self.f_discarding
 		self.interrupted = True
 
-	def f_transfer(self, event, source=None):
+	def f_transfer(self, event):
 		"""
 		# Emit the &event directly to the downstream.
 		"""
 
-		self.f_emit(event, source=self)
+		self.f_emit(event)
 
-	def f_emit(self, event, source=None):
+	def f_emit(self, event):
 		"""
 		# Method replaced at runtime for selecting the recipient
 		# of a processed event.
@@ -356,7 +343,7 @@ class Channel(core.Processor):
 		if self.f_monitors:
 			self.f_monitors.discard((obstructed, cleared))
 
-	def f_discarding(self, event, source = None):
+	def f_discarding(self, event, parameter=None):
 		"""
 		# Assigned to &process and &f_emit after termination and interrupt in order
 		# to keep overruns from exercising the Transformations.
@@ -394,59 +381,47 @@ class Relay(Channel):
 		self.r_integral = integral
 		self.r_key = key
 
-	def f_transfer(self, event, source=None):
+	def f_transfer(self, event):
 		self.r_integral.int_transfer(self.r_key, event)
 		self.f_emit(event)
 
-	def interrupt(self):
-		self.r_integral.int_interrupt(self.r_key)
-		super().interrupt()
-
-	def f_terminate(self, by=None):
+	def f_terminate(self):
 		self.r_integral.int_terminate(self.r_key)
 		super().f_terminate()
+
+	def interrupt(self):
+		self.r_integral.int_terminate(self.r_key)
+		super().interrupt()
 
 class Receiver(Channel):
 	"""
 	# Receive intersector transfers.
 
-	# A simple &Channel expecting to receive events from a remote &Relay or &Inlet.
-	# For &Inlet, key parameters are ignored.
+	# A simple &Channel expecting to receive events from a remote &Relay
 	"""
+	f_type = 'source'
+	_r_connect = None
 
-	# Support for single integration receiver.
+	def __init__(self, connect):
+		self._r_connect = connect
+
+	def f_transfer(self, events):
+		assert events is None
+		self._r_connect(self) # XXX: Temporary, but consistent with system.KInput
+		del self._r_connect
+
 	def int_transfer(self, key, event):
-		self.f_emit(event)
+		# Normally called out of process; enqueue to ensure faults are properly associated.
+		self.critical(lambda: self.f_emit(event))
 
-	def int_interrupt(self, key):
-		self.interrupt()
+	def int_terminate(self, key, parameter=None):
+		if self.terminating or not self.functioning:
+			return
 
-	def int_terminate(self, key):
-		self.f_terminate()
-
-class Inlet(Channel):
-	"""
-	# A &Relay that uses integration interfaces to send flow events.
-
-	# Like &Relay, events are sent downstream after they have been relayed
-	# to the remote integral.
-	"""
-
-	def __init__(self, integral, key):
-		self.i_integral = integral
-		self.i_key = key
-
-	def f_transfer(self, event):
-		self.i_integral.int_transfer(self.i_key, event)
-		self.f_emit(event)
-
-	def interrupt(self):
-		self.i_integral.int_interrupt(self.i_key)
-		super().interrupt()
-
-	def f_terminate(self):
-		self.i_integral.int_terminate(self.i_key)
-		super().f_terminate()
+		self.start_termination() # Notes terminated enqueued.
+		# Enqueue is used for consistency with f_transfer and
+		# so that faults are handled by the local executable.
+		self.critical(self.f_terminate)
 
 class Mitre(Channel):
 	"""
@@ -465,40 +440,17 @@ class Mitre(Channel):
 		self.f_downstream = flow
 		self.f_emit = flow.f_transfer
 
-class Sockets(Mitre):
-	"""
-	# Mitre for transport flows created by &System in order to accept sockets.
-	"""
-
-	def __init__(self, reference, router):
-		self.m_reference = reference
-		self.m_router = router
-
-	def f_transfer(self, event, source=None):
-		"""
-		# Accept the event, but do nothing as Terminals do not propogate events.
-		"""
-		update = self.m_router((self.m_reference, event))
-		if update:
-			self.m_router = update
-
-	def atexit(self, receiver):
-		if receiver != self.f_downstream.f_terminate:
-			# Sockets() always sends to null, don't bother with a atexit entry.
-			return super().atexit(receiver)
-
 class Transformation(Channel):
 	"""
 	# A flow that performs a transformation on the received events.
 	"""
+	f_type = 'transformer'
 
 	def __init__(self, transform):
 		self.tf_transform = transform
 
-	def f_transfer(self, event, source=None):
+	def f_transfer(self, event):
 		self.f_emit(self.tf_transform(event))
-
-	terminate = Channel._f_terminated
 
 class Iteration(Channel):
 	"""
@@ -549,7 +501,7 @@ class Iteration(Channel):
 		if not self.f_obstructed:
 			self.enqueue(self.it_transition)
 
-	def f_transfer(self, it, source=None):
+	def f_transfer(self, it):
 		"""
 		# Raises exception as &Iteration is a source.
 		"""
@@ -607,15 +559,12 @@ class Collection(Channel):
 			initial = bytearray()
 		return Class(initial, partial(Class._buffer_operation, barray=initial))
 
-	def f_transfer(self, obj, source=None):
+	def f_transfer(self, obj):
 		self.c_operation(obj)
 
 class Parallel(Channel):
 	"""
 	# A dedicated thread for processing events emitted to the Flow.
-
-	# Term Parallel being used as the actual function is ran in parallel to
-	# the &Flow in which it is participating in.
 
 	# The requisite function should have the following signature:
 
@@ -631,6 +580,7 @@ class Parallel(Channel):
 	def __init__(self, target:typing.Callable, *parameters):
 		self.pf_target = target
 		self.pf_parameters = parameters
+		# XXX: Require caller to provide storage
 		self.pf_queue = queue.Queue()
 		self._pf_put = self.pf_queue.put
 
@@ -656,7 +606,7 @@ class Parallel(Channel):
 			self.enqueue(functools.partial(self.fault, exc))
 			pass # The exception is managed by .fault()
 
-	def f_transfer(self, event, source=None):
+	def f_transfer(self, event):
 		"""
 		# Send the event to the queue that the Thread is connected to.
 		# Injections performed by the thread will be enqueued into the main task queue.
@@ -777,7 +727,7 @@ class Transports(Channel):
 				self.tf_stack[-1].terminate(-self.tf_polarity)
 				o.f_transfer(())
 
-	def f_transfer(self, events, source=None):
+	def f_transfer(self, events):
 		"""
 		# Process the given events with the referenced I/O operations.
 
@@ -892,15 +842,10 @@ class Transports(Channel):
 		"""
 		pass
 
-class Funnel(Channel):
+class Protocol(Channel):
 	"""
-	# A union of events that emits data received from a set of &Flow instances.
-
-	# The significant distinction being that termination from &Flow instances are ignored.
+	# Protocol Transport class for managing.
 	"""
-
-	def f_terminate(self):
-		pass
 
 class Traces(Channel):
 	def __init__(self):
@@ -921,12 +866,11 @@ class Traces(Channel):
 
 		self.monitors[identity] = callback
 
-	def trace_process(self, event, source=None):
+	def f_transfer(self, event):
 		for x in self.monitors.values():
 			x(event)
 
 		self.f_emit(event)
-	f_transfer = trace_process
 
 	@staticmethod
 	def log(event, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
@@ -959,8 +903,11 @@ class Catenation(Channel):
 	# to manage the current working flow and queues to buffer the events to be emitted
 	# when next is promoted.
 
-	# [ Untested ]
-
+	# [ Engineering ]
+	# /notes/
+		# Subjected to a number of adjustments, there may be a few reductions
+		# that can be performed without impacting functionality.
+	# /Untested/
 		# - Recursive transition() calls.
 
 	# [ Properties ]
@@ -1002,15 +949,15 @@ class Catenation(Channel):
 		# Emit point for Sequenced Flows
 		"""
 
-		# Look up layer for protocol join downstream.
-		q, layer, term, upstream = self.cat_connections[channel_id]
-
 		if channel_id == self.cat_order[0]:
-			# Only send if &:HoL.
 			if not self.cat_events:
+				# Only enqueue if there hasn't been an enqueue.
 				self.enqueue(self.cat_flush)
 			self.cat_events.append((fc_xfer, channel_id, events))
 		else:
+			# Look up initiate for protocol join downstream.
+			q, initiate, term, upstream = self.cat_connections[channel_id]
+
 			if q is not None:
 				q.append(events)
 				us = upstream()
@@ -1019,23 +966,67 @@ class Catenation(Channel):
 			else:
 				raise Exception("flow has not been connected")
 
-	def f_transfer(self, events):
-		self.cat_order.extend(events)
-		return [
-			(x, functools.partial(self.cat_connect, x)) for x in events
-		]
+	def int_connect(self, channel_id, initiate, flow, fc_init=fe_initiate, Queue=collections.deque):
+		"""
+		# Connect the flow to the &channel_id using the &initiate parameter.
+		"""
 
-	def int_terminate(self, channel_id):
-		cxn = self.cat_connections[channel_id]
-		q, layer, term, upstream = cxn
+		assert bool(self.cat_order) is True # Presume enqueued.
+		if flow is not None:
+			flowref = weakref.ref(flow)
+		else:
+			flowref = (lambda: None)
+
+		if self.cat_order[0] == channel_id:
+			# HoL connect, emit open.
+			if flow is not None:
+				self.cat_connections[channel_id] = (None, initiate, None, flowref)
+
+			self.cat_flows[channel_id] = flowref
+
+			if not self.cat_events:
+				# Only enqueue if there hasn't been an enqueue.
+				self.enqueue(self.cat_flush)
+			self.cat_events.append((fc_init, channel_id, initiate))
+			if flow is None:
+				self.cat_transition()
+		else:
+			# Not head of line, enqueue events iff flow is not None.
+			self.cat_flows[channel_id] = flowref
+			if flow is not None:
+				self.cat_connections[channel_id] = (Queue(), initiate, None, flowref)
+
+	def int_reserve(self, *channel_id):
+		"""
+		# Reserve a position in the sequencing of the flows. The given &initiate is the reference
+		# object used by &int_connect in order to actually connect flows.
+		"""
+
+		self.cat_order.extend(channel_id)
+
+	def f_transfer(self, events):
+		"""
+		# Transparency support allowing &Division to be directly connected.
+		# Usually unused when a &Mitre is present.
+		"""
+
+		us = self.f_upstream()
+		self.cat_order.extend(x[0] for x in events)
+		for channel_id, initiate, connect in events:
+			self.int_connect(channel_id, initiate, us)
+			connect(self)
+
+	def int_terminate(self, channel_id, parameter=None):
 
 		if channel_id == self.cat_order[0]:
 			# Head of line.
 			self.cat_transition()
-			# assert layer != self.cat_order[0]
+			# assert initiate != self.cat_order[0]
 		else:
+			cxn = self.cat_connections[channel_id]
+			q, initiate, term, upstream = cxn
 			# Not head of line. Update entry's termination state.
-			self.cat_connections[channel_id] = (q, layer, True, upstream)
+			self.cat_connections[channel_id] = (q, initiate, True, upstream)
 
 	def f_terminate(self):
 		# Not termination from an upstream subflow.
@@ -1056,48 +1047,11 @@ class Catenation(Channel):
 		"""
 		events = self.cat_events
 		self.cat_events = [] # Reset before emit in case of re-enqueue.
-		self.f_emit(events, self)
+		self.f_emit(events)
 
 		if self.terminating is True and len(self.cat_order) == 0:
 			# No reservations in a terminating state finishes termination.
 			self._f_terminated()
-
-	def cat_reserve(self, channel_id):
-		"""
-		# Reserve a position in the sequencing of the flows. The given &layer is the reference
-		# object used by &cat_connect in order to actually connect flows.
-		"""
-
-		self.cat_order.append(channel_id)
-
-	def cat_connect(self, channel_id, layer, flow, fc_init=fe_initiate, Queue=collections.deque):
-		"""
-		# Connect the flow to the given layer signalling that its ready to process events.
-		"""
-
-		assert bool(self.cat_order) is True # Presume layer enqueued.
-		if flow is not None:
-			flowref = weakref.ref(flow)
-		else:
-			flowref = (lambda: None)
-
-		if self.cat_order[0] == channel_id:
-			# HoL connect, emit open.
-			if flow is not None:
-				self.cat_connections[channel_id] = (None, layer, None, flowref)
-
-			self.cat_flows[channel_id] = flowref
-
-			if not self.cat_events:
-				self.enqueue(self.cat_flush)
-			self.cat_events.append((fc_init, channel_id, layer))
-			if flow is None:
-				self.cat_transition()
-		else:
-			# Not head of line, enqueue events iff flow is not None.
-			self.cat_flows[channel_id] = flowref
-			if flow is not None:
-				self.cat_connections[channel_id] = (Queue(), layer, None, flowref)
 
 	def cat_drain(self, fc_init=fe_initiate, fc_xfer=fe_transfer):
 		"""
@@ -1141,8 +1095,8 @@ class Catenation(Channel):
 		channel_id = self.cat_order.popleft()
 		f = self.cat_flows.pop(channel_id)()
 		if f is not None:
-			# If Flow is None, cat_connect(X, None)
-			# was used to signal layer only send.
+			# If Flow is None, int_connect(X, None)
+			# was used to signal initiate only send.
 			l = self.cat_connections.pop(channel_id)[1]
 		else:
 			l = None
@@ -1159,7 +1113,7 @@ class Catenation(Channel):
 
 class Division(Channel):
 	"""
-	# Coordination of the routing of a protocol's layer content.
+	# Coordination of the routing of a protocol's content.
 
 	# Protocols consisting of a series of requests, HTTP for instance,
 	# need to control where the content of a request goes. &QueueProtocolInput
@@ -1172,8 +1126,9 @@ class Division(Channel):
 		self.div_queues = collections.defaultdict(collections.deque)
 		self.div_flows = dict() # connections
 		self.div_initiations = []
+		self.div_terminations = dict()
 
-	def f_transfer(self, events, source=None):
+	def f_transfer(self, events):
 		"""
 		# Direct the given events to their corresponding action in order to
 		# map protocol stream events to &Flow instances.
@@ -1181,14 +1136,14 @@ class Division(Channel):
 
 		ops = self.div_operations
 		for event in events:
-			ops[event[0]](self, *event)
+			ops[event[0]](self, *event) # Unbound methods.
 
 		if self.div_initiations:
 			# Aggregate initiations for single propagation.
 			self.f_emit(self.div_initiations)
 			self.div_initiations = []
 
-	def interrupt(self, by=None, fc_terminate=fe_terminate):
+	def interrupt(self, fc_terminate=fe_terminate):
 		"""
 		# Interruptions on distributions translates to termination.
 		"""
@@ -1196,35 +1151,37 @@ class Division(Channel):
 		# Any connected div_flows are subjected to interruption here.
 		# Closure here means that the protocol state did not manage
 		# &close the transaction and we need to assume that its incomplete.
-		for layer, flow in self.div_flows.items():
-			if flow in {fc_terminate, None}:
-				continue
-			flow.f_terminate()
+		for channel_id, flow in self.div_flows.items():
+			flow.int_terminate(channel_id)
 
-		return True
+		# Do not clear flows here. State needs to be maintained.
+		super().interrupt()
 
-	def f_terminate(self):
-		self.interrupt()
-		self._f_terminated()
+	def f_terminate(self, parameter=None):
+		if not self.div_flows:
+			# Terminate given that there are no connections.
+			self._f_terminated()
+		else:
+			self.start_termination()
 
-	def div_initiate(self, fc, layer, partial=functools.partial):
+	def div_initiate(self, f_event, channel_id, initiate, partial=functools.partial):
 		"""
-		# Initiate a subflow using the given &layer as its identity.
-		# The &layer along with a callable performing &div_connect will be emitted
+		# Initiate a subflow using the given &channel_id as its identity.
+		# The &channel_id along with a callable performing &div_connect will be emitted
 		# to the &Flow.f_connect downstream.
 		"""
 
-		self.div_flows[layer] = None
-		connect = partial(self.div_connect, layer)
+		self.div_flows[channel_id] = None
+		connect = partial(self.div_connect, channel_id)
 
 		# Note initiation and associate connect callback.
-		self.div_initiations.append((layer, connect))
+		self.div_initiations.append((channel_id, initiate, connect))
 
-	def div_connect(self, layer, flow, fc_terminate=fe_terminate):
+	def div_connect(self, channel_id, flow):
 		"""
-		# Associate the &flow with the &layer allowing transfers into the flow.
+		# Associate the &flow with the &channel_id allowing transfers into the flow.
 
-		# Drains the queue that was collecting events associated with the &layer,
+		# Drains the queue that was collecting events associated with the &channel_id,
 		# and feeds them into the flow before destroying the queue. Layer connections
 		# without queues are the head of the line, and actively receiving transfers
 		# and control events.
@@ -1232,70 +1189,73 @@ class Division(Channel):
 
 		if flow is None:
 			# None connect means that there is no content to be transferred.
-			del self.div_flows[layer]
-			return
+			assert channel_id in self.div_flows
+			assert channel_id not in self.div_queues # None connect with transfers?
+
+			terminal = self.div_terminations.pop(channel_id, None) # No receiving channel for terminate.
+			del self.div_flows[channel_id]
+			if not self.div_flows and self.terminating:
+				self._f_terminated()
+
+			return terminal
 
 		flow.f_watch(self.f_obstruct, self.f_clear)
-		cflow = self.div_flows.pop(layer, None)
-
-		self.div_flows[layer] = flow
+		self.div_flows[channel_id] = flow
 
 		# drain the queue
-		q = self.div_queues[layer]
-		fp = flow.f_transfer
-		p = q.popleft
+		q = self.div_queues[channel_id]
+		transfer = flow.int_transfer
+		flush_queued_event = q.popleft
 
 		while q:
-			fp(p(), source=self) # drain division queue for &flow
+			transfer(channel_id, flush_queued_event()) # drain division queue for &flow
 
 		# The availability of the flow allows the queue to be dropped.
-		del self.div_queues[layer]
-		if cflow == fc_terminate:
-			flow.f_terminate()
+		del self.div_queues[channel_id]
+		if channel_id in self.div_terminations:
+			terminal = self.div_terminations.pop(channel_id)
+			flow.int_terminate(channel_id)
+			del self.div_flows[channel_id]
+			if not self.div_flows and self.terminating:
+				# Complete termination.
+				self._f_terminated()
 
-	def div_transfer(self, fc, layer, subflow_transfer):
+	def div_transfer(self, f_event, channel_id, subflow_transfer):
 		"""
-		# Enqueue or transfer the events to the flow associated with the layer context.
+		# Enqueue or transfer the events to the flow associated with the channel_id context.
 		"""
 
-		flow = self.div_flows[layer] # KeyError when no fe_initiate occurred.
+		flow = self.div_flows[channel_id] # KeyError when no fe_initiate occurred.
 
 		if flow is None:
-			self.div_queues[layer].append(subflow_transfer)
-			# block if overflow
+			self.div_queues[channel_id].append(subflow_transfer)
 		else:
 			# Connected flow.
-			flow.f_transfer(subflow_transfer, source=self)
+			flow.int_transfer(channel_id, subflow_transfer)
 
-	def div_overflow(self, fc, data):
+	def div_terminate(self, f_event, channel_id, terminal):
 		"""
-		# Invoked when an upstream flow received data past a protocol's boundary.
+		# End of subflow.
 		"""
-		if not data:
-			#
-			pass
+
+		if channel_id not in self.div_flows:
+			# Effect of termination after a connect(None) division.
+			return None
+
+		flow = self.div_flows[channel_id]
+		if flow is None:
+			# Not connected, enqueue termination.
+			self.div_terminations[channel_id] = terminal
 		else:
-			if not hasattr(self, 'div_container_overflow'):
-				self.div_container_overflow = []
-			self.div_container_overflow.append(data)
-		self.f_terminate()
+			# Termination of connected channel.
+			del self.div_flows[channel_id]
+			flow.f_ignore(self.f_obstruct, self.f_clear)
+			flow.int_terminate(channel_id)
+			assert channel_id not in self.div_queues[channel_id]
 
-	def div_terminate(self, fc, layer, fc_terminate=fe_terminate):
-		"""
-		# End of Layer context content. Flush queue and remove entries.
-		"""
-
-		if layer in self.div_flows:
-			flow = self.div_flows.pop(layer)
-			if flow is None:
-				# no flow connected, but expected to be.
-				# just leave a note for .f_connect that it has been closed.
-				self.div_flows[layer] = fc_terminate
-			else:
-				flow.f_ignore(self.f_obstruct, self.f_clear)
-				flow.f_terminate()
-
-			assert layer not in self.div_queues[layer]
+			if not self.div_flows and self.terminating:
+				# Final division.
+				self._f_terminated()
 
 	div_operations = {
 		fe_initiate: div_initiate,
@@ -1303,5 +1263,4 @@ class Division(Channel):
 		fe_obstruct: None,
 		fe_clear: None,
 		fe_transfer: div_transfer,
-		fe_overflow: div_overflow,
 	}

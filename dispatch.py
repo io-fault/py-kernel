@@ -40,7 +40,7 @@ class Call(core.Processor):
 		self.source = call
 
 	def actuate(self):
-		self.ctx_enqueue_task(self.execution)
+		self.critical(self.execution)
 
 	def execution(self, event=None, source=None):
 		assert self.functioning
@@ -141,7 +141,7 @@ class Thread(core.Processor):
 		except BaseException as exc:
 			final = functools.partial(self.fault, exc)
 
-		self.ctx_enqueue_task(final)
+		self.critical(final)
 
 	def actuate(self):
 		"""

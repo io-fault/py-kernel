@@ -1,7 +1,7 @@
 import itertools
 
-from .. import security as library
-
+from ...security.library import pki
+from .. import io as library
 from .. import library as libkernel
 from .. import flows
 from . import library as libtest
@@ -71,16 +71,16 @@ def test_Transports_io(test, chain=itertools.chain):
 	io_root = libtest.Root()
 	io_context.associate(io_root)
 
-	sctx = library.libsecurity.pki.Context(key = key, certificates = [certificate])
-	cctx = library.libsecurity.pki.Context(certificates = [certificate])
+	sctx = pki.Context(key = key, certificates = [certificate])
+	cctx = pki.Context(certificates = [certificate])
 
 	client = cctx.connect(None)
 	server = sctx.accept()
 
-	cti, cto = flows.Transports.create([(client, library.operations(client))])
+	cti, cto = flows.Transports.create([(client, library.security_operations(client))])
 	cc = flows.Collection.list()
 
-	sti, sto = flows.Transports.create([(server, library.operations(server))])
+	sti, sto = flows.Transports.create([(server, library.security_operations(server))])
 	sc = flows.Collection.list()
 
 	sector = libkernel.Sector()

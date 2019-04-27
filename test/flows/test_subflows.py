@@ -51,9 +51,9 @@ def test_Catenation(test):
 	i1 = flows.Iteration(range(0, -50, -1))
 	i2 = flows.Iteration(range(100))
 	i3 = flows.Iteration(range(100, 200, 2))
-	in1 = flows.Inlet(x, 1)
-	in2 = flows.Inlet(x, 2)
-	in3 = flows.Inlet(x, 3)
+	in1 = flows.Relay(x, 1)
+	in2 = flows.Relay(x, 2)
+	in3 = flows.Relay(x, 3)
 
 	i1.f_connect(in1)
 	i2.f_connect(in2)
@@ -63,11 +63,11 @@ def test_Catenation(test):
 	S.dispatch(in3)
 
 	# reserve slots
-	x.cat_reserve(1)
-	x.cat_reserve(2)
-	x.cat_connect(2, 2, in2) # validate blocking of 1
+	x.int_reserve(1)
+	x.int_reserve(2)
+	x.int_connect(2, 2, in2) # validate blocking of 1
 
-	x.cat_reserve(3)
+	x.int_reserve(3)
 	in3.f_obstruct(test, None)
 
 	# Data sent to the flow should be enqueued.
@@ -79,17 +79,17 @@ def test_Catenation(test):
 	test/i2.f_obstructed == True
 
 	# connect i1, but don't transfer anything yet.
-	x.cat_connect(1, 1, in1)
+	x.int_connect(1, 1, in1)
 	ctx.flush()
 	test/c.c_storage[0] == [(fc_initiate, 1, 1)]
 	del c.c_storage[:]
 	test/x.cat_connections[1][0] == None # head of line shouldn't have queue.
 
-	x.cat_connect(3, 3, in3)
+	x.int_connect(3, 3, in3)
 	S.dispatch(i3)
 	ctx.flush()
 	test/c.c_storage == [] # i3 is not yet hol and...
-	# i3 is obstructed prior to cat_connect; queue should be empty.
+	# i3 is obstructed prior to int_connect; queue should be empty.
 	test/list(x.cat_connections[3][0]) == []
 
 	test/i2.f_obstructed == True # Still obstructed by i1.
@@ -164,19 +164,24 @@ def test_Division(test):
 	x.f_connect(mitre)
 
 	# no content
-	x.f_transfer([(fc_init, 1)])
+	x.f_transfer([(fc_init, 1, "init-parameter")])
 	ctx()
 	test/mitre.accepted[0][0] == 1
+	test/mitre.accepted[0][1] == "init-parameter"
+	test.isinstance(mitre.accepted[0][2], typing.Callable)
 	ctx()
 
-	test.isinstance(mitre.accepted[0][1], typing.Callable)
+	cr = flows.Receiver(None)
 	c = flows.Collection.list()
+	cr.f_connect(c)
 	S.dispatch(c)
+	S.dispatch(cr)
 	x.f_transfer([(fc_xfer, 1, (b'data',))])
-	x.div_connect(1, c)
+	x.div_connect(1, cr)
+	ctx()
 	test/c.c_storage == [(b'data',)]
 	test/c.terminated == False
-	x.f_transfer([(fc_terminate, 1)])
+	x.f_transfer([(fc_terminate, 1, None)])
 	ctx()
 	test/c.terminated == True
 

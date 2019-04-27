@@ -41,7 +41,7 @@ from ..time import library as libtime
 
 from . import core
 from . import flows
-from . import library as tmp
+from . import library as tmp # formatting
 
 __process_index__ = dict()
 __io_index__ = dict()
@@ -791,6 +791,7 @@ class KOutput(KChannel):
 			self.f_clear(self)
 
 			if self.terminating:
+				# Termination set and no available event in queue?
 				self.channel.terminate()
 				self._f_terminated()
 
@@ -812,17 +813,17 @@ class KOutput(KChannel):
 					core.Condition(self, ('ko_overflow',))
 				)
 
-	def f_terminate(self, context=None):
+	def f_terminate(self):
 		if self.terminating:
 			return False
 
 		# Flow-level Termination occurs when the queue is clear.
 		self.start_termination()
-		self.terminator = context
 
 		if self.f_empty:
 			# Only terminate channel if it's empty.
 			self.channel.terminate()
+			self._f_terminated()
 
 		# Note termination signalled.
 		return True
@@ -832,20 +833,6 @@ class Context(core.Context):
 	# System Context implementation for supplying Processing Graphs with access
 	# to the local system.
 	"""
-
-	system_exit_status = 0
-
-	@staticmethod
-	def _connect_subflows(mitre, channels, *protocols):
-		from .flows import Transports, Catenation, Division
-		kin = KInput(channels[0])
-		kout = KOutput(channels[1])
-
-		ti, to = Transports.create(protocols)
-		co = Catenation()
-		di = Division()
-
-		return (kin, ti, di, mitre, co, to, kout) # _flow input
 
 	@property
 	def scheduler(self):
@@ -882,7 +869,22 @@ class Context(core.Context):
 		self.attachments = []
 
 	def structure(self):
-		return self.process.structure()
+		proc = self.process
+		sr = ()
+
+		ntasks = sum(map(len, (proc.loading_queue, proc.processing_queue)))
+
+		p = [
+			('tasks', ntasks),
+			('threads', len(proc.fabric.threading)),
+
+			# Track basic (task loop) cycle stats.
+			('cycles', proc.cycle_count),
+			('frequency', None),
+			('decay', proc.cycle_start_time_decay),
+		]
+
+		return (p, sr)
 
 	def actuate(self):
 		# Allows the roots to perform scheduling.
@@ -1029,33 +1031,7 @@ class Context(core.Context):
 
 			yield fd
 
-	def connect_subflows_using(self, interface, endpoint, mitre, *protocols):
-		"""
-		# Given an endpoint and a transport stack, return the series used to
-		# manage the connection's I/O from the given &interface.
-
-		# [ Parameters ]
-
-		# /interface/
-			# The &.library.Endpoint instance describing the interface to use for the
-			# connection.
-
-		# /endpoint/
-			# The &.library.Endpoint instance describing the target of the connection.
-
-		# /protocols/
-			# A sequence of transport layers to use with the &.library.Transport instances.
-			# A &.library.Transport pair will be created even if &protocols is empty.
-			# This parameter might be merged into the mitre.
-		"""
-
-		channels = allocate(
-			('octets', endpoint.protocol), (str(endpoint.address), endpoint.port)
-			# XXX: interface ref
-		)
-		return self._connect_subflows(mitre, channels, *protocols)
-
-	def connect_subflows(self, endpoint, mitre, *protocols):
+	def connect(self, endpoint):
 		"""
 		# Given an endpoint and a transport stack, return the series used to
 		# manage the connection's I/O.
@@ -1064,17 +1040,12 @@ class Context(core.Context):
 
 		# /endpoint/
 			# The &.library.Endpoint instance describing the target of the connection.
-
-		# /protocols/
-			# A sequence of transport layers to use with the &.library.Transport instances.
-			# A &.library.Transport pair will be created even if &protocols is empty.
-			# This parameter might be merged into the mitre.
 		"""
 
-		channels = allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
-		return self._connect_subflows(mitre, channels, *protocols)
+		i, o = allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
+		return (('socket', o.port), (KInput(i), KOutput(o)))
 
-	def accept_subflows(self, fd, mitre, *protocols):
+	def allocate_transport(self, fd):
 		"""
 		# Given a file descriptor and a transport stack, return the series used to
 		# manage the connection's I/O.
@@ -1082,14 +1053,10 @@ class Context(core.Context):
 		# [ Parameters ]
 		# /fd/
 			# The &.library.Endpoint instance describing the target of the connection.
-		# /protocols/
-			# A sequence of transport layers to use with the &.library.Transport instances.
-			# A &.library.Transport pair will be created even if &protocols is empty.
-			# This parameter might be merged into the mitre.
 		"""
 
 		channels = allocate('octets://acquire/socket', fd)
-		return self._connect_subflows(mitre, channels, *protocols)
+		return channels[0].port, channels
 
 	def read_file(self, path):
 		"""
@@ -1256,7 +1223,6 @@ class Context(core.Context):
 			# A triple, (start, stop, size), or &None if the entire file should be used.
 			# Where size is the size of the memory slices to emit.
 		"""
-		global Iteration, Flow
 
 		segs = Segments.open(path)
 		return flows.Iteration((x,) for x in segs)
@@ -1308,7 +1274,6 @@ class Fabric(object):
 		"""
 		# Manage the execution of a thread.
 		"""
-		global signal
 
 		# Block INT and TERM from fabric threads.
 		# Necessary to allow process.protect()'s sleep function to
@@ -1538,28 +1503,6 @@ class Process(object):
 
 	def __repr__(self):
 		return "{0}(identifier = {1!r})".format(self.__class__.__name__, self.identifier)
-
-	actuated = True
-	terminated = False
-	terminating = None
-	interrupted = None
-	def structure(self):
-		sr = ()
-
-		# processing_queue is normally empty whenever report is called.
-		ntasks = sum(map(len, (self.loading_queue, self.processing_queue)))
-
-		p = [
-			('tasks', ntasks),
-			('threads', len(self.fabric.threading)),
-
-			# Track basic (task loop) cycle stats.
-			('cycles', self.cycle_count),
-			('frequency', None),
-			('decay', self.cycle_start_time_decay),
-		]
-
-		return (p, sr)
 
 	def error(self, context, exception, title = "Unspecified Execution Area"):
 		"""
