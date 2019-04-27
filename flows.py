@@ -43,7 +43,6 @@ fe_clear = Event()
 fe_transfer = Event()
 fe_obstruct = Event()
 fe_terminate = Event()
-fe_overflow = Event()
 
 flow_events = (
 	fe_terminate,

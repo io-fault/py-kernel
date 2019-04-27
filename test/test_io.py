@@ -9,11 +9,11 @@ import itertools
 from . import library as testlib
 from .. import flows
 from .. import core
-from .. import io
+from .. import io as library
 
 def test_Transfer_io_flow(test):
 	ctx, S = testlib.sector()
-	xact = core.Transaction.create(io.Transfer())
+	xact = core.Transaction.create(library.Transfer())
 	S.dispatch(xact)
 	ctx()
 
@@ -38,17 +38,19 @@ def test_Transport_tp_connect(test):
 		(flows.fe_transfer, 1, 3),
 		(flows.fe_terminate, 1, None),
 	]
-	first = 'initial', (flows.Iteration([i]), flows.Collection.list())
-	stack = [first]
+	c = flows.Collection.list()
+	io = ('initial', None), (flows.Iteration([i]), c)
 
-	xact = core.Transaction.create(io.Transport.from_stack(stack))
+	xact = core.Transaction.create(library.Transport.from_endpoint(io))
 	S.dispatch(xact)
 	ctx()
 	mitre = flows.Channel()
-	xact.xact_context.tp_connect(mitre)
-	test/first[1][1].c_storage == []
+	protocol = ('protocol', None), (flows.Channel(), flows.Channel())
+	xact.xact_context.tp_connect(protocol, mitre)
+
+	test/c.c_storage == []
 	ctx()
-	test/first[1][1].c_storage == [i]
+	test/c.c_storage == [i]
 
 	test/xact.xact_context.terminating == True
 	ctx()

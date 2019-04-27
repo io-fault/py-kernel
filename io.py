@@ -24,6 +24,7 @@ class Transfer(core.Context):
 	def actuate(self):
 		self.provide('transfer')
 
+	_io_start = None
 	io_transport = None
 
 	@property
@@ -39,6 +40,9 @@ class Transfer(core.Context):
 		# count will be incremented.
 		"""
 
+		assert self._io_start is None
+
+		self._io_start = series[0]
 		dispatch = self.controller.dispatch
 
 		end = Terminal(self._io_transfer_terminated)
@@ -53,16 +57,11 @@ class Transfer(core.Context):
 
 		return end
 
-	def io_capture(self, series):
+	def io_execute(self):
 		"""
-		# Perform the transfer of the given &series while capturing all of the events that leave
-		# the Transfer Context.
+		# Signal the first &flows.Channel that it should begin performing transfers.
 		"""
-		t = self.io_flow()
-		c = flows.Collection.list()
-		t.f_connect(c)
-		self.xact_dispatch(c)
-		self._capture = c.c_storage
+		self._io_start.f_transfer(None)
 
 	def _io_check_terminate(self):
 		if self.xact_empty():
@@ -82,33 +81,66 @@ class Transport(Transfer):
 	# used to facilitate arbitrary I/O streams.
 	"""
 
+	def actuate(self):
+		self.provide('transport')
+
 	def __init__(self):
 		self._tp_channels = {}
 		self._tp_stack = []
 
 	@classmethod
-	def from_stack(Class, entries):
+	def from_endpoint(Class, io):
 		"""
-		# Push the protocol channels on to the stack.
+		# Create and initialize an instance with the first transport layer.
 		"""
 		tp = Class()
-		channels = tp._tp_channels
-		stack = tp._tp_stack
+		state, pair = io
+		tp._tp_channels[state] = pair
+		tp._tp_stack.append(state)
+		return tp
+
+	@classmethod
+	def from_stack(Class, entries):
+		"""
+		# Create and initialize an instance with using a stack.
+		"""
+		tp = Class()
+		return tp.tp_extend(entries)
+
+	def tp_extend(self, entries):
+		"""
+		# Extend the transport stack with multiple intermediates.
+		# This method should only be used prior to &tp_connect.
+		"""
+		channels = self._tp_channels
+		stackadd = self._tp_stack.append
 
 		for state, pair in entries:
 			channels[state] = pair
-			stack.append(state)
+			stackadd(state)
 
-		return tp
+		return self
 
-	def actuate(self):
-		self.provide('transport')
+	def tp_append(self, protocol):
+		"""
+		# Extend the transport stack with a single intermediate.
+		# This method should only be used prior to &tp_connect.
+		"""
+		self._tp_channels[protocol[0]] = protocol[1]
+		self._tp_stack.append(protocol[0])
 
-	def tp_connect(self, mitre):
+		return self
+
+	def tp_connect(self, protocol, mitre):
 		"""
 		# Connect the given mitre series, &mitre, to the configured transport stack.
 		# Usually called after dispatching an instance created with &from_stack.
 		"""
+
+		# Add protocol layer first.
+		self._tp_channels[protocol[0]] = protocol[1]
+		self._tp_stack.append(protocol[0])
+
 		end = []
 		start = []
 		for x in self._tp_stack:
