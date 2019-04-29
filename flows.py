@@ -27,9 +27,10 @@ class Event(object):
 	def __int__(self):
 		ops = flow_events
 		l = len(ops)
+		mid = l // 2
 		for op, i in zip(ops, range(l)):
 			if op is self:
-				return i - (l // 2)
+				return i - mid
 
 	def __repr__(self):
 		return self.__str__()
