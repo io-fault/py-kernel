@@ -1,17 +1,12 @@
 """
-# Processor class hierarchy for managing explicitly structured processes.
+# Formatting routines for representing processor hierarchies.
 """
-import os
 import sys
 import collections
 import functools
 import inspect
 import itertools
 import traceback
-import typing
-import codecs
-
-__shortname__ = 'libkernel'
 
 def perspectives(resource, mro=inspect.getmro):
 	"""
@@ -131,74 +126,3 @@ def format(identity, resource, sequenced=None, tabs="\t".__mul__):
 				actuated, terminated, interrupted,
 				lid, rc_id,
 			)
-
-def controllers(resource):
-	"""
-	# Return the stack of controllers of the given &Resource. Excludes initial resource.
-	"""
-
-	stack = []
-	obj = resource.controller
-
-	while obj is not None:
-		add(obj)
-		obj = obj.controller
-
-	return stack
-
-class Projection(object):
-	"""
-	# A set of credentials and identities used by a &Sector to authorize actions by the entity.
-
-	# [ Properties ]
-
-	# /entity/
-		# The identity of the user, person, bot, or organization that is being represented.
-	# /credentials/
-		# The credentials provided to authenticate the user.
-	# /role/
-		# An effective entity identifier; an override for entity.
-	# /authorization/
-		# A set of authorization tokens for the systems that are being used by the entity.
-	# /device/
-		# An identifier for the device that is being used to facilitate the connection.
-	"""
-
-	entity = None
-	credentials = None
-	role = None
-	authorization = None
-	device = None
-
-	def __init__(self):
-		"""
-		# Projections are simple data structures and requires no initialization.
-		"""
-
-def Encoding(
-		transformer,
-		encoding:str='utf-8',
-		errors:str='surrogateescape',
-
-		gid=codecs.getincrementaldecoder,
-		gie=codecs.getincrementalencoder,
-	):
-	"""
-	# Encoding Transformation Generator.
-	"""
-
-	emit = transformer.f_emit
-	del transformer # don't hold direct reference, only need emit.
-	escape_state = 0
-
-	# using incremental decoder to handle partial writes.
-	state = gid(encoding)(errors)
-	operation = state.decode
-
-	output = None
-
-	input = (yield output)
-	output = operation(input)
-	while True:
-		input = (yield output)
-		output = operation(input)

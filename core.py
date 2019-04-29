@@ -179,10 +179,6 @@ class Resource(object):
 	# Base class for &Processor.
 
 	# [ Properties ]
-	# /context/
-		# The execution context that can be used to enqueue tasks,
-		# and provides access to the root &Unit.
-
 	# /controller/
 		# The &Resource containing this &Resource.
 	"""
@@ -207,6 +203,20 @@ class Resource(object):
 	)
 	del _dereference_controller
 	del _set_controller_reference
+
+	def controllerstack(self):
+		"""
+		# Return the stack of controllers of the given &Resource. Excludes initial resource.
+		"""
+
+		stack = []
+		obj = self.controller
+
+		while obj is not None:
+			add(obj)
+			obj = obj.controller
+
+		return stack
 
 	@property
 	def sector(self, isinstance=isinstance):
