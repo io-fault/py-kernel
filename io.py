@@ -475,11 +475,11 @@ def endpoint(type:str, address:str, port:object):
 
 	# [ Samples ]
 	# /IPv4/
-		# `libkernel.endpoint('ip4', '127.0.0.1', 80)`
+		# `kio.endpoint('ip4', '127.0.0.1', 80)`
 	# /IPv6/
-		# `libkernel.endpoint('ip6', '::1', 80)`
+		# kio.endpoint('ip6', '::1', 80)`
 	# /Local/
-		# `libkernel.endpoint('local', '/directory/path/to', 'socket_file')`
+		# kio.endpoint('local', '/directory/path/to', 'socket_file')`
 	"""
 
 	return endpoint_classes[type](address, port)

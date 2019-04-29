@@ -2,7 +2,7 @@ import itertools
 
 from ...security.library import pki
 from .. import io as library
-from .. import library as libkernel
+from .. import core
 from .. import flows
 from . import library as libtest
 
@@ -83,7 +83,7 @@ def test_Transports_io(test, chain=itertools.chain):
 	sti, sto = flows.Transports.create([(server, library.security_operations(server))])
 	sc = flows.Collection.list()
 
-	sector = libkernel.Sector()
+	sector = core.Sector()
 	io_root.dispatch(sector)
 	for x in [sc, cc, cti, cto, sti, sto]:
 		sector.dispatch(x)

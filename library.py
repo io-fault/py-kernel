@@ -13,56 +13,6 @@ import codecs
 
 __shortname__ = 'libkernel'
 
-class Lock(object):
-	"""
-	# Event driven lock.
-
-	# Executes a given callback when it has been dequeued with the &release method
-	# as its parameter. When &release is then called by the lock's holder, the next
-	# enqueued callback is processed.
-	"""
-	__slots__ = ('_current', '_waiters',)
-
-	def __init__(self, Queue = collections.deque):
-		self._waiters = Queue()
-		self._current = None
-
-	def acquire(self, callback):
-		"""
-		# Return boolean on whether or not it was **immediately** acquired.
-		"""
-		self._waiters.append(callback)
-		# At this point, if there is a _current,
-		# it's release()'s job to notify the next
-		# owner.
-		if self._current is None and self._waiters[0] is callback:
-			self._current = self._waiters[0]
-			self._current(self.release)
-			return True
-		return False
-
-	def release(self):
-		"""
-		# Returns boolean on whether or not the Switch was
-		# released **to another controller**.
-		"""
-		if self._current is not None:
-			if not self._waiters:
-				# not locked
-				return False
-			self._waiters.popleft()
-
-			if self._waiters:
-				# new owner
-				self._current = self._waiters[0]
-				self._current(self.release)
-			else:
-				self._current = None
-		return True
-
-	def locked(self):
-		return self._current is not None
-
 def perspectives(resource, mro=inspect.getmro):
 	"""
 	# Return the stack of structures used for Resource introspection.
@@ -224,11 +174,6 @@ class Projection(object):
 		"""
 		# Projections are simple data structures and requires no initialization.
 		"""
-
-from .core import Resource, Processor, Sector, Scheduler, Recurrence
-from .core import Context, Transaction, Executable
-from .dispatch import Call, Coroutine, Thread, Subprocess
-from .kills import Fatal, Timeout
 
 def Encoding(
 		transformer,
