@@ -41,7 +41,7 @@ from ..time import library as libtime
 
 from . import core
 from . import flows
-from . import library as tmp # formatting
+from . import text
 
 __process_index__ = dict()
 __io_index__ = dict()
@@ -845,11 +845,11 @@ class Context(core.Context):
 	def xact_exit(self, xact:core.Transaction):
 		ctx = xact.xact_context
 		if ctx.exe_faults:
-			sys.stderr.writelines(x+"\n" for x in tmp.format(ctx.exe_identifier, xact))
+			sys.stderr.writelines(x+"\n" for x in text.format(ctx.exe_identifier, xact))
 			sys.stderr.write("\n")
 			sys.stderr.flush()
 			for ident, procs in ctx.exe_faults.items():
-				sys.stderr.writelines(x+"\n" for x in tmp.format(ident, procs))
+				sys.stderr.writelines(x+"\n" for x in text.format(ident, procs))
 				sys.stderr.write("\n")
 				sys.stderr.flush()
 
@@ -907,7 +907,7 @@ class Context(core.Context):
 		# Send an overview of the logical process state to the given target.
 		"""
 
-		target("\n".join(tmp.format('main', self.controller)))
+		target("\n".join(text.format('main', self.controller)))
 		target("\n")
 
 	def defer(self, measure, task, maximum=6000, seconds=libtime.Measure.of(second=2)):
