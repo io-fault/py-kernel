@@ -140,7 +140,7 @@ def test_Catenation(test):
 
 def test_Division(test):
 	"""
-	# Subflow siphoning.
+	# - &library.Division
 	"""
 
 	fc_xfer = flows.fe_transfer
@@ -150,25 +150,20 @@ def test_Division(test):
 	Type = flows.Division
 	ctx, S = testlib.sector()
 
-	class Local(flows.Mitre):
-		accepted = []
-		def f_transfer(self, requests, source=None):
-			responses = self.f_emit(Layer() for x in requests)
-			# received connection
-			self.accepted.extend(requests)
-
 	x = Type()
-	mitre = Local()
-	S.dispatch(mitre)
+	end = flows.Collection.list()
+	accepted = end.c_storage
+	S.dispatch(end)
 	S.dispatch(x)
-	x.f_connect(mitre)
+	x.f_connect(end)
 
 	# no content
 	x.f_transfer([(fc_init, 1, "init-parameter")])
 	ctx()
-	test/mitre.accepted[0][0] == 1
-	test/mitre.accepted[0][1] == "init-parameter"
-	test.isinstance(mitre.accepted[0][2], typing.Callable)
+	event = accepted[0][0]
+	test/event[0] == 1
+	test/event[1] == "init-parameter"
+	test.isinstance(event[2], typing.Callable)
 	ctx()
 
 	cr = flows.Receiver(None)
@@ -184,6 +179,52 @@ def test_Division(test):
 	x.f_transfer([(fc_terminate, 1, None)])
 	ctx()
 	test/c.terminated == True
+
+def test_Mitre_allocate(test):
+	"""
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x: l.extend(x.m_correlate()))
+	ctx, S = testlib.sector()
+
+	end = flows.Collection.list()
+	cat = flows.Catenation()
+	c = flows.Mitre(add)
+
+	c.f_connect(cat)
+	cat.f_connect(end)
+	for x in [cat, c, end]:
+		S.dispatch(x)
+
+	inv = 'parameter'
+	(channel_id, connect,), = c.m_allocate()
+	connect(inv, None)
+	c.f_transfer([(1, 'parameter', None)])
+	ctx()
+	test/l[0] == (1, 'parameter', None)
+
+def test_Mitre_accept(test):
+	"""
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x: l.append(x.m_accept()))
+	ctx, S = testlib.sector()
+
+	end = flows.Collection.list()
+	cat = flows.Catenation()
+	c = flows.Mitre(add)
+
+	c.f_connect(cat)
+	cat.f_connect(end)
+	for x in [cat, c, end]:
+		S.dispatch(x)
+
+	inv = 'parameter'
+	c.f_transfer([(1, 'parameter', None)])
+	ctx()
+	test/l[0][1][0] == (1, inv, None)
 
 if __name__ == '__main__':
 	import sys; from ...test import library as libtest

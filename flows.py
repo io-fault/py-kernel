@@ -425,20 +425,89 @@ class Receiver(Channel):
 
 class Mitre(Channel):
 	"""
-	# The joining flow between input and output.
-
-	# Subclasses of this flow manage the routing of protocol requests.
+	# Mitre managing the dispatch of protocol transactions.
 	"""
 	f_type = 'mitre'
 
-	def f_connect(self, flow:core.Processor):
+	def __init__(self, router):
+		self.m_router = router
+		self._protocol_xact_queue = []
+		self._protocol_xact_id = 1
+
+	def f_transfer(self, events):
+		# Synchronized on Logical Process Task Queue
+		# Point of this local task queue is to manage the stack context
+		# and to (force) aggregate processing of protocol dispatch.
+		xq = self._protocol_xact_queue
+		already_queued = bool(xq)
+		xq.extend(events)
+		if not already_queued:
+			self.critical(self.m_execute)
+
+	def m_execute(self):
 		"""
-		# Connect the given flow as downstream without inheriting obstructions.
+		# Method enqueued by &f_transfer to flush the protocol transaction queue.
+		# Essentially, an internal method.
+		"""
+		return self.m_router(self)
+
+	def _m_transition(self):
+		# Must be called within same processor.
+		xq = self._protocol_xact_queue
+		self._protocol_xact_queue = []
+		return xq
+
+	def m_accept(self, partial=functools.partial):
+		"""
+		# Accept a sequence of requests from a client configured remote endpoint.
+		# Routes the initiation parameter with callbacks to connect input and output.
+
+		# Used by routers employed by servers to get protocol transactions.
 		"""
 
-		# Similar to &Channel, but obstruction notifications are not carried upstream.
-		self.f_downstream = flow
-		self.f_emit = flow.f_transfer
+		events = self._m_transition()
+		self._protocol_xact_id += len(events)
+
+		cat = self.f_downstream
+		reserve = cat.int_reserve
+
+		rl = []
+		add = rl.append
+		for received in events:
+			channel_id = received[0]
+			reserve(channel_id)
+			add(partial(cat.int_connect, channel_id))
+
+		return (rl, events)
+
+	def m_correlate(self):
+		"""
+		# Received a set of responses. Join with requests, and
+		# execute the receiver provided by the enqueueing operation.
+
+		# Used by routers employed by clients to get the response of a protocol transaction.
+		"""
+
+		# Difference between m_accept being that outgoing channels are not reserved.
+		return self._m_transition()
+
+	def m_allocate(self, quantity=1, partial=functools.partial):
+		"""
+		# Allocate a channel for submitting a request.
+
+		# Returns the channel identifier that will be used and the callback to submit the
+		# initiate parameter and upstream channel.
+		"""
+
+		start = self._protocol_xact_id
+		self._protocol_xact_id += quantity
+		cat = self.f_downstream
+		iconnect = cat.int_connect
+		ireserve = cat.int_reserve
+
+		for i in range(start, self._protocol_xact_id):
+			ireserve(i)
+			yield i, partial(iconnect, i)
 
 class Transformation(Channel):
 	"""
