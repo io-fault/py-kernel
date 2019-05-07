@@ -356,7 +356,7 @@ class Terminal(Channel):
 	# Transparent channel that performs a callback when termination
 	# is received from the upstream channel.
 
-	# Used as an atexit callback for flows.
+	# Used as an at-exit callback for flows.
 	"""
 
 	def __init__(self, endpoint):
@@ -377,12 +377,13 @@ class Relay(Channel):
 	# &fe_transfer, &fe_terminate, and &fe_interrupt.
 	"""
 
-	def __init__(self, integral, key):
+	def __init__(self, integral, key, partial=functools.partial):
 		self.r_integral = integral
 		self.r_key = key
+		self.r_emit = partial(integral.int_transfer, key)
 
 	def f_transfer(self, event):
-		self.r_integral.int_transfer(self.r_key, event)
+		self.r_emit(event)
 		self.f_emit(event)
 
 	def f_terminate(self):
