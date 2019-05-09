@@ -1302,11 +1302,7 @@ class Transaction(Sector):
 
 class Executable(Context):
 	"""
-	# Logical Work Unit Context.
-
-	# Enclosure providing context variables and fault handling for a logical executable within
-	# the process. Executables are the container for a unit of work. They can be fault tolerant
-	# or sensitive. Subclassing &Executable is common for system processes and protocol transactions.
+	# Transaction sequence created from an invocation.
 
 	# [ Properties ]
 
@@ -1322,19 +1318,34 @@ class Executable(Context):
 	# /exe_faults_count/
 		# The total number of faults that occurred. In cases where faults have been
 		# purged from &exe_faults, the count allows recognition of the purge.
+	# /exe_queue/
+		# The transactions to be executed in order to complete execution.
 	"""
 
-	def __init__(self, invocation, identifier=None):
+	def __init__(self, invocation, identifier=None, Queue=collections.deque):
 		self.exe_identifier = identifier or self.__name__.lower()
 		self.exe_invocation = invocation
 		self.exe_faults = {}
 		self.exe_faults_count = 0
+		self.exe_queue = Queue()
 
 	def actuate(self):
-		self.require('system')
 		self.provide('executable')
 		self.controller.scheduling()
-		self.enqueue(self.xact_exit_if_empty)
+
+	def xact_void(self, final):
+		"""
+		# Consume the next transaction in the queue.
+		"""
+		q = self.exe_queue
+		if q:
+			nxact = q.popleft()
+			self.xact_dispatch(nxact)
+		else:
+			self.finish_termination()
+
+	def exe_enqueue(self, xact_context):
+		self.exe_queue.append(Transaction.create(xact_context))
 
 	def faulted(self, proc:Processor) -> None:
 		"""
@@ -1361,6 +1372,7 @@ class Executable(Context):
 		p = [
 			('exe_identifier', self.exe_identifier),
 			('exe_faults', self.exe_faults_count),
+			('exe_queue', self.exe_queue),
 		]
 
 		return (p, ())
