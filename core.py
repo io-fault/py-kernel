@@ -1347,6 +1347,12 @@ class Executable(Context):
 	def exe_enqueue(self, xact_context):
 		self.exe_queue.append(Transaction.create(xact_context))
 
+	def exe_initialize(self):
+		"""
+		# Execute the enqueued transaction or cause the executable to exit.
+		"""
+		self.xact_void(None)
+
 	def faulted(self, proc:Processor) -> None:
 		"""
 		# Place the sector into the faults directory using the hex identifier
