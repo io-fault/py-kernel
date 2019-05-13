@@ -1397,8 +1397,6 @@ class Process(object):
 		self.kernel = events.Interface()
 		self.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
 		self.fabric.spawn(None, self.main, ()) # Main task queue thread.
-		# replace boot() with protect() for main thread protection/watchdog
-		process.Fork.substitute(process.protect)
 
 		return self
 
