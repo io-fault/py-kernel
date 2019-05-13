@@ -1655,10 +1655,10 @@ class Process(object):
 		self.loading_queue.extend(tasks)
 		self.kernel.force()
 
-def spawn(identifier, executables, critical=process.critical, partial=functools.partial):
+def spawn(identifier, executables, critical=process.critical, partial=functools.partial) -> Process:
 	"""
-	# Construct a &Process using the given &invocation
-	# with the specified &Unit.
+	# Construct a &Process using the given &executables.
+	# The &identifier is usually `'root'` for the primary logical process.
 	"""
 
 	process = Process(identifier)
@@ -1672,3 +1672,26 @@ def spawn(identifier, executables, critical=process.critical, partial=functools.
 		process._enqueue(partial(system.allocate, x))
 
 	return process
+
+def dispatch(invocation, application:core.Context, identifier=None) -> Process:
+	"""
+	# Dispatch an application transaction instance within a new logical process.
+
+	# Construct a &Process and &core.Executable for executing the &application context.
+	# The &Process created by the inner &spawn is returned.
+	"""
+
+	aclass = type(application)
+	exe = core.Executable(invocation, aclass.__name__)
+	exe.exe_enqueue(application)
+	process = spawn(identifier, [exe])
+	process.boot(exe.exe_initialize)
+	return process
+
+def control():
+	"""
+	# Control the main thread providing a low precision timer for deferred tasks.
+	# Called by an application's main entry point after booting the &Process created
+	# by &spawn.
+	"""
+	process.Fork.substitute(process.protect)
