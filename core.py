@@ -9,6 +9,7 @@ import weakref
 import collections
 import itertools
 import traceback
+import heapq
 
 from ..time import library as libtime
 
@@ -883,24 +884,16 @@ class Scheduler(Processor):
 
 	def structure(self):
 		sr = ()
-		now = libtime.now()
-		items = list(self.state.schedule.items())
-		pit = self.state.meter.snapshot()
-		pit = now.__class__(pit)
-
-		p = [
-			('now', now.select('iso')),
-		]
-
-		p.extend([
-			((pit.measure(ts)), callbacks)
-			for ts, callbacks in items
-		])
-
+		p = []
 		return (p, sr)
 
-	def actuate(self):
-		self.state = libtime.Scheduler()
+	def actuate(self, DefaultDict=collections.defaultdict, TaskQueue=collections.deque):
+		self._snapshot = libtime.now # XXX: Inherit from System context.
+		self._heap = []
+		# RPiT to (Event) Id's Mapping
+		self._tasks = DefaultDict(TaskQueue)
+		self._cancellations = set()
+
 		self.persistent = True
 
 		controller = self.controller
@@ -932,50 +925,38 @@ class Scheduler(Processor):
 	def execute_weak_method(weakmethod):
 		return weakmethod()()
 
-	def update(self):
+	def cancel(self, *events):
 		"""
-		# Update the scheduled transition callback.
+		# Cancel the scheduled events.
 		"""
-
-		nr = weakref.WeakMethod(self.transition)
-		if self.scheduled_reference is not None:
-			self.x_ops[1](self.scheduled_reference)
-
-		sr = self.scheduled_reference = functools.partial(self.execute_weak_method, nr)
-		self.x_ops[0](self.state.period(), sr)
+		# Update the set of cancellations immediately.
+		# This set is used as a filter by Defer cycles.
+		self._cancellations.update(events)
 
 	def schedule(self, pit:libtime.Timestamp, *tasks, now=libtime.now):
 		"""
 		# Schedule the &tasks to be executed at the specified Point In Time, &pit.
 		"""
 
-		measure = now().measure(pit)
-		return self.defer(measure, *tasks)
+		snapshot = self._snapshot()
+		self.put(snapshot, snapshot.measure(pit), *tasks)
 
 	def defer(self, measure, *tasks):
 		"""
 		# Defer the execution of the given &tasks by the given &measure.
 		"""
 
-		p = self.state.period()
+		snapshot = self._snapshot()
+		p = self.period(snapshot)
 
-		self.state.put(*[
-			(measure, x) for x in tasks
-		])
+		self.put(snapshot, measure, *tasks)
 
 		if p is None:
-			self.update()
+			self.update(snapshot)
 		else:
-			np = self.state.period()
+			np = self.period(snapshot)
 			if np < p:
-				self.update()
-
-	def cancel(self, task):
-		"""
-		# Cancel the execution of the given task scheduled by this instance.
-		"""
-
-		self.state.cancel(task)
+				self.update(snapshot)
 
 	def recurrence(self, callback):
 		"""
@@ -999,10 +980,11 @@ class Scheduler(Processor):
 			# Do nothing if not inside the functioning window.
 			return
 
-		period = self.state.period
-		get = self.state.get
+		period = self.period
+		get = self.get
+		snapshot = self._snapshot()
 
-		tasks = get()
+		tasks = get(snapshot)
 		for task_objects in tasks:
 			try:
 				# Resolve weak reference.
@@ -1012,51 +994,98 @@ class Scheduler(Processor):
 					scheduled_task()
 			except BaseException as scheduled_task_exception:
 				raise
-				self.fault(scheduled_task_exception)
-				break # don't re-schedule transition
 		else:
-			p = period()
+			p = period(snapshot)
 
 			try:
 				if p is not None:
 					# re-schedule the transition
-					self.update()
+					self.update(snapshot)
 				else:
 					# falls back to class attribute; None
 					del self.scheduled_reference
 			except BaseException as scheduling_exception:
 				raise
-				self.fault(scheduling_exception)
-
-	def process(self, event, Point=libtime.core.Point, Measure=libtime.core.Measure):
-		"""
-		# Schedule the set of tasks.
-		"""
-
-		schedule = self.state.put
-		p = self.state.period()
-
-		for timing, task in event:
-			if isinstance(timing, Point):
-				measure = libtime.now().measure(timing)
-			elif isinstance(timing, Measure):
-				measure = timing
-			else:
-				raise ValueError("scheduler requires a libtime.Unit")
-
-			schedule((measure, task))
-
-		if p is None:
-			self.update()
-		else:
-			np = self.state.period()
-			if np < p:
-				self.update()
 
 	def interrupt(self):
 		# cancel the transition callback
 		if self.scheduled_reference is not None:
 			self.x_ops[1](self.scheduled_reference)
+
+	def update(self, snapshot):
+		"""
+		# Update the scheduled transition callback.
+		"""
+
+		nr = weakref.WeakMethod(self.transition)
+		if self.scheduled_reference is not None:
+			self.x_ops[1](self.scheduled_reference)
+
+		sr = self.scheduled_reference = functools.partial(self.execute_weak_method, nr)
+		self.x_ops[0](self.period(snapshot), sr)
+
+	def period(self, current):
+		"""
+		# The period before the next event should occur.
+		"""
+		try:
+			smallest = self._heap[0]
+			return smallest.__class__(smallest - current)
+		except IndexError:
+			return None
+
+	def put(self, current, measure, *tasks, push=heapq.heappush) -> int:
+		"""
+		# Schedules the given events for execution.
+
+		# [ Parameters ]
+
+		# /current/
+			# Snapshot of the scheduler's clock.
+		# /measure/
+			# Time to wait before executing the &tasks.
+		# /tasks/
+			# The tasks to perform at the given &measure relative to &current.
+		"""
+
+		pit = measure.__class__(measure + current)
+		push(self._heap, pit)
+		self._tasks[pit].extend(tasks)
+
+	def get(self, current, pop=heapq.heappop, push=heapq.heappush):
+		"""
+		# Return all events whose sheduled delay has elapsed according to the
+		# configured Chronometer.
+
+		# The pairs within the returned sequence consist of a Measure and the Event. The
+		# measure is the amount of time that has elapsed since the scheduled time.
+		"""
+		events = []
+
+		while self._heap:
+			# repeat some work in case of concurrent pop
+			item = pop(self._heap)
+			overflow = item.__class__(current - item)
+
+			# the set of callbacks have passed their time.
+			if overflow < 0:
+				# not ready; put it back
+				push(self._heap, item)
+				break
+			else:
+				# If an identical item has already been popped,
+				# an empty set can be returned in order to perform a no-op.
+				eventq = self._tasks.pop(item, ())
+				while eventq:
+					x = eventq.popleft()
+					if x in self._cancellations:
+						# filter any cancellations
+						# schedule is already popped, so remove event and cancel*
+						self._cancellations.discard(x)
+					else:
+						events.append((overflow, x))
+
+		return events
 
 class Recurrence(Processor):
 	"""
@@ -1173,7 +1202,7 @@ class Context(Processor):
 			super().terminate()
 			self.exit()
 
-	def xact_contextstack(self) -> typing.Iterable['Context']:
+	def xact_contextstack(self) -> typing.Iterable[Processor]:
 		"""
 		# The complete context stack of the &Transaction excluding &self.
 		# First entry is nearest to &self; last is furthest ascent.
