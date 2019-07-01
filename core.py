@@ -1054,11 +1054,8 @@ class Scheduler(Processor):
 
 	def get(self, current, pop=heapq.heappop, push=heapq.heappush):
 		"""
-		# Return all events whose sheduled delay has elapsed according to the
-		# configured Chronometer.
-
-		# The pairs within the returned sequence consist of a Measure and the Event. The
-		# measure is the amount of time that has elapsed since the scheduled time.
+		# Return all events whose sheduled delay has elapsed according to the clock's
+		# snapshot, &current.
 		"""
 		events = []
 
