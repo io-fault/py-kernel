@@ -11,7 +11,8 @@ import itertools
 import traceback
 import heapq
 
-from ..time import library as libtime
+from ..time import types as timetypes
+from ..time import sysclock
 
 def set_actuated(processor):
 	processor._pexe_state = 1
@@ -888,7 +889,7 @@ class Scheduler(Processor):
 		return (p, sr)
 
 	def actuate(self, DefaultDict=collections.defaultdict, TaskQueue=collections.deque):
-		self._snapshot = libtime.now # XXX: Inherit from System context.
+		self._snapshot = sysclock.now # XXX: Inherit from System context.
 		self._heap = []
 		# RPiT to (Event) Id's Mapping
 		self._tasks = DefaultDict(TaskQueue)
@@ -933,7 +934,7 @@ class Scheduler(Processor):
 		# This set is used as a filter by Defer cycles.
 		self._cancellations.update(events)
 
-	def schedule(self, pit:libtime.Timestamp, *tasks, now=libtime.now):
+	def schedule(self, pit:timetypes.Timestamp, *tasks, now=sysclock.now):
 		"""
 		# Schedule the &tasks to be executed at the specified Point In Time, &pit.
 		"""

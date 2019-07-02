@@ -37,7 +37,8 @@ from ..system import thread
 from ..system import memory
 from ..system import execution
 
-from ..time import library as libtime
+from ..time import types as timetypes
+from ..time import sysclock
 
 from . import core
 from . import flows
@@ -910,7 +911,7 @@ class Context(core.Context):
 		target("\n".join(text.format('main', self.controller)))
 		target("\n")
 
-	def defer(self, measure, task, maximum=6000, seconds=libtime.Measure.of(second=2)):
+	def defer(self, measure, task, maximum=6000, seconds=timetypes.Measure.of(second=2)):
 		"""
 		# Schedule the task for execution after the period of time &measure elapses.
 
@@ -1495,7 +1496,7 @@ class Process(object):
 		# Report a snapshot of the process' state to the given &target.
 		"""
 
-		self.log("[%s]\n" %(libtime.now().select('iso'),))
+		self.log("[%s]\n" %(sysclock.now().select('iso'),))
 		xact = __process_index__[self][0]
 		xact.xact_context.report(self.log)
 
@@ -1522,7 +1523,7 @@ class Process(object):
 		# managed by &fabric.
 		"""
 
-		time_snapshot = libtime.now
+		time_snapshot = sysclock.now
 		ix = self.iomatrix
 		cwq = self.processing_queue # current working queue; should be empty at start
 		nwq = self.loading_queue # next working queue
