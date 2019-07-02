@@ -369,6 +369,70 @@ class Terminal(Channel):
 		self._f_terminated()
 		self.t_endpoint(self)
 
+class Monitor(Terminal):
+	"""
+	# Terminal measuring transfer throughput.
+	"""
+
+	def actuate(self):
+		# XXX: Use system transaction context for monotonic clock.
+		from ..time import sysclock
+		self.tm_clockread = sysclock.elapsed
+
+		self.tm_measure = (lambda x: sum(map(len, x)))
+		self.tm_transfers = []
+		self.tm_reference = self.tm_clockread()
+		self.tm_aggregate = (0, self.tm_reference.__class__(0)) # units, time before &t_reference
+
+	def f_transfer(self, event):
+		units = self.tm_measure(event)
+		self.tm_transfers.append((units, self.tm_clockread()))
+
+	@property
+	def tm_start(self):
+		return self.tm_reference.decrease(self.tm_aggregate[-1])
+
+	def tm_archive(self, pit):
+		"""
+		# Archive transfer data occurring before &pit.
+		"""
+		u_total = self.tm_aggregate
+
+		i = 0
+		# XXX: bisect for &pit
+		for u, t in reversed(self.tm_transfers):
+			if t < pit:
+				break
+			i += 1
+
+		offset = len(self.tm_transfers) - i
+		prefix = self.tm_transfers[:offset]
+		del self.tm_transfers[:offset]
+
+		# Archive prefix into tm_aggregate.
+		if prefix:
+			t_last = self.tm_reference
+			u_total, t_total = self.tm_aggregate
+
+			for u, t in prefix:
+				u_total += u
+				t_total = t_total.elapse(t.__class__(t - t_last))
+				t_last = t
+
+			self.tm_aggregate = (u_total, t_total)
+			self.tm_reference = prefix[-1][-1]
+
+	def tm_rate(self, window):
+		pit = self.tm_clockread()
+		area = pit.decrease(window)
+		self.tm_archive(area)
+		suffix = self.tm_transfers
+
+		latest = suffix[-1][-1]
+		t_total = latest.__class__(latest - self.tm_reference)
+
+		return sum(x[0] for x in suffix), t_total
+
 class Relay(Channel):
 	"""
 	# Relay intersector transfers.
