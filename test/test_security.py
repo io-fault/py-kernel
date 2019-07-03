@@ -1,6 +1,6 @@
 import itertools
 
-from ...security.library import pki
+from ...security import openssl as pki
 from .. import io as library
 from .. import core
 from .. import flows
