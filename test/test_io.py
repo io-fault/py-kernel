@@ -15,18 +15,18 @@ def test_Transfer_io_flow(test):
 	ctx, S = testlib.sector()
 	xact = core.Transaction.create(module.Transfer())
 	S.dispatch(xact)
-	ctx()
+	ctx(1)
 
 	c = flows.Collection.list()
 	i = flows.Iteration(range(100))
 	xact.xact_context.io_flow([i, c])
 	test/xact.xact_context.terminating == False
-	ctx()
+	ctx(1)
 
 	test/xact.xact_context.terminating == True
 	test/c.c_storage == list(range(100))
 	test/xact.xact_context.terminated == False
-	ctx()
+	ctx(1)
 	test/xact.xact_context.terminated == True
 
 def test_Invocations_actuate(test):
@@ -64,7 +64,7 @@ def test_Invocations_accept(test):
 	S.dispatch(inv)
 
 	inv.i_dispatch([(1, 'parameter', None)])
-	ctx()
+	ctx(1)
 
 	test/l[0] == inv
 	accepts, connects = inv.m_accept()
@@ -85,7 +85,7 @@ def test_Transport_tp_connect(test):
 
 	xact = core.Transaction.create(module.Transport.from_endpoint(io))
 	S.dispatch(xact)
-	ctx()
+	ctx(1)
 
 	i = None
 	def router(inv):
@@ -101,13 +101,12 @@ def test_Transport_tp_connect(test):
 	i = xact.xact_context.tp_input.xact_context
 
 	test/c.c_storage == []
-	ctx()
-	ctx()
+	ctx(2)
 	test/i.terminating == True
-	ctx()
 
+	ctx(1)
 	test/c.c_storage == [ev]
-	ctx()
+	ctx(1)
 	test/i.terminated == True
 
 	test/o.terminating == False
@@ -118,13 +117,14 @@ def test_Transport_tp_connect(test):
 	# Terminate output.
 	inv.i_catenate.f_terminate()
 	test/o.terminating == True
-	ctx()
+	ctx(1)
 	test/o.terminated == True
-	ctx()
 
+	ctx(1)
 	test/inv.terminated == True
 	test/xact.xact_context.terminated == True
-	ctx()
+
+	ctx(1)
 	test/xact.terminated == True
 
 if __name__ == '__main__':
