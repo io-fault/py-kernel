@@ -46,13 +46,15 @@ class Executable(object):
 		if faultor.controller:
 			faultor.controller.exited(faultor)
 
-	def __call__(self):
-		# Drainw task queue.
-		l = len(self.tasks)
-		e = self.tasks[:l]
-		del self.tasks[:l]
-		for x in e:
-			x()
+	def __call__(self, times=1):
+		# Drain task queue n-times.
+
+		for x in range(times):
+			l = len(self.tasks)
+			e = self.tasks[:l]
+			del self.tasks[:l]
+			for x in e:
+				x()
 
 	def flush(self, maximum=128):
 		i = 0
