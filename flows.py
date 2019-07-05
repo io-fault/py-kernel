@@ -488,92 +488,6 @@ class Receiver(Channel):
 		# so that faults are handled by the local executable.
 		self.critical(self.f_terminate)
 
-class Mitre(Channel):
-	"""
-	# Mitre managing the dispatch of protocol transactions.
-	"""
-	f_type = 'mitre'
-
-	def __init__(self, router):
-		self.m_router = router
-		self._protocol_xact_queue = []
-		self._protocol_xact_id = 1
-
-	def f_transfer(self, events):
-		# Synchronized on Logical Process Task Queue
-		# Point of this local task queue is to manage the stack context
-		# and to (force) aggregate processing of protocol dispatch.
-		xq = self._protocol_xact_queue
-		already_queued = bool(xq)
-		xq.extend(events)
-		if not already_queued:
-			self.critical(self.m_execute)
-
-	def m_execute(self):
-		"""
-		# Method enqueued by &f_transfer to flush the protocol transaction queue.
-		# Essentially, an internal method.
-		"""
-		return self.m_router(self)
-
-	def _m_transition(self):
-		# Must be called within same processor.
-		xq = self._protocol_xact_queue
-		self._protocol_xact_queue = []
-		return xq
-
-	def m_accept(self, partial=functools.partial):
-		"""
-		# Accept a sequence of requests from a client configured remote endpoint.
-		# Routes the initiation parameter with callbacks to connect input and output.
-
-		# Used by routers employed by servers to get protocol transactions.
-		"""
-
-		events = self._m_transition()
-		self._protocol_xact_id += len(events)
-
-		cat = self.f_downstream
-		reserve = cat.int_reserve
-
-		rl = []
-		add = rl.append
-		for received in events:
-			channel_id = received[0]
-			reserve(channel_id)
-			add(partial(cat.int_connect, channel_id))
-
-		return (rl, events)
-
-	def m_correlate(self):
-		"""
-		# Received a set of responses. Join with requests, and
-		# execute the receiver provided by the enqueueing operation.
-
-		# Used by routers employed by clients to get the response of a protocol transaction.
-		"""
-
-		# Difference between m_accept being that outgoing channels are not reserved.
-		return self._m_transition()
-
-	def m_allocate(self, quantity=1, partial=functools.partial):
-		"""
-		# Allocate a channel for submitting a request.
-
-		# Returns the channel identifier that will be used and the callback to submit the
-		# initiate parameter and upstream channel.
-		"""
-
-		start = self._protocol_xact_id
-		self._protocol_xact_id += quantity
-		cat = self.f_downstream
-		iconnect = cat.int_connect
-		ireserve = cat.int_reserve
-
-		for i in range(start, self._protocol_xact_id):
-			ireserve(i)
-			yield i, partial(iconnect, i)
-
 class Transformation(Channel):
 	"""
 	# A flow that performs a transformation on the received events.
@@ -1138,13 +1052,13 @@ class Catenation(Channel):
 
 		self.cat_order.extend(channel_id)
 
-	def f_transfer(self, events):
+	def f_transfer(self, events, upstream=None):
 		"""
 		# Transparency support allowing &Division to be directly connected.
-		# Usually unused when a &Mitre is present.
+		# Usually unused.
 		"""
 
-		us = self.f_upstream()
+		us = upstream or self.f_upstream()
 		self.cat_order.extend(x[0] for x in events)
 		for channel_id, initiate, connect in events:
 			self.int_connect(channel_id, initiate, us)
@@ -1256,7 +1170,9 @@ class Division(Channel):
 	"""
 	f_type = 'fork'
 
-	def __init__(self):
+	def __init__(self, dispatch):
+		self.div_dispatch = dispatch
+		self._i_dispatch = dispatch.i_dispatch
 		self.div_queues = collections.defaultdict(collections.deque)
 		self.div_flows = dict() # connections
 		self.div_initiations = []
@@ -1274,7 +1190,7 @@ class Division(Channel):
 
 		if self.div_initiations:
 			# Aggregate initiations for single propagation.
-			self.f_emit(self.div_initiations)
+			self._i_dispatch(self.div_initiations)
 			self.div_initiations = []
 
 	def interrupt(self, fc_terminate=fe_terminate):

@@ -143,6 +143,11 @@ def test_Division(test):
 	# - &library.Division
 	"""
 
+	accepted = []
+	class FakeDispatch(object):
+		def i_dispatch(self, events):
+			accepted.append(events)
+
 	fc_xfer = flows.fe_transfer
 	fc_terminate = flows.fe_terminate
 	fc_init = flows.fe_initiate
@@ -150,12 +155,8 @@ def test_Division(test):
 	Type = flows.Division
 	ctx, S = testlib.sector()
 
-	x = Type()
-	end = flows.Collection.list()
-	accepted = end.c_storage
-	S.dispatch(end)
+	x = Type(FakeDispatch())
 	S.dispatch(x)
-	x.f_connect(end)
 
 	# no content
 	x.f_transfer([(fc_init, 1, "init-parameter")])
@@ -179,52 +180,6 @@ def test_Division(test):
 	x.f_transfer([(fc_terminate, 1, None)])
 	ctx()
 	test/c.terminated == True
-
-def test_Mitre_allocate(test):
-	"""
-	# - &library.Mitre
-	"""
-	l = []
-	add = (lambda x: l.extend(x.m_correlate()))
-	ctx, S = testlib.sector()
-
-	end = flows.Collection.list()
-	cat = flows.Catenation()
-	c = flows.Mitre(add)
-
-	c.f_connect(cat)
-	cat.f_connect(end)
-	for x in [cat, c, end]:
-		S.dispatch(x)
-
-	inv = 'parameter'
-	(channel_id, connect,), = c.m_allocate()
-	connect(inv, None)
-	c.f_transfer([(1, 'parameter', None)])
-	ctx()
-	test/l[0] == (1, 'parameter', None)
-
-def test_Mitre_accept(test):
-	"""
-	# - &library.Mitre
-	"""
-	l = []
-	add = (lambda x: l.append(x.m_accept()))
-	ctx, S = testlib.sector()
-
-	end = flows.Collection.list()
-	cat = flows.Catenation()
-	c = flows.Mitre(add)
-
-	c.f_connect(cat)
-	cat.f_connect(end)
-	for x in [cat, c, end]:
-		S.dispatch(x)
-
-	inv = 'parameter'
-	c.f_transfer([(1, 'parameter', None)])
-	ctx()
-	test/l[0][1][0] == (1, inv, None)
 
 if __name__ == '__main__':
 	import sys; from ...test import library as libtest

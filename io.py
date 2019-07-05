@@ -18,18 +18,12 @@ from ..internet import host
 class Transfer(core.Context):
 	"""
 	# Context managing a *single* sequence of &flows.Channel instances.
-
-	# [ Properties ]
-	# /io_transport/
-		# The &Transport context that is directly facilitating the transfer.
-		# &None if none.
 	"""
 
 	def actuate(self):
 		self.provide('transfer')
 
 	_io_start = None
-	io_transport = None
 
 	@property
 	def io_complete(self) -> bool:
@@ -79,7 +73,96 @@ class Transfer(core.Context):
 		self.start_termination()
 		self.enqueue(self._io_check_terminate)
 
-class Transport(Transfer):
+class Invocations(core.Processor):
+	"""
+	# Dispatch processor for &Transport instances.
+	"""
+
+	def __init__(self, catenate, router):
+		self.i_catenate = catenate
+		self.m_router = router
+		self._protocol_xact_queue = []
+		self._protocol_xact_id = 1
+
+	def actuate(self):
+		self._catapi = (self.i_catenate.int_reserve, self.i_catenate.int_connect)
+
+	def terminate(self):
+		self.finish_termination()
+
+	def i_dispatch(self, events):
+		# Synchronized on Logical Process Task Queue
+		# Point of this local task queue is to manage the stack context
+		# and to (force) aggregate processing of protocol dispatch.
+		xq = self._protocol_xact_queue
+		already_queued = bool(xq)
+		xq.extend(events)
+		if not already_queued:
+			self.critical(self.m_execute)
+
+	def m_execute(self):
+		"""
+		# Method enqueued by &f_transfer to flush the protocol transaction queue.
+		# Essentially, an internal method.
+		"""
+		return self.m_router(self)
+
+	def _m_transition(self):
+		# Must be called within same processor.
+		xq = self._protocol_xact_queue
+		self._protocol_xact_queue = []
+		return xq
+
+	def m_accept(self, partial=functools.partial):
+		"""
+		# Accept a sequence of requests from a client configured remote endpoint.
+		# Routes the initiation parameter with callbacks to connect input and output.
+
+		# Used by routers employed by servers to get protocol transactions.
+		"""
+
+		events = self._m_transition()
+		self._protocol_xact_id += len(events)
+
+		ireserve, iconnect = self._catapi
+
+		rl = []
+		add = rl.append
+		for received in events:
+			channel_id = received[0]
+			ireserve(channel_id)
+			add(partial(iconnect, channel_id))
+
+		return (rl, events)
+
+	def m_correlate(self):
+		"""
+		# Received a set of responses. Join with requests, and
+		# execute the receiver provided by the enqueueing operation.
+
+		# Used by routers employed by clients to get the response of a protocol transaction.
+		"""
+
+		# Difference between m_accept being that outgoing channels are not reserved.
+		return self._m_transition()
+
+	def m_allocate(self, quantity=1, partial=functools.partial):
+		"""
+		# Allocate a channel for submitting a request.
+
+		# Returns the channel identifier that will be used and the callback to submit the
+		# initiate parameter and upstream channel.
+		"""
+
+		start = self._protocol_xact_id
+		self._protocol_xact_id += quantity
+		ireserve, iconnect = self._catapi
+
+		for i in range(start, self._protocol_xact_id):
+			ireserve(i)
+			yield i, partial(iconnect, i)
+
+class Transport(core.Context):
 	"""
 	# The Transaction Context that manages the stack of protocols
 	# used to facilitate arbitrary I/O streams.
@@ -91,6 +174,10 @@ class Transport(Transfer):
 	def __init__(self):
 		self._tp_channels = {}
 		self._tp_stack = []
+
+		self.tp_input = None
+		self.tp_dispatch = None
+		self.tp_output = None
 
 	@classmethod
 	def from_endpoint(Class, io):
@@ -110,6 +197,10 @@ class Transport(Transfer):
 		"""
 		tp = Class()
 		return tp.tp_extend(entries)
+
+	def xact_void(self, xact):
+		self.tp_dispatch.terminate()
+		self.terminate()
 
 	def tp_extend(self, entries):
 		"""
@@ -135,7 +226,11 @@ class Transport(Transfer):
 
 		return self
 
-	def tp_connect(self, protocol, mitre):
+	def tp_connect(self, router, protocol,
+			Dispatch=Invocations,
+			Input=core.Transaction,
+			Output=core.Transaction,
+		):
 		"""
 		# Connect the given mitre series, &mitre, to the configured transport stack.
 		# Usually called after dispatching an instance created with &from_stack.
@@ -152,8 +247,25 @@ class Transport(Transfer):
 			end.append(sc)
 			start.append(rc)
 
+		end.append(flows.Catenation())
 		end.reverse()
-		return self.io_flow(start + [flows.Division(), mitre, flows.Catenation()] + end)
+		self.tp_output = o = Output.create(Transfer())
+		self.xact_dispatch(o)
+		o.xact_context.io_flow(end)
+
+		self.tp_dispatch = inv = Dispatch(end[0], router)
+		self.xact_dispatch(inv)
+
+		start.append(flows.Division(inv))
+		self.tp_input = i = Input.create(Transfer())
+		self.xact_dispatch(i)
+		i.xact_context.io_flow(start)
+		self._pair = {i,o}
+
+		return inv
+
+	def io_execute(self):
+		self.tp_input.xact_context.io_execute()
 
 	def tp_push(self, state, io):
 		"""
@@ -166,14 +278,14 @@ class Transport(Transfer):
 		dispatch = self.controller.dispatch
 		top[0].f_inject(io[0])
 		top[1].f_inject(io[1])
-		dispatch(io[0])
-		dispatch(io[1])
+		top[0].controller.dispatch(io[0])
+		top[1].controller.dispatch(io[1])
 
 	def tp_protocol_terminated(self, state):
 		"""
 		# Called by a protocol stack entry when both sides of the state have been closed.
 		"""
-		pass
+		self.tp_dispatch.terminate()
 
 	def tp_remove(self, state):
 		i = self._tp_stack.index(state)
