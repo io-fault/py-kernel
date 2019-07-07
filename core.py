@@ -568,10 +568,16 @@ class Processor(Resource):
 		"""
 
 		eec = self.exit_event_connections
-		if eec is not None:
-			self.executable.enqueue(*[partial(x, processor) for x in eec.pop(processor, ())])
-			if not eec:
-				del self.exit_event_connections
+		if eec is None:
+			return
+
+		enq = self.executable.enqueue
+
+		for x in eec.pop(processor, ()):
+			enq(partial(x, processor))
+
+		if not eec:
+			del self.exit_event_connections
 
 	def structure(self):
 		"""

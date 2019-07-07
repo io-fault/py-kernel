@@ -94,7 +94,7 @@ def synchronize_io_events(arg, partial=functools.partial):
 	if not queue:
 		return # Nothing to do.
 
-	# array.link is a io.process.Representation()
+	# array.link is a &Process
 	array.link.enqueue(partial(deliver_io_events, array, queue))
 
 class Delta(tuple):
@@ -520,14 +520,14 @@ class Matrix(object):
 			# Cause NameError's if alloc_and_acquire is called past exit.
 			del container[:]
 
-# This is executed by the main io.library task queue of a .process.Representation  instance.
+# This is executed by the main task queue of a &Process instance.
 # It ends up being a sub-queue for I/O events and has similar logic for managing
 # exceptions.
 
 def deliver_io_events(array, events, iter=iter):
 	"""
 	# Send the individual &events originally prepared by
-	# &separate_io_events to their associated &.library.KInput or &KOutput flows.
+	# &separate_io_events to their associated &KInput or &KOutput flows.
 	"""
 
 	complete = False
@@ -575,7 +575,7 @@ def deliver_io_events(array, events, iter=iter):
 			except BaseException as exc:
 				# Record exception of cleanup failure.
 				# TODO: Note as cleanup failure.
-				array.link.context.process.error((array, event), exc)
+				array.link.error((array, event), exc)
 
 class KChannel(flows.Channel):
 	"""
@@ -1390,13 +1390,9 @@ class Process(object):
 		# controlling processor.
 		"""
 
-		if self.kernel is not None:
-			raise RuntimeError("already booted")
-
 		process.fork_child_cleanup.add(self.void)
 
-		self.kernel = events.Interface()
-		self.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
+		self.kernel.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
 		self.fabric.spawn(None, self.main, ()) # Main task queue thread.
 
 		return self
@@ -1409,6 +1405,10 @@ class Process(object):
 		# Normally
 		try:
 			self.loop()
+			if self.kernel.loaded:
+				# Clear queue and warn if not empty after this.
+				self.kernel.execute(None)
+				self.kernel.execute(None)
 		except OSError as killed:
 			pass
 		except BaseException as critical_loop_exception:
@@ -1424,7 +1424,8 @@ class Process(object):
 
 		del __process_index__[self]
 		del __io_index__[self]
-		self.kernel.void()
+		if self.kernel is not None:
+			self.kernel.close()
 
 	def __init__(self, identifier):
 		"""
@@ -1437,6 +1438,9 @@ class Process(object):
 		# &Process instance.
 		"""
 
+		self._init_kernel()
+		self.enqueue = self.kernel.enqueue
+
 		# Context Wide Resources
 		self.identifier = identifier
 
@@ -1447,14 +1451,13 @@ class Process(object):
 
 		self._logfile = sys.stderr
 
-		# f.system.events.Interface instance
-		self.kernel = None
-
 		self._init_exit()
 		self._init_fabric()
-		self._init_taskq()
 		self._init_system_events()
 		self._init_io()
+
+	def _init_kernel(self):
+		self.kernel = events.Interface()
 
 	def _init_exit(self):
 		self._exit_stack = contextlib.ExitStack()
@@ -1467,10 +1470,6 @@ class Process(object):
 	def _init_fabric(self):
 		self.fabric = Fabric(self)
 
-	def _init_taskq(self, Queue=collections.deque):
-		self.loading_queue = Queue()
-		self.processing_queue = Queue()
-
 	def _init_io(self, Matrix=Matrix):
 		execute = functools.partial(self.fabric.critical, self, io_adapter)
 		ix = Matrix(io_adapter, execute = execute)
@@ -1482,13 +1481,16 @@ class Process(object):
 		# physical process fork.
 		"""
 
+		# Pending tasks will be discarded during dealloc.
+		self.kernel.close()
+		self.kernel = None
+		self._init_kernel()
+
 		# normally called in fork
 		self._init_exit()
 		self._init_fabric()
-		self._init_taskq()
 		self._init_system_events()
-		self.kernel.void()
-		self.kernel = None
+
 		self.iomatrix.void()
 
 	def report(self):
@@ -1525,62 +1527,27 @@ class Process(object):
 
 		time_snapshot = sysclock.now
 		ix = self.iomatrix
-		cwq = self.processing_queue # current working queue; should be empty at start
-		nwq = self.loading_queue # next working queue
+		io = ix.activity
+		k = self.kernel
 		sec = self.system_event_connections
 
-		task_queue_interval = 2
-		default_interval = sys.getswitchinterval() / 5
-		setswitchinterval = sys.setswitchinterval
+		errctl = (lambda c,v: self.error(c, v, title='Task',))
+		execution_count = 0
 
-		# discourage switching while processing task queue.
-		setswitchinterval(2)
-
-		while 1:
+		while not k.closed:
 			self.cycle_count += 1 # bump cycle
 			self.cycle_start_time = time_snapshot()
 			self.cycle_start_time_decay = 1 # Incremented by main thread.
 
-			# The processing queue becomes the loading and the loading becomes processing.
-			self.processing_queue, self.loading_queue = cwq, nwq = nwq, cwq
-			append = nwq.append
-
-			while cwq:
-				# consume queue
-				try:
-					pop = cwq.popleft
-					while cwq:
-						task = pop()
-						task() # perform the enqueued task
-				except BaseException as e:
-					self.error(task, e, title = 'Task',)
+			execution_count = k.execute(errctl)
 
 			# This appears undesirable, but the alternative
 			# is to run force for each process local I/O event.
 			# Presuming that some I/O has occurred while processing
 			# the queue is not terribly inaccurate.
-			ix.activity()
+			io()
 
-			events = ()
-			waiting = (not nwq and not cwq) # both are empty.
-
-			try:
-				# Change the interval to encourage switching in Python threads.
-				setswitchinterval(default_interval)
-
-				with self.kernel:
-					# Sets a flag inside the kernel structure indicating
-					# that a wait is about to occur; if the flag isn't
-					# set, a user event is not sent to the kqueue as it
-					# is unnecessary.
-
-					if waiting:
-						events = self.kernel.wait()
-					else:
-						# the next working queue has items, so don't bother waiting.
-						events = self.kernel.wait(0)
-			finally:
-				setswitchinterval(2)
+			events = k.wait()
 
 			# process unix signals and child exit events
 			for event in events:
@@ -1593,7 +1560,7 @@ class Process(object):
 					args = (event[1], execution.reap(event[1]),)
 					remove_entry = True
 				elif event[0] == 'alarm':
-					append(event[1])
+					k.enqueue(event[1])
 					continue
 				else:
 					args = ()
@@ -1604,8 +1571,8 @@ class Process(object):
 						# process events only occur once
 						del sec[event]
 
-					append(partial(callback, *args))
-				else:
+					k.enqueue(partial(callback, *args))
+				elif event[0] != 'timeout':
 					# note unhandled system events
 					self.log('[!# WARNING: unhandled event %r]\n' % (event,))
 
@@ -1631,29 +1598,6 @@ class Process(object):
 		del self.system_event_connections[event]
 		return True
 
-	def _enqueue(self, *tasks):
-		self.loading_queue.extend(tasks)
-
-	def cut(self, *tasks):
-		"""
-		# Impose the tasks by prepending them to the next working queue.
-
-		# Used to enqueue tasks with "high" priority. Subsequent cuts will
-		# precede the earlier ones, so it is not appropriate to use in cases were
-		# order is significant.
-		"""
-
-		self.loading_queue.extendleft(tasks)
-		self.kernel.force()
-
-	def enqueue(self, *tasks):
-		"""
-		# Enqueue a task to be ran.
-		"""
-
-		self.loading_queue.extend(tasks)
-		self.kernel.force()
-
 def spawn(identifier, executables, critical=process.critical, partial=functools.partial) -> Process:
 	"""
 	# Construct a &Process using the given &executables.
@@ -1665,10 +1609,10 @@ def spawn(identifier, executables, critical=process.critical, partial=functools.
 	xact = core.Transaction.create(system)
 	enqueue = process.enqueue
 	__process_index__[process] = (xact, enqueue)
-	process._enqueue(partial(critical, None, process.actuate_root_transaction))
+	process.enqueue(partial(critical, None, process.actuate_root_transaction))
 
 	for x in executables:
-		process._enqueue(partial(system.allocate, x))
+		process.enqueue(partial(system.allocate, x))
 
 	return process
 
