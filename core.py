@@ -389,9 +389,6 @@ class Processor(Resource):
 	product = None
 	exceptions = None
 
-	# Only used by processor groupings.
-	exit_event_connections = None
-
 	@property
 	def functioning(self):
 		"""
@@ -494,91 +491,6 @@ class Processor(Resource):
 		self._pexe_state = -1
 		return self.controller.exited(self)
 
-	def atexit(self, exit_callback):
-		"""
-		# Register a callback to be executed when the Processor has been unlinked from
-		# the Resource hierarchy.
-
-		# The given callback is called after termination is complete and the Processor's
-		# reference has been released by the controller. However, the controller backref
-		# should still be available at this time.
-
-		# The callback is registered on the *controlling resource* which must be a &Processor.
-
-		# The &exit_callback will **not** be called if the &Processor was interrupted.
-		"""
-
-		if self.terminated:
-			exit_callback(self) # Processor already exited.
-		else:
-			self.controller.exit_event_connect(self, exit_callback)
-
-	def final(self):
-		"""
-		# Identify the &Processor as being final in that the exit of the processor
-		# causes the sector to *terminate*. The &Sector will, in turn, invoke termination
-		# on the remaining processors and exit when all of the processors have exited.
-		"""
-		self.controller.final = self
-		self.atexit(lambda final: final.controller.terminate())
-
-	def __await__(self):
-		"""
-		# Coroutine interface support. Await the exit of the processor.
-		# Awaiting the exit of a processor will never raise exceptions with
-		# exception to internal (Python) errors. This is one of the notable
-		# contrasts between Python's builtin Futures and fault.io Processors.
-		"""
-
-		# Never signalled.
-		if not self.terminated:
-			yield self
-		return self.product
-
-	def exit_event_connect(self, processor, callback, dict=dict):
-		"""
-		# Connect the given callback to the exit of the given processor.
-		# The &processor must be controlled by &self and any necessary
-		# data structures will be initialized.
-		"""
-
-		assert processor.controller is self
-
-		eec = self.exit_event_connections
-		if eec is None:
-			eec = self.exit_event_connections = dict()
-
-		cbl = eec.get(processor, ())
-		eec[processor] = cbl + (callback,)
-
-	def exit_event_disconnect(self, processor, callback):
-		"""
-		# Remove the callback from the set of listeners.
-		"""
-		l = list(self.exit_event_connections[processor])
-		l.remove(callback)
-		if not l:
-			del self.exit_event_connections[processor]
-		else:
-			self.exit_event_connections[processor] = tuple(l)
-
-	def exit_event_emit(self, processor, partial=functools.partial):
-		"""
-		# Called when an exit occurs to emit exit events to any connected callbacks.
-		"""
-
-		eec = self.exit_event_connections
-		if eec is None:
-			return
-
-		enq = self.executable.enqueue
-
-		for x in eec.pop(processor, ()):
-			enq(partial(x, processor))
-
-		if not eec:
-			del self.exit_event_connections
-
 	def structure(self):
 		"""
 		# Provides the structure stack with at-exit callbacks.
@@ -586,9 +498,6 @@ class Processor(Resource):
 
 		props = []
 		sr = ()
-
-		if self.exit_event_connections is not None:
-			props.append(('exit_event_connections', self.exit_event_connections))
 
 		if self.product is not None:
 			props.append(('product', self.product))
@@ -821,7 +730,6 @@ class Sector(Processor):
 		for x in exits:
 			slot = x.placement()
 			struct[slot].discard(x)
-			self.exit_event_emit(x)
 			classes.add(slot)
 
 		for c in classes:

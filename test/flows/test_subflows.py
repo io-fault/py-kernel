@@ -45,8 +45,6 @@ def test_Catenation(test):
 	S.dispatch(x)
 	x.f_connect(c)
 
-	x_exit = []
-	x.atexit(x_exit.append)
 	# pair of inputs
 	i1 = flows.Iteration(range(0, -50, -1))
 	i2 = flows.Iteration(range(100))
@@ -136,7 +134,6 @@ def test_Catenation(test):
 
 	ctx()
 	test/x.terminated == True
-	test/x_exit == [x]
 
 def test_Division(test):
 	"""
