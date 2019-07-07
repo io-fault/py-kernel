@@ -873,10 +873,8 @@ class Context(core.Context):
 		proc = self.process
 		sr = ()
 
-		ntasks = sum(map(len, (proc.loading_queue, proc.processing_queue)))
-
 		p = [
-			('tasks', ntasks),
+			('tasks', proc.executed_task_count),
 			('threads', len(proc.fabric.threading)),
 
 			# Track basic (task loop) cycle stats.
@@ -1446,6 +1444,7 @@ class Process(object):
 
 		# track number of loops
 		self.cycle_count = 0 # count of task cycles
+		self.executed_task_count = 0
 		self.cycle_start_time = None
 		self.cycle_start_time_decay = None
 
@@ -1532,14 +1531,13 @@ class Process(object):
 		sec = self.system_event_connections
 
 		errctl = (lambda c,v: self.error(c, v, title='Task',))
-		execution_count = 0
 
 		while not k.closed:
 			self.cycle_count += 1 # bump cycle
 			self.cycle_start_time = time_snapshot()
 			self.cycle_start_time_decay = 1 # Incremented by main thread.
 
-			execution_count = k.execute(errctl)
+			self.executed_task_count += k.execute(errctl)
 
 			# This appears undesirable, but the alternative
 			# is to run force for each process local I/O event.
