@@ -5,8 +5,11 @@ import os
 import types
 import collections
 import functools
+import typing
+import errno
 
 from . import core
+from ..system import execution
 
 class Call(core.Processor):
 	"""
@@ -182,7 +185,7 @@ class Subprocess(core.Processor):
 
 		return None
 
-	def sp_exit(self, pid, event):
+	def sp_exit(self, pid, event=None):
 		# Target of the system event, this may be executed in cases
 		# where the Processor has exited.
 
@@ -190,6 +193,9 @@ class Subprocess(core.Processor):
 		# actually controlled by the Processor, it will continue
 		# to update the state. However, the exit event will only
 		# occur if the Sector is consistent.
+
+		if event is None:
+			event = execution.reap(pid)
 
 		self.process_exit_events[pid] = event
 		self.active_processes.discard(pid)
