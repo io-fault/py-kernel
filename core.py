@@ -432,7 +432,7 @@ class Processor(Resource):
 
 		self.interrupt()
 		if not self.interrupted:
-			raise RuntimeError("processor was not interrupted")
+			raise RuntimeError("processor was not interrupted by default termination")
 
 		self.finish_termination()
 		return True
@@ -1100,7 +1100,7 @@ class Context(Processor):
 
 	def xact_exit_if_empty(self):
 		"""
-		# Check for processors other than &self, there are none, exit the transaction.
+		# Check for processors other than &self, if there are none, exit the transaction.
 		"""
 		sector = self.controller
 		sector.reap()
@@ -1156,6 +1156,7 @@ class Context(Processor):
 	def xact_void(self, xact):
 		"""
 		# All subtransactions exited; &xact was final.
+		# Defaults to termination of the context and transaction exit.
 		"""
 		self.terminate()
 
