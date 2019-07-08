@@ -1510,7 +1510,8 @@ class Process(object):
 		"""
 
 		exc = exception
-		exc.__traceback__ = exc.__traceback__.tb_next
+		if exc.__traceback__ is not None:
+			exc.__traceback__ = exc.__traceback__.tb_next
 
 		# exception reporting facility
 		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
