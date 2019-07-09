@@ -153,7 +153,7 @@ class Thread(core.Processor):
 
 		self.system.execute(self, self.trap)
 
-class Subprocess(core.Processor):
+class PSubprocess(core.Processor):
 	"""
 	# A Processor that represents a *set* of Unix subprocesses.
 
@@ -216,7 +216,6 @@ class Subprocess(core.Processor):
 
 		for pid in self.active_processes:
 			send_signal(pid, signo)
-	signal = sp_signal # REMOVE
 
 	def signal_process_group(self, signo, send_signal=os.kill):
 		"""
@@ -316,3 +315,4 @@ class Subprocess(core.Processor):
 
 		self.start_termination()
 		self.sp_signal(signal.SIGQUIT)
+Subprocess=PSubprocess # Temporary alias.

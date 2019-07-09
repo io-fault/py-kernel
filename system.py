@@ -1556,7 +1556,8 @@ class Process(object):
 					# Defer read until system event connect.
 					# Might allow SIGCHLD support on linux.
 					event = ('process', event[1])
-					args = (event[1], execution.reap(event[1]),)
+					#args = (event[1], execution.reap(event[1]),)
+					args = (event[1],)
 					remove_entry = True
 				elif event[0] == 'alarm':
 					k.enqueue(event[1])
