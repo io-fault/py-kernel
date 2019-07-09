@@ -315,4 +315,170 @@ class PSubprocess(core.Processor):
 
 		self.start_termination()
 		self.sp_signal(signal.SIGQUIT)
-Subprocess=PSubprocess # Temporary alias.
+
+class Subprocess(core.Context):
+	"""
+	# A set of running system processes.
+	# Terminates when all members of the set has exited *and* all subtransactions have completed.
+
+	# [ Engineering ]
+	# While POSIX systems are the target platform, it's still preferrable to
+	# abstract the concepts. Everything here dealing with signals should be
+	# accessed through the system context.
+	"""
+
+	def __init__(self, reap, invocations:typing.Mapping[int,object]):
+		self.sp_reaper = reap
+		self.sp_processes = invocations
+		self.sp_exit_status = {}
+
+	def sp_report(self):
+		"""
+		# Join the System process identifier, invocation object, and exit status.
+		"""
+		for pid, status in self.sp_exit_status.items():
+			yield pid, self.sp_processes[pid], status
+
+	@classmethod
+	def from_invocation(Class, invocation, stdout=None, stdin=None, stderr=None):
+		"""
+		# Instantiation from an &invocation executed with &invocation.spawn.
+		# The process' standard I/O must be explicitly designated using
+		# the &stdin, &stdout, and &stderr parameters.
+		# Process will be reaped with &execution.reap.
+
+		# [ Parameters ]
+		# /invocation/
+			# The &execution.KInvocation instance to spawn.
+		# /stdin/
+			# The file descriptor to map as standard input.
+		# /stdout/
+			# The file descriptor to map as standard output.
+		# /stderr/
+			# The file descriptor to map as standard error.
+		"""
+
+		fdmap = {}
+		if stdin is not None:
+			fdmap[0] = stdin
+		if stdout is not None:
+			fdmap[1] = stdout
+		if stderr is not None:
+			fdmap[2] = stderr
+
+		pid = invocation.spawn(fdmap.items())
+		return Class(execution.reap, {pid: invocation})
+
+	def xact_void(self, last):
+		if self.sp_reaped == True:
+			self.finish_termination()
+
+	def sp_exit(self, pid):
+		# Target of the system event, this may be executed in cases
+		# where the Processor has exited or was terminated.
+
+		# Being that this is representation of a resource that is not
+		# actually controlled by the Processor, it will continue
+		# to update the state. However, the exit event will only
+		# occur if the Sector is consistent.
+
+		if not pid in self.sp_processes:
+			raise RuntimeError("process identifier not in subprocess set")
+
+		self.sp_exit_status[pid] = self.sp_reaper(pid)
+
+		if len(self.sp_processes) == len(self.sp_exit_status) and not self.interrupted:
+			# Don't exit if interrupted; maintain position in hierarchy.
+			self.xact_exit_if_empty()
+
+	def terminate(self):
+		"""
+		# If the process set isn't terminating, issue SIGTERM
+		# to all of the currently running processes.
+		"""
+
+		if not self.terminating:
+			self.start_termination()
+			self.sp_signal(15)
+
+	def structure(self):
+		p = [
+			x for x in [
+				('sp_processes', self.sp_processes),
+				('sp_exit_status', self.sp_exit_status),
+			] if x[1]
+		]
+		return (p, ())
+
+	def actuate(self):
+		"""
+		# Initialize the system event callbacks for receiving process exit events.
+		"""
+
+		self.system.connect_process_exit(self, self.sp_exit, *self.sp_processes)
+
+	def interrupt(self, by=None, send_signal=os.kill):
+		"""
+		# Interrupt the running processes by issuing a SIGKILL signal to all active processes.
+		# Exit status will be reaped, but not reported to &self.
+		"""
+
+		if self.interrupted:
+			return False
+
+		for pid in self.sp_waiting:
+			try:
+				send_signal(pid, 9)
+			except ProcessLookupError:
+				pass
+
+		self.interrupted = True
+
+	@property
+	def sp_only(self):
+		"""
+		# The exit event of the only process in the set.
+		# &None if no exit has occurred or the number of processes exceeds one.
+		"""
+
+		if len(self.sp_processes) > 1:
+			return None
+
+		for i in self.sp_exit_status.values():
+			return i
+		else:
+			return None
+
+	@property
+	def sp_waiting(self) -> typing.Set[int]:
+		"""
+		# Return the set of process identifiers that have yet to exit.
+		"""
+		ps = set(self.sp_processes)
+		ps.difference_update(self.sp_exit_status)
+		return ps
+
+	@property
+	def sp_reaped(self) -> bool:
+		"""
+		# Whether all the processes have been reaped.
+		"""
+		return len(self.sp_processes) == len(self.sp_exit_status)
+
+	def sp_signal(self, signo, send_signal=os.kill):
+		"""
+		# Send the given signal number (os.kill) to the active processes
+		# being managed by the instance.
+		"""
+
+		for pid in self.sp_waiting:
+			send_signal(pid, signo)
+
+	def sp_abort(self):
+		"""
+		# Interrupt the running processes by issuing a SIGQUIT signal.
+		"""
+
+		import signal
+		self.start_termination()
+		self.sp_signal(signal.SIGQUIT)

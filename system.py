@@ -890,6 +890,20 @@ class Context(core.Context):
 		self.provide('system')
 		assert self.controller.system is self
 
+	def connect_process_exit(self, xact_context, callback, *processes):
+		p = self.process
+		k = p.kernel
+		track = k.track
+		event_connect = p.system_event_connect
+
+		for pid in processes:
+			try:
+				track(pid)
+			except:
+				xact_context.critical(functools.partial(callback, pid))
+			else:
+				event_connect(('process', pid), xact_context, callback)
+
 	def allocate(self, xactctx):
 		"""
 		# Launch an Executable for running application processors.
