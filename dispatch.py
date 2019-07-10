@@ -155,6 +155,19 @@ class Subprocess(core.Context):
 	# A set of running system processes.
 	# Terminates when all members of the set has exited *and* all subtransactions have completed.
 
+	# [ Properties ]
+
+	# /sp_reaper/
+		# The callable used to collect the process status using the system process identifier.
+
+	# /sp_exit_status/
+		# A mapping of process identifiers to their corresponding exit status returned by
+		# &sp_reaper after an exit event was received.
+
+	# /sp_processes/
+		# A mapping of process identifiers to user-defined objects used to identify
+		# all the processes associated with the instance.
+
 	# [ Engineering ]
 	# While POSIX systems are the target platform, it's still preferrable to
 	# abstract the concepts. Everything here dealing with signals should be
