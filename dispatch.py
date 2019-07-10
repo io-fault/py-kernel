@@ -326,6 +326,5 @@ class Subprocess(core.Context):
 		# Interrupt the running processes by issuing a SIGQUIT signal.
 		"""
 
-		import signal
 		self.start_termination()
 		self.sp_signal(signal.SIGQUIT)
