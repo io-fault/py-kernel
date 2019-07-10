@@ -7,18 +7,22 @@ import collections
 import functools
 import typing
 import errno
+import signal
 
 from . import core
 from ..system import execution
 
 class Call(core.Processor):
 	"""
-	# A single call represented as a Processor.
+	# A single callable represented as a Processor.
+	# Used as an abstraction for explicit enqueues, and to trigger faults in Sectors.
 
-	# The callable is executed by process and signals its exit after completion.
-
-	# Used as an abstraction to explicit enqueues, and trigger faults in Sectors.
+	# This should be rarely used in practice.
 	"""
+
+	def c_execution(self):
+		self.c_returned = self.c_object() # Execute Callable.
+		self.finish_termination()
 
 	@classmethod
 	def partial(Class, call:collections.abc.Callable, *args, **kw):
@@ -29,7 +33,7 @@ class Call(core.Processor):
 		"""
 		return Class(functools.partial(call, *args, **kw))
 
-	def __init__(self, call:functools.partial):
+	def __init__(self, call:typing.Callable):
 		"""
 		# The partial application to the callable to perform.
 		# Usually, instantiating from &partial is preferrable;
@@ -40,26 +44,18 @@ class Call(core.Processor):
 		# /call/
 			# The callable to enqueue during actuation of the &Processor.
 		"""
-		self.source = call
+		self.c_returned = None
+		self.c_object = call
 
 	def actuate(self):
-		self.critical(self.execution)
-
-	def execution(self, event=None, source=None):
-		assert self.functioning
-
-		try:
-			self.product = self.source() # Execute Callable.
-			self.finish_termination()
-		except BaseException as exc:
-			self.product = None
-			self.fault(exc)
+		self.critical(self.c_execution)
 
 	def structure(self):
-		return ([('source', self.source)], ())
+		return ([('c_object', self.c_object)], ())
 
-	def terminate(self, by=None):
-		raise RuntimeError("cannot directly terminate Call processors")
+	def terminate(self):
+		# Ineffective.
+		self.start_termination()
 
 	def interrupt(self):
 		self.interrupted = True
@@ -136,6 +132,7 @@ class Thread(core.Processor):
 
 	def trap(self):
 		final = None
+
 		try:
 			self.product = self.callable(self)
 			self.start_termination()
