@@ -20,15 +20,19 @@ def test_Call(test):
 		effects.append(arg1)
 		effects.append(key)
 		effects.append('called')
+		return "c-return-record"
 
 	c = Type.partial(call_to_perform, arg, key=kw)
 	sect.dispatch(c)
+	test/c.terminated == False
 
 	ctx()
 
 	test/effects[0] == arg
 	test/effects[1] == kw
 	test/effects[-1] == 'called'
+	test/c.c_returned == "c-return-record"
+	test/c.terminated == True
 
 def test_Coroutine(test):
 	"""
