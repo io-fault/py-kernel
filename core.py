@@ -1022,13 +1022,10 @@ class Recurrence(Processor):
 		self.critical(self._recur_occur)
 
 	def recur_execute(self):
-		if self._recur_inhibit:
+		if self.terminated or self.interrupted:
 			return None
 
-		try:
-			return self.recur_target()
-		except BaseException as exc:
-			self.fault(exc)
+		return self.recur_target()
 
 	def _recur_occur(self):
 		"""
@@ -1038,17 +1035,16 @@ class Recurrence(Processor):
 		next_delay = self.recur_execute()
 
 		if next_delay is None:
-			if not self.interrupted:
-				self.exit()
+			if not self.interrupted and not self.terminated:
+				self.terminate()
 		else:
 			self.controller.scheduler.defer(next_delay, self._recur_occur)
 
-	def terminate(self, by=None):
-		self._recur_inhibit = True
-		self.exit()
+	def terminate(self):
+		self.finish_termination()
 
 	def interrupt(self):
-		self._recur_inhibit = True
+		self.interrupted = True
 
 class Context(Processor):
 	"""
