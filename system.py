@@ -30,6 +30,8 @@ import signal # masking SIGINT/SIGTERM in threads.
 import operator
 import time
 
+from ..context import tools
+
 from ..system import io
 from ..system import events
 from ..system import process
@@ -856,10 +858,18 @@ class Context(core.Context):
 
 	def xact_void(self, final:core.Transaction):
 		"""
-		# Final transaction exited; process complete.
+		# Final (executable) transaction exited; system process context complete.
 		"""
+
+		status = getattr(final.xact_context, 'exe_status', None)
 		self.controller.interrupt()
-		self.process.terminate()
+		self.process.terminate(status)
+
+	def interrupt(self):
+		self.interrupted = True
+		self._io_flush = tools.nothing
+		self._io_attach = tools.nothing
+		self._io_cycle = tools.nothing
 
 	def terminate(self):
 		pass
@@ -1409,26 +1419,7 @@ class Process(object):
 
 		return self
 
-	def main(self):
-		"""
-		# The main task loop executed by a dedicated thread created by &boot.
-		"""
-
-		# Normally
-		try:
-			self.loop()
-			if self.kernel.loaded:
-				# Clear queue and warn if not empty after this.
-				self.kernel.execute(None)
-				self.kernel.execute(None)
-		except OSError as killed:
-			pass
-		except BaseException as critical_loop_exception:
-			self.error(self.loop, critical_loop_exception, title = "Task Loop")
-			raise
-			raise process.Panic("exception escaped process loop") # programming error in Process.loop
-
-	def terminate(self):
+	def terminate(self, status=None):
 		"""
 		# Terminate the process closing the task queue and running the invocation's exit.
 		"""
@@ -1436,10 +1427,14 @@ class Process(object):
 
 		del __process_index__[self]
 		del __io_index__[self]
-		if self.kernel is not None:
-			self.kernel.close()
 
-	def __init__(self, identifier):
+		if self.kernel is not None:
+			self.kernel.enqueue(functools.partial(self._exit_cb, status))
+			self.kernel.close()
+		else:
+			self._exit_cb(status)
+
+	def __init__(self, exit, identifier):
 		"""
 		# Initialize the Process instance using the designated &identifier.
 		# The identifier is essentially arbitrary, but must be hashable as it's
@@ -1450,11 +1445,11 @@ class Process(object):
 		# &Process instance.
 		"""
 
+		self._exit_cb = exit
+		self.identifier = identifier
+
 		self._init_kernel()
 		self.enqueue = self.kernel.enqueue
-
-		# Context Wide Resources
-		self.identifier = identifier
 
 		# track number of loops
 		self.cycle_count = 0 # count of task cycles
@@ -1518,20 +1513,32 @@ class Process(object):
 	def __repr__(self):
 		return "{0}(identifier = {1!r})".format(self.__class__.__name__, self.identifier)
 
-	def error(self, context, exception, title = "Unspecified Execution Area"):
+	def error(self, context, exception, title="Unspecified Execution Area"):
 		"""
 		# Handler for untrapped exceptions.
 		"""
 
 		exc = exception
-		if exc.__traceback__ is not None:
-			exc.__traceback__ = exc.__traceback__.tb_next
-
-		# exception reporting facility
 		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
 		formatting = ''.join(formatting)
 
-		self.log("[Exception from %s: %r]\n%s" %(title, context, formatting))
+		self.log("[!#: ERROR: exception raised from %s: %r]\n%s" %(title, context, formatting))
+
+	def main(self):
+		"""
+		# The main task loop executed by a dedicated thread created by &boot.
+		"""
+
+		# Normally
+		try:
+			self.loop()
+
+			if self.kernel.loaded:
+				# Clear queue and warn if not empty after this.
+				self.kernel.execute(self.error)
+				self.kernel.execute(self.error)
+		except BaseException as critical_loop_exception:
+			self.error(self.loop, critical_loop_exception, title="Process Task Queue Caller")
 
 	def loop(self, partial=functools.partial, BaseException=BaseException):
 		"""
@@ -1612,13 +1619,42 @@ class Process(object):
 		del self.system_event_connections[event]
 		return True
 
-def spawn(identifier, executables, critical=process.critical, partial=functools.partial) -> Process:
+main_thread_task_queue = None
+main_thread_interrupt = None
+main_thread_exit_status = 255
+
+def reset():
+	"""
+	# Reset the process global state of &.system.
+	"""
+	global main_thread_task_queue
+	global main_thread_interrupt
+	global main_thread_exit_status
+
+	main_thread_task_queue = None
+	main_thread_interrupt = None
+	main_thread_exit_status = 255
+
+def exit(status:int=None):
+	"""
+	# Default exit callback used to interrupt main thead task queue.
+
+	# Sets the module attribute &main_thread_exit_status to the given status and closes the main task queue.
+	"""
+	global main_thread_exit_status
+
+	if status is not None:
+		main_thread_exit_status = status
+
+	main_thread_task_queue.enqueue(main_thread_task_queue.close)
+
+def spawn(exit, identifier, executables, critical=process.critical, partial=functools.partial) -> Process:
 	"""
 	# Construct a &Process using the given &executables.
 	# The &identifier is usually `'root'` for the primary logical process.
 	"""
 
-	process = Process(identifier)
+	process = Process(exit, identifier)
 	system = Context(process)
 	xact = core.Transaction.create(system)
 	enqueue = process.enqueue
@@ -1630,7 +1666,7 @@ def spawn(identifier, executables, critical=process.critical, partial=functools.
 
 	return process
 
-def dispatch(invocation, application:core.Context, identifier=None) -> Process:
+def dispatch(invocation, application:core.Context, identifier=None, exit=exit) -> Process:
 	"""
 	# Dispatch an application transaction instance within a new logical process.
 
@@ -1641,14 +1677,51 @@ def dispatch(invocation, application:core.Context, identifier=None) -> Process:
 	aclass = type(application)
 	exe = core.Executable(invocation, aclass.__name__)
 	exe.exe_enqueue(application)
-	process = spawn(identifier, [exe])
+	process = spawn(exit, identifier, [exe])
 	process.boot(exe.exe_initialize)
+
 	return process
 
-def control():
+def default_error_trap(call, error):
+	global main_thread_interrupt
+
+	import traceback
+
+	if isinstance(error, process.ControlException):
+		# Handles interjection based panics that run within
+		# the main thread task queue.
+		main_thread_interrupt = error
+		process_exit(-1)
+	else:
+		traceback.print_exception(error.__class__, error, error.__traceback__)
+
+def control(errctl=default_error_trap, **kw):
 	"""
 	# Control the main thread providing a low precision timer for deferred tasks.
 	# Called by an application's main entry point after booting the &Process created
 	# by &spawn.
 	"""
-	process.Fork.substitute(process.protect)
+	global main_thread_task_queue
+
+	main_thread_task_queue = events.Interface()
+	process.Fork.substitute(protect, errctl, **kw)
+
+def protect(error_control, timeout=8):
+	global main_thread_task_queue
+
+	try:
+		k = main_thread_task_queue
+
+		while not k.closed:
+			k.execute(error_control)
+			k.wait(timeout)
+
+		if main_thread_interrupt is None:
+			k.execute(default_error_trap)
+	finally:
+		main_thread_task_queue = None
+
+	if main_thread_exit_status >= 0:
+		raise process.Exit(main_thread_exit_status)
+	else:
+		raise main_thread_interrupt or process.Panic("negative exit status set without exception")
