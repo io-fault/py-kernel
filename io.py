@@ -272,9 +272,6 @@ class Transport(core.Context):
 
 		return inv
 
-	def io_execute(self):
-		self.tp_input.xact_context.io_execute()
-
 	def tp_push(self, state, io):
 		"""
 		# Push the protocol channels on to the stack.
@@ -309,7 +306,10 @@ class Transport(core.Context):
 
 		raise LookupError(label)
 
-	def tp_transmit_close(self):
+	def io_execute(self):
+		self.tp_input.xact_context.io_execute()
+
+	def io_transmit_close(self):
 		"""
 		# Close the outgoing transfer context.
 		"""
