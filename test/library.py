@@ -90,7 +90,7 @@ class SystemChannel(object):
 		pass
 
 class Root(object):
-	_pexe_contexts = ('executable',)
+	_pexe_contexts = ('executable', 'enqueue')
 
 	def __init__(self):
 		self.exits = []
@@ -99,6 +99,10 @@ class Root(object):
 		self.exits.append(procs)
 
 	controller = None
+
+	def enqueue(self, task):
+		# Fires immediately at root level.
+		task()
 
 	def dispatch(self, proc):
 		self.processor = proc

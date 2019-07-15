@@ -343,7 +343,7 @@ class Channel(core.Processor):
 		if self.f_monitors:
 			self.f_monitors.discard((obstructed, cleared))
 
-	def f_discarding(self, event, parameter=None):
+	def f_discarding(self, event=None, parameter=None):
 		"""
 		# Assigned to &process and &f_emit after termination and interrupt in order
 		# to keep overruns from exercising the Transformations.
@@ -492,6 +492,7 @@ class Transformation(Channel):
 	"""
 	# A flow that performs a transformation on the received events.
 	"""
+
 	f_type = 'transformer'
 
 	def __init__(self, transform):
@@ -777,16 +778,8 @@ class Transports(Channel):
 
 	def f_transfer(self, events):
 		"""
-		# Process the given events with the referenced I/O operations.
-
-		# [ Engineering ]
-		# Currently raises exception when deadlocked, should dispatch
-		# a Fatal with details.
+		# Process the given events with the I/O operations present in the stack.
 		"""
-		if not self.tf_operations:
-			# Opposite cannot have work if empty.
-			self.f_emit(events) # Empty transport stack acts a passthrough.
-			return
 
 		opposite_has_work = False
 
@@ -824,35 +817,20 @@ class Transports(Channel):
 
 		stack = self.tf_stack
 		opp = self._tf_opposite()
-		while stack and stack[-1].terminated:
+		if (stack and stack[-1].terminated) or not stack:
 			# Full Termination. Pop item after allowing the opposite to complete.
 			# This needs to be done as the transport needs the ability
 			# to flush any remaining events in the opposite direction.
 
-			protocol = stack[-1]
-			del stack[-1] # both sides; stack is shared.
+			del stack[:] # both sides; stack is shared.
+			del self.tf_operations[:]
+			del opp.tf_operations[:]
 
-			# operations is perspective sensitive
-			if self.tf_polarity == 1:
-				# recv/input
-				del self.tf_operations[-1]
-				del opp.tf_operations[0]
-				self.f_downstream.f_terminate()
-				self.f_disconnect()
-			else:
-				# send/output
-				del self.tf_operations[0]
-				del opp.tf_operations[-1]
-				if opp.f_downstream:
-					opp.f_downstream.f_terminate()
-					opp.f_disconnect()
-		else:
-			if not stack:
-				# empty stack. check for terminating conditions.
-				if self.terminating:
-					self._f_terminated()
-				if opp is not None and opp.terminating:
-					opp._f_terminated()
+			if not self.terminated:
+				self._f_terminated()
+
+			if opp is not None and not opp.terminated:
+				opp.critical(opp.tf_empty)
 
 	def f_terminate(self):
 		"""
@@ -861,29 +839,12 @@ class Transports(Channel):
 		"""
 
 		stack = self.tf_stack
-		if not stack:
-			# Termination is complete when the stack's layers
-			# have been completed or interrupted.
-			self._f_terminated()
-			return
-		elif self.tf_polarity == 1:
-			# Receive termination effectively interrupts receive transfers.
-			# When a terminating receive is expected to perform transfers,
-			# we can safely interrupt if it's not satisfied by an empty transfer.
-			self.start_termination()
-			for x in stack:
-				x.terminate(1)
-			self.tf_empty()
-			if stack:
-				self.f_downstream.f_terminate()
-		else:
-			assert self.tf_polarity == -1
+		self.start_termination()
+		for x in stack:
+			x.terminate(self.tf_polarity)
+		self.tf_empty()
 
-			# Output Flow. Termination is passed to the top of the stack.
-			self.tf_stack[-1].terminate(self.tf_polarity)
-			self.tf_empty()
-
-	def terminate(self, by=None):
+	def terminate(self):
 		"""
 		# Reject the request to terminate as Transports
 		# state is dependent on Flow state.

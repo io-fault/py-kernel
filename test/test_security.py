@@ -145,12 +145,10 @@ def test_Transports_io(test, chain=itertools.chain):
 	test/client.terminated == True
 	test/server.terminated == True # recevied termination
 
-	sti.f_terminate()
-	sto.f_terminate()
-	io_context.flush()
-
 	for x in (sto, sti, cto, cti):
 		x.f_terminate()
+	io_context(2)
+
 	test/sto.terminated == True
 	test/sti.terminated == True
 	test/cto.terminated == True
