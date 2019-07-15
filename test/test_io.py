@@ -90,7 +90,7 @@ def test_Transport_tp_connect(test):
 	i = None
 	def router(inv):
 		nonlocal i
-		div = i._io_start.f_downstream.f_downstream
+		div = i._io_start().f_downstream.f_downstream
 
 		events = inv.m_correlate()
 		inv.i_catenate.f_transfer(events, upstream=div)

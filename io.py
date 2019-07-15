@@ -8,6 +8,7 @@
 import typing
 import itertools
 import functools
+import weakref
 
 from . import core
 from . import flows
@@ -40,7 +41,7 @@ class Transfer(core.Context):
 
 		assert self._io_start is None
 
-		self._io_start = series[0]
+		self._io_start = weakref.ref(series[0])
 		dispatch = self.controller.dispatch
 
 		end = Terminal(self._io_transfer_terminated)
@@ -59,7 +60,14 @@ class Transfer(core.Context):
 		"""
 		# Signal the first &flows.Channel that it should begin performing transfers.
 		"""
-		self._io_start.f_transfer(None)
+		self._io_start().f_transfer(None)
+
+	def io_terminate(self):
+		"""
+		# Explicitly terminate the managed flow.
+		"""
+
+		self._io_start().f_terminate()
 
 	def _io_check_terminate(self):
 		if self.xact_empty():
