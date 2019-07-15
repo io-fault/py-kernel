@@ -309,6 +309,12 @@ class Transport(core.Context):
 
 		raise LookupError(label)
 
+	def tp_transmit_close(self):
+		"""
+		# Close the outgoing transfer context.
+		"""
+		self.tp_output.xact_context.io_terminate()
+
 class Interface(core.Executable):
 	"""
 	# Executable context managing a logical interface.
