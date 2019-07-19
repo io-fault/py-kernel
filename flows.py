@@ -633,15 +633,16 @@ class Parallel(Channel):
 		self.pf_queue = queue.Queue()
 		self._pf_put = self.pf_queue.put
 
-	def terminate(self, by=None):
+	def terminate(self):
 		"""
 		# Initiate termination of the thread.
 		"""
-		if self.terminated or self.terminating or self.interrupted:
+		if not self.functioning:
 			return False
 
 		self.start_termination()
 		self._pf_put(None)
+
 		return True
 
 	def trap(self):
@@ -650,7 +651,7 @@ class Parallel(Channel):
 		"""
 		try:
 			self.pf_target(self, self.pf_queue, *self.pf_parameters)
-			self.enqueue(self._f_terminated)
+			self.critical(self._f_terminated)
 		except BaseException as exc:
 			self.enqueue(functools.partial(self.fault, exc))
 			pass # The exception is managed by .fault()
@@ -668,7 +669,6 @@ class Parallel(Channel):
 		# Execute the dedicated thread for the transformer.
 		"""
 
-		self.f_transfer = self._pf_put
 		self.system.execute(self, self.trap)
 
 class Protocol(Channel):
