@@ -405,18 +405,6 @@ class Accept(Transfer):
 		fds = ports.acquire(self.if_slot)
 		self.at_install(*fds)
 
-def security_operations(transport):
-	"""
-	# Construct the input and output operations used by &.library.Transports instances.
-	# All implementations accessible from &..security expose the same features,
-	# so &operations is implementation independent.
-	"""
-
-	return (
-		(transport.decipher, transport.pending_input, transport.pending_output),
-		(transport.encipher, transport.pending_output, transport.pending_input),
-	)
-
 def dispatch(xact, *flows:typing.Sequence[flows.Channel]):
 	"""
 	# Dispatch a set of a flows within the Transaction as connected Transfers.
