@@ -402,7 +402,7 @@ class Processor(Resource):
 			# are still considered functional.
 		"""
 
-		return self._pexe_state > 0 and not self.interrupted
+		return self._pexe_state == 1 and not self.interrupted
 
 	def actuate(self):
 		"""
