@@ -853,8 +853,31 @@ class Transports(Channel):
 
 class Protocol(Channel):
 	"""
-	# Protocol Transport class for managing.
+	# Protocol class for containing the state of a protocol layer.
 	"""
+
+	def __init__(self, shared, local, transfer):
+		self.p_shared = shared
+		self.p_local = local
+		self.p_transfer = transfer
+
+	def f_transfer(self, event):
+		return self.f_emit(self.p_transfer(event))
+
+	def p_terminated(self):
+		"""
+		# Called when the internal protocol state has completed termination.
+
+		# Defaults to &Channel.f_terminate but overridden in cases where
+		# synchronization needs to occur with a corresponding Protocol channel.
+		"""
+		self.f_terminate()
+
+	def p_drain(self):
+		"""
+		# Perform an empty transfer allowing any transmit buffers to be emptied.
+		"""
+		self.f_transfer(())
 
 class Traces(Channel):
 	def __init__(self):
@@ -929,6 +952,7 @@ class Catenation(Channel):
 	# /cat_flows/
 		# Channel identifier associated with weak reference to upstream.
 	"""
+
 	f_type = 'join'
 
 	def __init__(self, Queue=collections.deque):
@@ -1129,6 +1153,7 @@ class Division(Channel):
 	# manages the connections to actual &Flow instances that delivers
 	# the transformed application level events.
 	"""
+
 	f_type = 'fork'
 
 	def __init__(self, dispatch):
