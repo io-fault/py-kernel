@@ -1231,9 +1231,10 @@ class Transaction(Sector):
 	def exited(self, processor):
 		if processor.placement() == Transaction:
 			# Signal context about subtransaction exit.
-			subxacts = self.processors[Transaction]
 			self.xact_context.xact_exit(processor)
-			if len(subxacts) == 1:
+			subxacts = self.processors[Transaction] - (self.exits or set())
+
+			if len(subxacts) <= 1:
 				self.xact_context.xact_void(processor) # Signal empty transaction.
 
 		return super().exited(processor)
