@@ -699,50 +699,6 @@ class Protocol(Channel):
 		"""
 		self.f_transfer(())
 
-class Traces(Channel):
-	def __init__(self):
-		self.monitors = dict()
-
-	def monitor(self, identity, callback):
-		"""
-		# Assign a monitor to the Meta Reflection.
-
-		# [ Parameters ]
-
-		# /identity/
-			# Arbitrary hashable used to refer to the callback.
-
-		# /callback/
-			# Unary callable that receives all events processed by Trace.
-		"""
-
-		self.monitors[identity] = callback
-
-	def f_transfer(self, event):
-		for x in self.monitors.values():
-			x(event)
-
-		self.f_emit(event)
-
-	@staticmethod
-	def log(event, title=None, flush=sys.stderr.flush, log=sys.stderr.write):
-		"""
-		# Trace monitor for printing events.
-		"""
-		if self.title:
-			trace = ('EVENT TRACE[' + title + ']:' + repr(event)+'\n')
-		else:
-			trace = ('EVENT TRACE: ' + repr(event)+'\n')
-
-		if self.condition is not None and self.condition:
-			self.log(trace)
-			self.flush()
-		else:
-			self.log(trace)
-			self.flush()
-
-		self.f_emit(event)
-
 class Catenation(Channel):
 	"""
 	# Sequence a set of flows in the enqueued order.
