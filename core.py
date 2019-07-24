@@ -1210,7 +1210,7 @@ class Transaction(Sector):
 		# The termination of the Transaction is managed entirely by the Context.
 		"""
 
-		return self.xact_context.terminate(by=by)
+		return self.xact_context.terminate()
 
 	def placement(self):
 		"""
