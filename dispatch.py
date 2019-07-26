@@ -328,3 +328,70 @@ class Subprocess(core.Context):
 
 		self.start_termination()
 		self.sp_signal(signal.SIGQUIT)
+
+class Coprocess(core.Context):
+	"""
+	# A local parallel process whose termination is connected to an instance.
+	"""
+
+	def __init__(self, identifier, application):
+		self.cp_identifier = identifier
+		self.cp_status = None
+		self.cp_application = application
+		self._cp_root_process = None
+
+	def cp_process_exit(self, status=None):
+		self.cp_status = status
+
+		if not self.interrupted:
+			self.xact_exit_if_empty()
+		self._cp_root_process = None
+
+	def structure(self):
+		p = [
+			x for x in [
+				('cp_status', self.cp_status),
+			] if x[1]
+		]
+		return (p, ())
+
+	def actuate(self):
+		"""
+		# Initialize the system event callbacks for receiving process exit events.
+		"""
+
+		self._cp_root_process = self.system.coprocess(
+			self.cp_identifier, self.cp_process_exit,
+			None, self.cp_application
+		)
+
+	def interrupt(self):
+		"""
+		# Interrupt the running processes by issuing a SIGKILL signal to all active processes.
+		# Exit status will be reaped, but not reported to &self.
+		"""
+
+		if self.interrupted:
+			return False
+
+		try:
+			xact = self._cp_root_process.transaction()
+		except:
+			# Process entry missing.
+			pass
+		else:
+			xact.critical(xact.interrupt)
+
+		self.interrupted = True
+
+	def terminate(self):
+		"""
+		# Interrupt the running processes by issuing a SIGQUIT signal.
+		"""
+
+		if not self.functioning:
+			return
+
+		self.start_termination()
+		xact = self._cp_root_process.transaction()
+		self._cp_root_process.enqueue(xact.terminate)

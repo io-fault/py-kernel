@@ -872,7 +872,9 @@ class Context(core.Context):
 		self._io_cycle = tools.nothing
 
 	def terminate(self):
-		pass
+		self.start_termination()
+		for x, xact in self.executables.items():
+			xact.terminate()
 
 	def __init__(self, process):
 		self.process = weakref.proxy(process)
@@ -930,7 +932,7 @@ class Context(core.Context):
 		# Send an overview of the logical process state to the given target.
 		"""
 
-		target("\n".join(text.format('main', self.controller)))
+		target("\n".join(text.format('process-transaction', self.controller)))
 		target("\n")
 
 	def defer(self, measure, task, maximum=6000, seconds=timetypes.Measure.of(second=2)):
@@ -1249,6 +1251,12 @@ class Context(core.Context):
 
 		segs = Segments.open(path)
 		return flows.Iteration((x,) for x in segs)
+
+	def coprocess(self, identifier, exit, invocation, application):
+		"""
+		# Dispatch a local parallel process.
+		"""
+		return dispatch(invocation, application, identifier, exit=exit)
 
 class Fabric(object):
 	"""
