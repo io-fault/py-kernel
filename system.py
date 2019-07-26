@@ -1593,9 +1593,6 @@ class Process(object):
 						del sec[event]
 
 					k.enqueue(partial(callback, *args))
-				elif event[0] != 'timeout':
-					# note unhandled system events
-					self.log('[!# WARNING: unhandled event %r]\n' % (event,))
 
 			# for event
 		# while True
