@@ -1272,6 +1272,13 @@ class Executable(Context):
 		self.provide('executable')
 		self.controller.scheduling()
 
+	def terminate(self):
+		self.start_termination()
+		i = self.controller.iterprocessors()
+		next(i)
+		for x in i:
+			x.terminate()
+
 	def xact_void(self, final):
 		"""
 		# Consume the next transaction in the queue.
