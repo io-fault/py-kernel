@@ -1204,7 +1204,7 @@ class Transaction(Sector):
 		"""
 		return isinstance(self.xact_context, ContextClass)
 
-	def terminate(self, by=None):
+	def terminate(self):
 		"""
 		# Invoke the &Context.terminate method of the &xact_context property.
 		# The termination of the Transaction is managed entirely by the Context.
