@@ -81,6 +81,13 @@ class Transfer(core.Context):
 		self.start_termination()
 		self.enqueue(self._io_check_terminate)
 
+	def terminate(self):
+		if not self.functioning:
+			return
+
+		self.start_termination()
+		self.io_terminate()
+
 class Invocations(core.Processor):
 	"""
 	# Dispatch processor for &Transport instances.
@@ -414,8 +421,7 @@ class Connections(core.Context):
 			return
 
 		self.start_termination()
-		if not self.xact_subxacts:
-			self.finish_termination()
+		self.xact_exit_if_empty()
 
 def dispatch(xact, *flows:typing.Sequence[flows.Channel]):
 	"""
