@@ -1033,7 +1033,7 @@ class Context(core.Context):
 			self.environment = {}
 			self.environment[identifier] = value
 
-	def bindings(self, *allocs, transmission = 'sockets'):
+	def bindings(self, *allocs, transmission='sockets'):
 		"""
 		# Allocate leaked listening interfaces.
 
@@ -1077,11 +1077,11 @@ class Context(core.Context):
 
 		# [ Parameters ]
 		# /fd/
-			# The &.library.Endpoint instance describing the target of the connection.
+			# Socket file descriptor.
 		"""
 
-		channels = allocate('octets://acquire/socket', fd)
-		return channels[0].port, channels
+		i, o = allocate('octets://acquire/socket', fd)
+		return i.port, (KInput(i), KOutput(o))
 
 	def read_file(self, path):
 		"""
@@ -1143,7 +1143,7 @@ class Context(core.Context):
 
 		for kp in kports:
 			socket_channel = alloc('sockets://acquire', kp)
-			yield (socket_channel.endpoint(), KAccept(socket_transit))
+			yield (socket_channel.endpoint(), KAccept(socket_channel))
 
 	def connect_output(self, fd):
 		"""
@@ -1537,7 +1537,6 @@ class Process(object):
 		# The main task loop executed by a dedicated thread created by &boot.
 		"""
 
-		# Normally
 		try:
 			self.loop()
 

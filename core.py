@@ -311,8 +311,7 @@ class ExceptionStructure(object):
 class Processor(Resource):
 	"""
 	# A resource that maintains an abstract computational state. Processors are
-	# awaitable and can be used by coroutines. The product assigned to the
-	# Processor is the object by await.
+	# awaitable and can be used by coroutines.
 
 	# Processor resources essentially manage state machines and provide an
 	# abstraction for initial and terminal states that are often used.
@@ -384,9 +383,7 @@ class Processor(Resource):
 
 	# Origin of the interrupt or terminate
 	interrupted = False
-	terminator = None
 
-	product = None
 	exceptions = None
 
 	@property
@@ -499,19 +496,9 @@ class Processor(Resource):
 		props = []
 		sr = ()
 
-		if self.product is not None:
-			props.append(('product', self.product))
-
 		if self.exceptions is not None:
 			props.append(('exceptions', len(self.exceptions)))
 			sr = [(ident, ExceptionStructure(ident, exc)) for ident, exc in self.exceptions]
-
-		p = [
-			x for x in [
-				('terminator', self.terminator),
-			] if x[1] is not None
-		]
-		props.extend(p)
 
 		return (props, sr)
 
@@ -564,7 +551,6 @@ class Sector(Processor):
 	scheduler = None
 	exits = None
 	processors = None
-	product = None
 
 	def iterprocessors(self):
 		return itertools.chain.from_iterable(self.processors.values())
@@ -1098,11 +1084,12 @@ class Context(Processor):
 		"""
 		# Check for processors other than &self, if there are none, exit the transaction.
 		"""
+
 		sector = self.controller
 		sector.reap()
 
-		ip = sector.iterprocessors()
-		ctx = next(ip)
+		ip = iter(sector.iterprocessors())
+		xact_ctx = next(ip)
 
 		try:
 			next(ip)
@@ -1223,6 +1210,13 @@ class Transaction(Sector):
 		"""
 
 		return Transaction
+
+	@property
+	def subtransactions(self):
+		"""
+		# The set of subtransactions currently running.
+		"""
+		return self.processors[Transaction]
 
 	def iterprocesses():
 		yield self.xact_context

@@ -181,7 +181,6 @@ class Channel(core.Processor):
 		p = [
 			x for x in [
 				('f_obstructions', self.f_obstructions),
-				('f_monitors', self.f_monitors),
 			] if x[1] is not None
 		]
 
@@ -350,6 +349,18 @@ class Channel(core.Processor):
 		"""
 
 		pass
+
+class Dispatch(Channel):
+	"""
+	# Channel dispatching events to the configured callable.
+	"""
+
+	def __init__(self, endpoint):
+		self.d_endpoint = endpoint
+
+	def f_transfer(self, event):
+		self.d_endpoint(event)
+		self.f_emit(event)
 
 class Terminal(Channel):
 	"""

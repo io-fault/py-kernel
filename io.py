@@ -121,7 +121,7 @@ class Invocations(core.Processor):
 		self._protocol_xact_queue = []
 		return xq
 
-	def m_accept(self, partial=functools.partial):
+	def inv_accept(self, partial=functools.partial):
 		"""
 		# Accept a sequence of requests from a client configured remote endpoint.
 		# Routes the initiation parameter with callbacks to connect input and output.
@@ -315,95 +315,107 @@ class Transport(core.Context):
 		"""
 		self.tp_output.xact_context.io_terminate()
 
-class Interface(core.Executable):
+class Interface(core.Context):
 	"""
-	# Executable context managing a logical interface.
+	# Application context managing a logical interfaces.
 	"""
 
-	def if_route(self, packet, chain=itertools.chain.from_iterable):
-		"""
-		# Route the accepted connections.
-		"""
+	def __init__(self, target, prepare):
+		self.if_target = target
+		self.if_prepare = prepare
 
-		source, event = packet
-		for io_pair in chain(event):
-			self.xact_dispatch(f)
+	def if_transition(self, ports, chain=itertools.chain.from_iterable):
+		eps = map(self.system.allocate_transport, chain(ports))
+		return self.if_target((self, self.if_prepare(self, eps)))
 
-	def if_install(self, *kports):
+	def if_install(self, kports):
 		"""
 		# Given file descriptors, install a new set of flows
 		# accepting sockets from the given listening sockets.
 		"""
 
 		acquire = self.system.acquire_listening_sockets
+		create = core.Transaction.create
+		dispatch = self.controller.dispatch
+		fdispatch = flows.Dispatch
 
 		for listen in acquire(kports):
 			x, flow = listen
 
-			if_r = (x.interface, x.port)
-			if_t.f_connect(null)
+			if x is not None:
+				if_r = (x.interface, x.port)
+			else:
+				if_r = None
 
-			flow.f_connect(if_t)
-			flow.f_transfer(None) # Start allocating file descriptor arrays.
+			t = Transfer()
+			xact = create(t)
+			dispatch(xact)
+			t.io_flow([flow, fdispatch(self.if_transition)])
+			flow.f_transfer(None)
 
-class Accept(Transfer):
+	def xact_exit(self, transport):
+		pass
+
+	def xact_void(self, final):
+		# Service Context; does not exit unless terminating.
+		if self.terminating:
+			self.finish_termination()
+
+	@property
+	def if_sockets(self):
+		return self.controller.subtransactions
+
+	def terminate(self):
+		if not self.functioning:
+			return
+
+		self.start_termination()
+		for xact in self.if_sockets:
+			xact.terminate()
+
+class Connections(core.Context):
 	"""
-	# The Transfer Context used to accept and route sockets from listening interfaces.
-
-	# [ Engineering ]
-	# In line to replace &Network, Accept is a Transport Context that fills
-	# the same role, but properly identified as a Context, not an Interface.
-	# It is still not certain whether Accept should handle more than one
-	# Flow. sockets://127.0.0.1:8484/tls/http
+	# Application context managing accepted transports.
 	"""
 
-	def at_route(self, packet, chain=itertools.chain.from_iterable):
+	def __init__(self, dispatch):
+		self.cxn_dispatch = dispatch
+		self.cxn_count = 0
+
+	def cxn_accept(self, packet, chain=itertools.chain.from_iterable):
 		"""
 		# Moving to Sockets. Routing will be handled with flows.
 		"""
-		sector = self.controller
-		ctx_accept = self.context.accept_subflows
+		xdispatch = self.controller.dispatch
+		idispatch = self.cxn_dispatch
 
-		source, event = packet
-		for fd in chain(event):
-			mitre = self.if_mitre(self.if_reference, self.if_router)
-			series = ctx_accept(fd, mitre, mitre.Protocol())
-			cxn = Transaction.create(Transport(series))
-			sector.dispatch(cxn) # actuate and assign the connection
+		source, events = packet
+		for endpoint, stack, protocol in events:
+			tp = Transport.from_endpoint(endpoint)
+			if stack:
+				tp.tp_extend(stack)
+			xact = core.Transaction.create(tp)
+			xdispatch(xact)
+			self.cxn_count += 1
 
-	def at_install(self, *kports):
-		"""
-		# Given file descriptors, install a new set of flows
-		# accepting sockets from the given listening sockets.
-		"""
-		ctx = self.context
-		sector = self.controller
+			inv = tp.tp_connect(idispatch, protocol)
+			endpoint[1][0].f_transfer(None)
 
-		for listen in ctx.acquire_listening_sockets(kports):
-			x, flow = listen
-			sector.dispatch(flow)
+	def xact_exit(self, transport):
+		self.cxn_count -= 1
 
-			if_r = (x.interface, x.port)
-			if_t = Sockets(if_r, self.at_route)
-			sector.dispatch(if_t)
-			if_t.f_connect(null)
+	def xact_void(self, final):
+		# Service Context; does not exit unless terminating.
+		if self.terminating:
+			self.finish_termination()
 
-			flow.f_connect(if_t)
+	def terminate(self):
+		if not self.functioning:
+			return
 
-			add(if_r)
-			flow.process(None) # Start allocating file descriptor arrays.
-
-	def at_bind(self, slot):
-		"""
-		# Bind the Kernel Ports associated with the given slot.
-		# Allocates duplicate file descriptors from `/dev/ports`,
-		# and installs them in the Transaction.
-		"""
-		ctx = self.context
-		ports = ctx.association().ports
-
-		fds = ports.acquire(self.if_slot)
-		self.at_install(*fds)
+		self.start_termination()
+		if not self.xact_subxacts:
+			self.finish_termination()
 
 def dispatch(xact, *flows:typing.Sequence[flows.Channel]):
 	"""
@@ -412,7 +424,7 @@ def dispatch(xact, *flows:typing.Sequence[flows.Channel]):
 
 	for x in reversed(flows):
 		xf = Transfer()
-		sub = Transaction.create(xf)
+		sub = xact.create(xf)
 		xact.dispatch(sub)
 		xf.critical(functools.partial(xf.io_flow, *x))
 

@@ -67,7 +67,7 @@ def test_Invocations_accept(test):
 	ctx(1)
 
 	test/l[0] == inv
-	accepts, connects = inv.m_accept()
+	accepts, connects = inv.inv_accept()
 	test/connects[0] == (1, 'parameter', None)
 
 def test_Transport_tp_connect(test):
