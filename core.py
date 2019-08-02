@@ -1322,3 +1322,41 @@ class Executable(Context):
 		]
 
 		return (p, ())
+
+class Sequenced(Context):
+	"""
+	# Transaction sequence created from a predefined set of &Context instances.
+
+	# Subtransactions are dispatched in order and terminated in reverse order.
+	"""
+
+	def __init__(self, contexts):
+		self.seq_contexts = contexts
+
+	def actuate(self):
+		for x in self.seq_contexts:
+			xact = Transaction.create(x)
+			self.xact_dispatch(xact)
+
+	def xact_exit(self, xact):
+		if not self.terminating or xact.xact_context == self.seq_contexts[0]:
+			return
+
+		idx = self.seq_contexts.index(xact.xact_context)
+
+		idx -= 1
+		subxact = self.seq_contexts[idx]
+		while idx > 0 and not subxact.functioning:
+			idx -= 1
+			subxact = self.seq_contexts[idx]
+		if idx >= 0:
+			subxact.controller.terminate()
+
+	def xact_void(self, final):
+		self.finish_termination()
+
+	def terminate(self):
+		if not self.functioning:
+			return
+		self.start_termination()
+		self.seq_contexts[-1].controller.terminate()
