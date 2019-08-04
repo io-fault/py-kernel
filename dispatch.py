@@ -321,6 +321,15 @@ class Subprocess(core.Context):
 		for pid in self.sp_waiting:
 			send_signal(pid, signo)
 
+	def sp_signal_group(self, signo, send_signal=os.kill):
+		"""
+		# Send the given signal number (os.kill) to the active processes
+		# being managed by the instance.
+		"""
+
+		for pid in self.sp_waiting:
+			send_signal(-pid, signo)
+
 	def sp_abort(self):
 		"""
 		# Interrupt the running processes by issuing a SIGQUIT signal.
