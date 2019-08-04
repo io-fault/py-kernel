@@ -95,7 +95,7 @@ class Invocations(core.Processor):
 
 	def __init__(self, catenate, router):
 		self.i_catenate = catenate
-		self.m_router = router
+		self.i_router = router
 		self._protocol_xact_queue = []
 		self._protocol_xact_id = 1
 
@@ -113,14 +113,23 @@ class Invocations(core.Processor):
 		already_queued = bool(xq)
 		xq.extend(events)
 		if not already_queued:
-			self.critical(self.m_execute)
+			self.critical(self.i_signal)
 
-	def m_execute(self):
+	def i_update(self, router):
+		"""
+		# Update the router used to facilitate a protocol transaction.
+		"""
+		self.i_router = router
+
+	def i_signal(self):
 		"""
 		# Method enqueued by &f_transfer to flush the protocol transaction queue.
 		# Essentially, an internal method.
 		"""
-		return self.m_router(self)
+		return self.i_router(self)
+
+	def i_close(self):
+		self.controller.xact_context.io_transmit_close()
 
 	def _m_transition(self):
 		# Must be called within same processor.
