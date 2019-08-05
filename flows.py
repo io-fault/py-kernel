@@ -975,7 +975,8 @@ class Division(Channel):
 		# Closure here means that the protocol state did not manage
 		# &close the transaction and we need to assume that its incomplete.
 		for channel_id, flow in self.div_flows.items():
-			flow.int_terminate(channel_id)
+			if flow is not None:
+				flow.int_terminate(channel_id)
 
 		# Do not clear flows here. State needs to be maintained.
 		super().interrupt()
