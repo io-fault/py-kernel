@@ -1672,7 +1672,7 @@ def spawn(exit, identifier, executables, critical=process.critical, partial=func
 
 def dispatch(invocation, application:core.Context, identifier=None, exit=exit) -> Process:
 	"""
-	# Dispatch an application transaction instance within a new logical process.
+	# Dispatch an application context instance within a new logical process.
 
 	# Construct a &Process and &core.Executable for executing the &application context.
 	# The &Process created by the inner &spawn is returned.
@@ -1685,6 +1685,20 @@ def dispatch(invocation, application:core.Context, identifier=None, exit=exit) -
 	process.boot(exe.exe_initialize)
 
 	return process
+
+def set_root_process(process):
+	"""
+	# Connect the system process termination signal to root transaction terminate.
+	"""
+	from ..system import kernel
+	xact, enqueue = __process_index__[process]
+
+	callterm = functools.partial(enqueue, xact.terminate)
+	def termsignal(signo, frame=None, setstatus=kernel.exit_by_signal):
+		setstatus(signal.SIGTERM)
+		callterm()
+
+	signal.signal(signal.SIGTERM, termsignal)
 
 def default_error_trap(call, error):
 	global main_thread_interrupt
