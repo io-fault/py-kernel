@@ -1088,14 +1088,16 @@ class Context(core.Context):
 		# Open a set of files for reading through a &.library.KernelPort.
 		"""
 
-		return KInput(allocate('octets://file/read', path))
+		fd = os.open(path, os.O_RDONLY)
+		return KInput(allocate(('octets', 'acquire', 'input'), fd))
 
 	def append_file(self, path):
 		"""
 		# Open a set of files for appending through a &.library.KernelPort.
 		"""
 
-		return KOutput(allocate('octets://file/append', path))
+		fd = os.open(path, os.O_WRONLY|os.O_APPEND|os.O_CREAT)
+		return KOutput(allocate(('octets', 'acquire', 'output'), fd))
 
 	def update_file(self, path, offset, size):
 		"""
@@ -1103,8 +1105,9 @@ class Context(core.Context):
 		# the designated file.
 		"""
 
-		t = allocate(('octets', 'file', 'overwrite'), path)
-		position = os.lseek(t.port.fileno, 0, offset)
+		fd = os.open(path, os.O_WRONLY|os.O_APPEND|os.O_CREAT)
+		position = os.lseek(fd, 0, offset)
+		t = allocate(('octets', 'acquire', 'output'), fd)
 
 		return KOutput(t)
 
