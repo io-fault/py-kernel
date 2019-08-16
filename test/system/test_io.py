@@ -1,3 +1,4 @@
+import os
 from ... import system
 
 def test_adapter_properties(test):
@@ -92,7 +93,9 @@ def test_matrix_termination(test):
 		pass
 	ix = system.Matrix((null, null))
 	with ix.xact() as alloc:
-		alloc('octets://spawn/unidirectional')
+		r, w = os.pipe()
+		alloc('octets://acquire/input', r)
+		alloc('octets://acquire/output', w)
 	ix.terminate()
 
 def test_idle_array_terminates(test):
@@ -154,7 +157,9 @@ def test_active_array_continues(test):
 	try:
 		ix._get() # kicks off the array's thread
 		with ix.xact() as st:
-			r, w = st('octets://spawn/unidirectional')
+			r, w = os.pipe()
+			r = st('octets://acquire/input', r)
+			w = st('octets://acquire/output', w)
 
 		# we use j.force to rapidly trip the countdown.
 		# there are channels, so we should never break;
@@ -180,7 +185,9 @@ def test_matrix_transfer(test):
 	ix = system.Matrix(a)
 	try:
 		with ix.xact() as alloc:
-			r, w = alloc('octets://spawn/unidirectional')
+			r, w = os.pipe()
+			r = alloc('octets://acquire/input', r)
+			w = alloc('octets://acquire/output', w)
 
 		buf = r.rallocate(60)
 		r.acquire(buf)
@@ -197,7 +204,9 @@ def test_matrix_transfer(test):
 			ix.force(a)
 
 		with ix.xact() as alloc:
-			r, w = alloc('octets://spawn/unidirectional')
+			r, w = os.pipe()
+			r = alloc('octets://acquire/input', r)
+			w = alloc('octets://acquire/output', w)
 		# Couple cycles should trigger the exit_at_zero reset.
 		ix.force()
 		ix.force()
@@ -217,14 +226,19 @@ def test_alloc_single_matrix(test):
 	ix = system.Matrix(a)
 	try:
 		with ix.xact() as alloc:
-			r = alloc(('octets', 'file', 'read'), '/dev/zero')
-			r2 = alloc(('octets', 'file', 'read'), '/dev/zero')
-		r.acquire(bytearray(10))
-		r2.acquire(bytearray(10))
+			r = alloc('octets://acquire/input', os.open('/dev/zero', os.O_RDONLY))
+			r2 = alloc('octets://acquire/input', os.open('/dev/zero', os.O_RDONLY))
+
+		r.acquire(bytearray(b'\xFF'*10))
+		r2.acquire(bytearray(b'\xFF'*10))
+
+		r.force()
 		while not r.exhausted:
-			time.sleep(0.00001)
+			time.sleep(0.0001)
+
+		r2.force()
 		while not r2.exhausted:
-			time.sleep(0.00001)
+			time.sleep(0.0001)
 		r.terminate()
 	finally:
 		ix.terminate()
@@ -238,8 +252,11 @@ def test_matrix_overflow(test):
 	ix.channels_per_array = 0
 	try:
 		with ix.xact() as alloc:
-			for i in range(20):
-				alloc(('octets', 'file', 'read'), '/dev/zero')
+			for i in range(10):
+				r, w = os.pipe()
+				r = alloc('octets://acquire/input', r)
+				w = alloc('octets://acquire/output', w)
+
 		# checking for per array limits
 		# ix.acquire allows the entire overflow to spill into the new array.
 		test/len(list(ix._iterarrays())) == 2
@@ -264,8 +281,8 @@ def test_matrix_xact_fail(test):
 	try:
 		with test/Exception as e:
 			with ix.xact() as alloc:
-				r = alloc('octets://file/read', '/dev/zero')
-				raise Exception("foo")
+				r = alloc('octets://acquire/input', os.open('/dev/zero', os.O_RDONLY))
+				raise Exception("error-string")
 		test/r.terminated == True
 	finally:
 		ix.terminate()
