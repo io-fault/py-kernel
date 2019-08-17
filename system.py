@@ -434,22 +434,6 @@ class Matrix(object):
 		for x in self._iterarrays():
 			x.force()
 
-	# primary functionality of the callable yielded by the Matrix.xact() CM.
-	def _alloc(self, id, target_set, *request, **kw):
-		s = target_set[0]
-		# This array must *not* be used to acquire.
-		j = self._get(id = id)
-
-		t = j.rallocate(*request, **kw)
-		if isinstance(t, tuple):
-			# need to be grouped up as
-			# we want sockets to be acquired
-			# by the same channel.
-			s.add(t)
-		else:
-			s.add((t,))
-		return t
-
 	def acquire(self, id, channels, len=len):
 		"""
 		# Acquire a set of channels accounting for volume limits.
@@ -473,54 +457,6 @@ class Matrix(object):
 
 			for x in channels[position:]:
 				ja(x) # array.acquire(channel)
-
-	@contextlib.contextmanager
-	def xact(self, id=None, route:str='system',
-			partial=functools.partial,
-			chain=itertools.chain.from_iterable
-		):
-		"""
-		# A context manager yielding an object that can be called to allocate Channels for
-		# use with the designated adapter. The Channels returned are automatically acquired
-		# by the corresponding Array *when the context manager exits*.
-
-		# The &id parameter selects the "bucket" that the allocated Channels belong
-		# to--buckets being internally managed. This allows for explicit separation of allocated
-		# Channels in order to prioritize certain Transits.
-
-		# [ Parameters ]
-
-		# /id/
-			# Arbitrary identifier selecting the Channel "bucket".
-		# /route/
-			# Implementation identifier that selects the Array class to be used.
-		"""
-		tset = set()
-		container = [tset]
-		try:
-			yield partial(self._alloc, id, container)
-
-			# It is **critical** that we retrieve arrays here
-			# as opposed to caching the list at rallocate() time.
-			#
-			# Array threads exist so long as the array is not terminated,
-			# and arrays will terminate after a certain period if they
-			# go unused. In order to operate in a lock free manner, we
-			# remove the Array from the set inside the thread before
-			# terminating it. This gives the thread a window in which they
-			# can safely terminate the array without the fear of a race condition.
-
-			self.acquire(id, list(chain(tset)))
-		except:
-			# shatter ports
-			for channel in chain(tset):
-				channel.port.shatter() # idempotent
-				channel.terminate()
-			raise
-
-		finally:
-			# Cause NameError's if alloc_and_acquire is called past exit.
-			del container[:]
 
 # This is executed by the main task queue of a &Process instance.
 # It ends up being a sub-queue for I/O events and has similar logic for managing
