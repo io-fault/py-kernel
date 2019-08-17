@@ -1033,28 +1033,13 @@ class Context(core.Context):
 			self.environment = {}
 			self.environment[identifier] = value
 
-	def bindings(self, *allocs, transmission='sockets'):
+	def bindings(self, *allocs):
 		"""
-		# Allocate leaked listening interfaces.
-
 		# Returns a sequence of file descriptors that can later be acquired by a Matrix.
 		"""
 
-		alloc = allocate
-
-		# io normally works with channels that are attached to
-		# an array, but in cases where it was never acquired, the
-		# management operations still work.
 		for endpoint in allocs:
-			typ = endpoint.protocol
-			t = alloc((transmission, typ), (str(endpoint.address), endpoint.port))
-
-			fd = t.port.fileno
-			t.port.leak()
-			t.terminate()
-			del t
-
-			yield fd
+			yield network.service(endpoint)
 
 	def connect(self, endpoint):
 		"""
@@ -1067,7 +1052,7 @@ class Context(core.Context):
 			# The &.library.Endpoint instance describing the target of the connection.
 		"""
 
-		i, o = allocate(('octets', endpoint.protocol), (str(endpoint.address), endpoint.port))
+		i, o = io.alloc_octets(network.connect(endpoint))
 		return (('socket', o.port), (KInput(i), KOutput(o)))
 
 	def allocate_transport(self, fd):
@@ -1080,7 +1065,7 @@ class Context(core.Context):
 			# Socket file descriptor.
 		"""
 
-		i, o = allocate('octets://acquire/socket', fd)
+		i, o = io.alloc_octets(fd)
 		return i.port, (KInput(i), KOutput(o))
 
 	def read_file(self, path):
@@ -1089,7 +1074,7 @@ class Context(core.Context):
 		"""
 
 		fd = os.open(path, os.O_RDONLY)
-		return KInput(allocate(('octets', 'acquire', 'input'), fd))
+		return KInput(io.alloc_input(fd))
 
 	def append_file(self, path):
 		"""
@@ -1097,7 +1082,7 @@ class Context(core.Context):
 		"""
 
 		fd = os.open(path, os.O_WRONLY|os.O_APPEND|os.O_CREAT)
-		return KOutput(allocate(('octets', 'acquire', 'output'), fd))
+		return KOutput(io.alloc_output(fd))
 
 	def update_file(self, path, offset, size):
 		"""
@@ -1107,7 +1092,7 @@ class Context(core.Context):
 
 		fd = os.open(path, os.O_WRONLY|os.O_APPEND|os.O_CREAT)
 		position = os.lseek(fd, 0, offset)
-		t = allocate(('octets', 'acquire', 'output'), fd)
+		t = io.alloc_output(fd)
 
 		return KOutput(t)
 
@@ -1119,10 +1104,8 @@ class Context(core.Context):
 		# Returns a generator producing (interface, KAccept) pairs.
 		"""
 
-		alloc = allocate
-
 		for x in interfaces:
-			t = alloc(('sockets', x.protocol), (str(x.address), x.port))
+			t = io.alloc_service(network.service(x))
 			yield (x, KAccept(t))
 
 	def acquire_listening_sockets(self, kports):
@@ -1142,10 +1125,8 @@ class Context(core.Context):
 			# and the second being the &KernelPort instance.
 		"""
 
-		alloc = allocate
-
 		for kp in kports:
-			socket_channel = alloc('sockets://acquire', kp)
+			socket_channel = io.alloc_service(kp)
 			yield (socket_channel.endpoint(), KAccept(socket_channel))
 
 	def connect_output(self, fd):
@@ -1154,7 +1135,7 @@ class Context(core.Context):
 		# of file descriptors.
 		"""
 
-		return KOutput(allocate('octets://acquire/output', fd))
+		return KOutput(io.alloc_output(fd))
 
 	def connect_input(self, fd):
 		"""
@@ -1162,7 +1143,7 @@ class Context(core.Context):
 		# of file descriptors.
 		"""
 
-		return KInput(allocate('octets://acquire/input', fd))
+		return KInput(io.alloc_input(fd))
 
 	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
 		"""

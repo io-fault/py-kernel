@@ -44,23 +44,23 @@ def test_delta(test):
 	T = Channel()
 	T.mendpoint = "END"
 	T.terminated = True
-	T.acquire(b'foo')
+	T.acquire(b'---')
 	T.mslice = slice(0,3)
 	d = system.Delta.snapshot(T)
 	test/d.terminal == True
-	test/d.payload == b'foo'
+	test/d.payload == b'---'
 	test/d.demand == None
 	test.isinstance(str(d), str)
 	test/d.endpoint == "END"
 
 	T = Channel()
 	T.polarity = -1
-	T.acquire(b'bar')
+	T.acquire(b'...')
 	T.exhausted = True
 	T.mslice = slice(0,3)
 	d = system.Delta.snapshot(T)
 	test/d.terminal == False
-	test/d.payload == b'bar'
+	test/d.payload == b'...'
 	test/d.demand == T.acquire
 	test.isinstance(str(d), str)
 	test/d.endpoint == None
@@ -92,10 +92,12 @@ def test_matrix_termination(test):
 	def null(x):
 		pass
 	ix = system.Matrix((null, null))
-	with ix.xact() as alloc:
-		r, w = os.pipe()
-		alloc('octets://acquire/input', r)
-		alloc('octets://acquire/output', w)
+
+	r, w = os.pipe()
+	ix.acquire(None, [
+		system.io.alloc_input(r),
+		system.io.alloc_output(w),
+	])
 	ix.terminate()
 
 def test_idle_array_terminates(test):
@@ -156,10 +158,10 @@ def test_active_array_continues(test):
 	ix = system.Matrix(adapter)
 	try:
 		ix._get() # kicks off the array's thread
-		with ix.xact() as st:
-			r, w = os.pipe()
-			r = st('octets://acquire/input', r)
-			w = st('octets://acquire/output', w)
+		r, w = os.pipe()
+		r = system.io.alloc_input(r)
+		w = system.io.alloc_output(w)
+		ix.acquire(None, [r, w])
 
 		# we use j.force to rapidly trip the countdown.
 		# there are channels, so we should never break;
@@ -184,10 +186,10 @@ def test_matrix_transfer(test):
 	l, a = new()
 	ix = system.Matrix(a)
 	try:
-		with ix.xact() as alloc:
-			r, w = os.pipe()
-			r = alloc('octets://acquire/input', r)
-			w = alloc('octets://acquire/output', w)
+		r, w = os.pipe()
+		r = system.io.alloc_input(r)
+		w = system.io.alloc_output(w)
+		ix.acquire(None, [r, w])
 
 		buf = r.rallocate(60)
 		r.acquire(buf)
@@ -203,10 +205,11 @@ def test_matrix_transfer(test):
 		for x in range(8):
 			ix.force(a)
 
-		with ix.xact() as alloc:
-			r, w = os.pipe()
-			r = alloc('octets://acquire/input', r)
-			w = alloc('octets://acquire/output', w)
+		r, w = os.pipe()
+		r = system.io.alloc_input(r)
+		w = system.io.alloc_output(w)
+		ix.acquire(None, [r, w])
+
 		# Couple cycles should trigger the exit_at_zero reset.
 		ix.force()
 		ix.force()
@@ -225,9 +228,11 @@ def test_alloc_single_matrix(test):
 	l, a = new()
 	ix = system.Matrix(a)
 	try:
-		with ix.xact() as alloc:
-			r = alloc('octets://acquire/input', os.open('/dev/zero', os.O_RDONLY))
-			r2 = alloc('octets://acquire/input', os.open('/dev/zero', os.O_RDONLY))
+		r = os.open('/dev/zero', os.O_RDONLY)
+		r2 = os.open('/dev/zero', os.O_RDONLY)
+		r = system.io.alloc_input(r)
+		r2 = system.io.alloc_input(r2)
+		ix.acquire(None, [r, r2])
 
 		r.acquire(bytearray(b'\xFF'*10))
 		r2.acquire(bytearray(b'\xFF'*10))
@@ -251,11 +256,13 @@ def test_matrix_overflow(test):
 	ix = system.Matrix(a)
 	ix.channels_per_array = 0
 	try:
-		with ix.xact() as alloc:
-			for i in range(10):
-				r, w = os.pipe()
-				r = alloc('octets://acquire/input', r)
-				w = alloc('octets://acquire/output', w)
+		tset = []
+		for i in range(20):
+			r, w = os.pipe()
+			tset.append(system.io.alloc_input(r))
+			tset.append(system.io.alloc_output(w))
+
+		ix.acquire(None, tset)
 
 		# checking for per array limits
 		# ix.acquire allows the entire overflow to spill into the new array.
@@ -269,23 +276,6 @@ def test_matrix_void(test):
 	# empty, safe to run.
 	ix.void()
 	# XXX: needs to be tested in a fork
-
-def test_matrix_xact_fail(test):
-	"""
-	# .xact() context block that raises an exception
-	"""
-	l, a = new()
-
-	ix = system.Matrix(a)
-	# empty, safe to run.
-	try:
-		with test/Exception as e:
-			with ix.xact() as alloc:
-				r = alloc('octets://acquire/input', os.open('/dev/zero', os.O_RDONLY))
-				raise Exception("error-string")
-		test/r.terminated == True
-	finally:
-		ix.terminate()
 
 if __name__ == '__main__':
 	import sys; from ....test import library as libtest
