@@ -358,11 +358,6 @@ class Interface(core.Context):
 		for listen in acquire(kports):
 			x, flow = listen
 
-			if x is not None:
-				if_r = (x.interface, x.port)
-			else:
-				if_r = None
-
 			t = Transfer()
 			xact = create(t)
 			dispatch(xact)

@@ -3,8 +3,6 @@
 
 # [ Properties ]
 
-# /allocate/
-	# Access to &..system.io.Array.rallocate for Channel allocations.
 # /io_adapter/
 	# The &Adapter instance used by &.system.Process to manage I/O events.
 # /__process_index__/
@@ -32,6 +30,7 @@ import time
 
 from ..context import tools
 
+from ..system import network
 from ..system import io
 from ..system import events
 from ..system import process
@@ -48,8 +47,6 @@ from . import text
 
 __process_index__ = dict()
 __io_index__ = dict()
-
-allocate = io.Array.rallocate
 
 # This class primarily exists for documentation purposes.
 class Adapter(tuple):
