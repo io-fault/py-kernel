@@ -6,7 +6,6 @@
 # of just data.
 """
 import sys
-import array
 import collections
 import functools
 import weakref

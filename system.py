@@ -12,7 +12,6 @@
 	# Interchange holds references back to the process.
 """
 
-import array
 import os
 import sys
 import functools
