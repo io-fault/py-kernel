@@ -191,7 +191,7 @@ def test_matrix_transfer(test):
 		w = system.io.alloc_output(w)
 		ix.acquire(None, [r, w])
 
-		buf = r.rallocate(60)
+		buf = bytearray(60)
 		r.acquire(buf)
 		w.acquire(b'4' * 60)
 		while not w.exhausted or not r.exhausted:
