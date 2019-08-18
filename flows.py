@@ -38,7 +38,7 @@ class Event(object):
 		index = {v:k for k, v in globals().items() if k.startswith('fe_')}
 		return index[self]
 
-fe_initiate  = Event()
+fe_initiate = Event()
 fe_clear = Event()
 fe_transfer = Event()
 fe_obstruct = Event()
