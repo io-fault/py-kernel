@@ -30,6 +30,7 @@ import time
 
 from ..context import tools
 
+from ..system import kernel
 from ..system import network
 from ..system import io
 from ..system import events
@@ -674,7 +675,7 @@ class KAccept(KAllocate):
 	# Receive integer arrays from the system I/O channel.
 	"""
 
-	ki_allocate, ki_resource_size = (array.array("i", [-1]).__mul__, 24)
+	ki_allocate, ki_resource_size = (kernel.Ports.allocate, 24)
 
 class KInput(KAllocate):
 	"""
