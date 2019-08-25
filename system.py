@@ -824,8 +824,6 @@ class Context(core.Context):
 
 			# Track basic (task loop) cycle stats.
 			('cycles', proc.cycle_count),
-			('frequency', None),
-			('decay', proc.cycle_start_time_decay),
 		]
 
 		return (p, sr)
@@ -1479,7 +1477,7 @@ class Process(object):
 		errctl = (lambda c,v: self.error(c, v, title='Task',))
 
 		while not k.closed:
-			self.cycle_count += 1 # bump cycle
+			self.cycle_count += 1
 			self.cycle_start_time = time_snapshot()
 			self.cycle_start_time_decay = 1 # Incremented by main thread.
 
