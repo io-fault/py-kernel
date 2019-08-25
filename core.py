@@ -1216,7 +1216,7 @@ class Transaction(Sector):
 		"""
 		# The set of subtransactions currently running.
 		"""
-		return self.processors[Transaction]
+		return self.processors.get(Transaction, ())
 
 	def iterprocesses():
 		yield self.xact_context
