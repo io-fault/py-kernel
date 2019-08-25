@@ -356,6 +356,9 @@ class Coprocess(core.Context):
 			self.xact_exit_if_empty()
 		self._cp_root_process = None
 
+	def cp_enqueue(self, task):
+		self._cp_root_process.kernel.enqueue(task)
+
 	def structure(self):
 		p = [
 			x for x in [
