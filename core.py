@@ -1325,9 +1325,9 @@ class Executable(Context):
 
 class Sequenced(Context):
 	"""
-	# Transaction sequence created from a predefined set of &Context instances.
+	# Transaction sequence created from a predefined sequence of &Context instances.
 
-	# Subtransactions are dispatched in order and terminated in reverse order.
+	# Subtransactions are dispatched in order and *terminated in reverse order*.
 	"""
 
 	def __init__(self, contexts):
