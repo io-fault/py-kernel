@@ -67,7 +67,9 @@ class Transfer(core.Context):
 		# Explicitly terminate the managed flow.
 		"""
 
-		self._io_start().f_terminate()
+		first = self._io_start()
+		if first is not None:
+			first.f_terminate()
 
 	def _io_check_terminate(self):
 		if self.xact_empty():
@@ -76,7 +78,7 @@ class Transfer(core.Context):
 
 	def _io_transfer_terminated(self, terminal):
 		"""
-		# Count to two and exit the transaction.
+		# Complete the termination of the transfer.
 		"""
 		self.start_termination()
 		self.enqueue(self._io_check_terminate)
@@ -383,6 +385,8 @@ class Interface(core.Context):
 		self.start_termination()
 		for xact in self.if_sockets:
 			xact.terminate()
+
+		self.xact_exit_if_empty()
 
 class Connections(core.Context):
 	"""
