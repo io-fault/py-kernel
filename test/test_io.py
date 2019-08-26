@@ -110,13 +110,17 @@ def test_Transport_tp_connect(test):
 	test/i.terminated == True
 
 	test/o.terminating == False
-	test/inv.terminated == False
-	test/xact.xact_context.terminated == False
 	test/xact.terminated == False
+	if 0:
+		# Divisions currently communicate receive termination cause i_close.
+		# If that is no longer the case, the following contentions should be made.
+		test/inv.terminated == False
+		test/xact.xact_context.terminated == False
 
-	# Terminate output.
-	inv.i_catenate.f_terminate()
-	test/o.terminating == True
+		# Terminate output.
+		inv.i_catenate.f_terminate()
+		test/o.terminating == True
+
 	ctx(1)
 	test/o.terminated == True
 

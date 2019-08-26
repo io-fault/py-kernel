@@ -984,6 +984,7 @@ class Division(Channel):
 		if not self.div_flows:
 			# Terminate given that there are no connections.
 			self._f_terminated()
+			self.div_dispatch.i_receive_closed()
 		else:
 			self.start_termination()
 
@@ -1019,6 +1020,7 @@ class Division(Channel):
 			del self.div_flows[channel_id]
 			if not self.div_flows and self.terminating:
 				self._f_terminated()
+				self.div_dispatch.i_receive_closed()
 
 			return terminal
 
@@ -1042,6 +1044,7 @@ class Division(Channel):
 			if not self.div_flows and self.terminating:
 				# Complete termination.
 				self._f_terminated()
+				self.div_dispatch.i_receive_closed()
 
 	def div_transfer(self, f_event, channel_id, subflow_transfer):
 		"""
@@ -1079,6 +1082,7 @@ class Division(Channel):
 			if not self.div_flows and self.terminating:
 				# Final division.
 				self._f_terminated()
+				self.div_dispatch.i_receive_closed()
 
 	div_operations = {
 		fe_initiate: div_initiate,

@@ -107,6 +107,9 @@ class Invocations(core.Processor):
 	def terminate(self):
 		self.finish_termination()
 
+	def i_receive_closed(self):
+		self.i_close()
+
 	def i_dispatch(self, events):
 		# Synchronized on Logical Process Task Queue
 		# Point of this local task queue is to manage the stack context
@@ -195,7 +198,7 @@ class Transport(core.Context):
 	"""
 
 	def actuate(self):
-		self.provide('transport')
+		pass
 
 	def __init__(self):
 		self._tp_channels = {}
