@@ -340,10 +340,16 @@ class Interface(core.Context):
 	"""
 	# Application context managing a logical interfaces.
 	"""
+	_if_initial = None
 
 	def __init__(self, target, prepare):
 		self.if_target = target
 		self.if_prepare = prepare
+
+	def actuate(self):
+		if self._if_initial is not None:
+			self._if_dispatch(self._if_initial)
+			del self._if_initial
 
 	def if_transition(self, ports, chain=itertools.chain.from_iterable):
 		eps = map(self.system.allocate_transport, chain(ports))
@@ -355,6 +361,15 @@ class Interface(core.Context):
 		# accepting sockets from the given listening sockets.
 		"""
 
+		if not self.functioning:
+			if self._if_initial is None:
+				self._if_initial = kports
+			else:
+				self._if_initial += kports
+		else:
+			self._if_dispatch(kports)
+
+	def _if_dispatch(self, kports):
 		acquire = self.system.acquire_listening_sockets
 		create = core.Transaction.create
 		dispatch = self.controller.dispatch
