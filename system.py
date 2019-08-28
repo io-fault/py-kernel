@@ -809,8 +809,12 @@ class Context(core.Context):
 		for x, xact in self.executables.items():
 			xact.terminate()
 
+	@property
+	def process(self):
+		return self._process_ref()
+
 	def __init__(self, process):
-		self.process = weakref.proxy(process)
+		self._process_ref = weakref.ref(process)
 		self.executables = weakref.WeakValueDictionary()
 		self.attachments = []
 
@@ -1318,14 +1322,6 @@ class Process(object):
 
 		self._logfile.write(data)
 		self._logfile.flush()
-
-	def fork(self, *tasks):
-		"""
-		# Fork the process and enqueue the given tasks in the child.
-		# Returns a &.library.Subprocess instance referring to the Process-Id.
-		"""
-
-		return process.Fork.dispatch(self.boot, *tasks)
 
 	def boot(self, *tasks):
 		"""
