@@ -659,7 +659,11 @@ class KAllocate(KChannel):
 			return
 
 		alloc = self.ki_allocate(self.ki_resource_size)
-		self.acquire(alloc)
+		if alloc:
+			self.acquire(alloc)
+		else:
+			self.acquire(alloc)
+			self.channel.terminate()
 
 	def f_transfer(self, event, source=None):
 		"""
@@ -1005,11 +1009,45 @@ class Context(core.Context):
 
 	def read_file(self, path):
 		"""
-		# Open a set of files for reading through a &.library.KernelPort.
+		# Construct a channel for reading an entire file from the filesystem.
+		# The returned channel terminates when EOF occurs; often,
+		# &read_file_range is preferrable to avoid status inconsistencies.
 		"""
 
 		fd = os.open(path, os.O_RDONLY)
 		return KInput(io.alloc_input(fd))
+
+	def read_file_range(self, path, start, stop,
+			iter=iter,
+			open=os.open, seek=os.lseek, close=os.close,
+			chain=itertools.chain, repeat=itertools.repeat,
+		):
+		"""
+		# Construct a channel to read a specific range of a file.
+		"""
+
+		#ki_allocate, ki_resource_size = (bytearray, 1024*4)
+		fd = open(path, os.O_RDONLY)
+		size = stop - start
+		if size < 0:
+			raise ValueError("start exceeds stop")
+
+		try:
+			if start:
+				seek(fd, start, 0)
+
+			ki = KInput(io.alloc_input(fd))
+			buffers = size // ki.ki_resource_size
+			remainder = size - (buffers * ki.ki_resource_size)
+			initial = repeat(ki.ki_resource_size, buffers)
+			i = iter(chain(initial, (remainder, 0)))
+			alloc = ki.ki_allocate
+			ki.ki_allocate = (lambda x: alloc(i.__next__()))
+
+			return ki
+		except:
+			close(fd)
+			raise
 
 	def append_file(self, path):
 		"""
