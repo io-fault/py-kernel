@@ -658,12 +658,7 @@ class KAllocate(KChannel):
 			# explicitly obstructed by the downstream.
 			return
 
-		alloc = self.ki_allocate(self.ki_resource_size)
-		if alloc:
-			self.acquire(alloc)
-		else:
-			self.acquire(alloc)
-			self.channel.terminate()
+		self.acquire(self.ki_allocate(self.ki_resource_size))
 
 	def f_transfer(self, event, source=None):
 		"""
@@ -686,6 +681,43 @@ class KInput(KAllocate):
 	"""
 
 	ki_allocate, ki_resource_size = (bytearray, 1024*4)
+
+class KLimit(KInput):
+	"""
+	# Receive octets from the system I/O channel with limited memory allocations.
+	# Primarily used to read portions of a file.
+	"""
+	k_limit = None
+
+	def k_set_limit(self, limit, repeat=itertools.repeat, chain=itertools.chain):
+		assert self.k_limit is None # Once.
+
+		self.k_limit = limit
+		allocsize = self.ki_resource_size
+
+		buffers = limit // allocsize
+		remainder = limit - (buffers * allocsize)
+		initial = repeat(allocsize, buffers)
+
+		self._k_limit_state = iter(chain(initial, (remainder,)))
+
+		return self
+
+	def k_transition(self):
+		"""
+		# Transition in the next buffer provided that the Flow was not obstructed.
+		"""
+
+		if self.f_obstructed:
+			# Don't allocate another buffer if the flow has been
+			# explicitly obstructed by the downstream.
+			return
+
+		for r_size in self._k_limit_state: # HINT: k_set_limit not called?
+			self.acquire(self.ki_allocate(r_size))
+			break
+		else:
+			self.channel.terminate()
 
 class KOutput(KChannel):
 	"""
@@ -1018,15 +1050,12 @@ class Context(core.Context):
 		return KInput(io.alloc_input(fd))
 
 	def read_file_range(self, path, start, stop,
-			iter=iter,
 			open=os.open, seek=os.lseek, close=os.close,
-			chain=itertools.chain, repeat=itertools.repeat,
 		):
 		"""
 		# Construct a channel to read a specific range of a file.
 		"""
 
-		#ki_allocate, ki_resource_size = (bytearray, 1024*4)
 		fd = open(path, os.O_RDONLY)
 		size = stop - start
 		if size < 0:
@@ -1036,15 +1065,7 @@ class Context(core.Context):
 			if start:
 				seek(fd, start, 0)
 
-			ki = KInput(io.alloc_input(fd))
-			buffers = size // ki.ki_resource_size
-			remainder = size - (buffers * ki.ki_resource_size)
-			initial = repeat(ki.ki_resource_size, buffers)
-			i = iter(chain(initial, (remainder, 0)))
-			alloc = ki.ki_allocate
-			ki.ki_allocate = (lambda x: alloc(i.__next__()))
-
-			return ki
+			return KLimit(io.alloc_input(fd)).k_set_limit(size)
 		except:
 			close(fd)
 			raise
