@@ -1056,10 +1056,11 @@ class Context(core.Context):
 		# Construct a channel to read a specific range of a file.
 		"""
 
-		fd = open(path, os.O_RDONLY)
 		size = stop - start
 		if size < 0:
 			raise ValueError("start exceeds stop")
+
+		fd = open(path, os.O_RDONLY)
 
 		try:
 			if start:
