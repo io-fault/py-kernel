@@ -58,5 +58,4 @@ def test_Relay_interrupt(test):
 
 	test/c.c_storage == []
 	test/r.terminated == True
-	test/re.interrupted == True
 	test/c.interrupted == False

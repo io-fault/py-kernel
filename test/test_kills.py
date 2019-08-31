@@ -12,7 +12,6 @@ def test_fault(test):
 	s.dispatch(f1)
 	s.dispatch(f)
 	ctx.flush()
-	test/s.interruptor == f
 	test/f1.interrupted == True
 	test/s.interrupted == True
 	test/bool(f.exceptions) == True

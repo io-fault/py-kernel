@@ -176,16 +176,53 @@ class Condition(object):
 # A condition that will never be true.
 Inexorable = Condition(builtins, ('False',))
 
-class Resource(object):
+class ExceptionStructure(object):
 	"""
-	# Base class for &Processor.
-
-	# [ Properties ]
-	# /controller/
-		# The &Resource containing this &Resource.
+	# Exception associated with an interface supporting the sequencing of processor trees.
 	"""
 
-	context = None
+	actuated=True
+	terminated=False
+	interrupted=False
+	def __init__(self, identity, exception):
+		self.identity = identity
+		self.exception = exception
+
+	def __getitem__(self, k):
+		return (self.identity, self)[k]
+
+	def structure(self):
+		# exception reporting facility
+		exc = self.exception
+
+		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
+		formatting = ''.join(formatting)
+
+		p = [
+			('traceback', formatting),
+		]
+
+		return (p, ())
+
+class Processor(object):
+	"""
+	# A resource that maintains an arbitrary state.
+
+	# State Transition Sequence.
+
+		# # Instantiated
+		# # Actuated
+		# # Functioning
+		# # Terminating
+		# # Terminated
+
+	# Where the functioning state designates that the implementation specific state
+	# has been engaged. Often, actuation and termination intersect with implementation states.
+
+	# The interrupted state is special; its used as a frozen state of the machine and is normally
+	# associated with an exception. The term interrupt is used as it is nearly analogous with UNIX
+	# process interrupts (unix.signal)`SIGINT`.
+	"""
 
 	def _unset_sector(self):
 		return None
@@ -233,30 +270,6 @@ class Resource(object):
 			mn, qn, hex(id(self))
 		)
 
-	def subresource(self, ascent:'Resource', Ref=weakref.ref):
-		"""
-		# Assign &ascent as the controller of &self and inherit its &Context.
-		"""
-
-		self._pexe_contexts = ascent._pexe_contexts
-		for field in ascent._pexe_contexts:
-			setattr(self, field, getattr(ascent, field))
-		self._sector_reference = Ref(ascent)
-
-	def relocate(self, ascent):
-		"""
-		# Relocate the Resource into the &ascent Resource.
-
-		# Primarily used to relocate &Processors from one sector into another.
-		# Controller resources may not support move operations; the origin
-		# location must support the erase method and the destination must
-		# support the acquire method.
-		"""
-
-		controller = self.sector
-		ascent.acquire(self)
-		controller.eject(self)
-
 	def structure(self):
 		"""
 		# Returns a pair, a list of properties and list of subresources.
@@ -269,66 +282,7 @@ class Resource(object):
 
 		# Implementations are used by &.library.format and &.library.sequence.
 		"""
-
-		return None
-
-class ExceptionStructure(object):
-	"""
-	# Exception associated with an interface supporting the sequencing of processor trees.
-	"""
-
-	actuated=True
-	terminated=False
-	interrupted=False
-	def __init__(self, identity, exception):
-		self.identity = identity
-		self.exception = exception
-
-	def __getitem__(self, k):
-		return (self.identity, self)[k]
-
-	def structure(self):
-		# exception reporting facility
-		exc = self.exception
-
-		formatting = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
-		formatting = ''.join(formatting)
-
-		p = [
-			('traceback', formatting),
-		]
-
-		return (p, ())
-
-class Processor(Resource):
-	"""
-	# A resource that maintains an abstract computational state. Processors are
-	# awaitable and can be used by coroutines.
-
-	# Processor resources essentially manage state machines and provide an
-	# abstraction for initial and terminal states that are often used.
-
-	# State Transition Sequence.
-
-		# # Instantiated
-		# # Actuated
-		# # Functioning
-		# # Terminating
-		# # Terminated
-
-	# Where the functioning state designates that the implementation specific state
-	# has been engaged. Often, actuation and termination intersect with implementation states.
-
-	# The interrupted state is special; its used as a frozen state of the machine and is normally
-	# associated with an exception. The term interrupt is used as it is nearly analogous with UNIX
-	# process interrupts (unix.signal)`SIGINT`.
-
-	# [ Engineering ]
-	# The Processor state is managed using a set of booleans. Considering the
-	# number of processors that will be present in any complex system, condensing
-	# the storage requirements by using a bitmask would help reduce the memory
-	# footprint.
-	"""
+		pass
 
 	_pexe_state = 0 # defaults to "object initialized"
 	_pexe_states = (
@@ -373,9 +327,6 @@ class Processor(Resource):
 			# No controller.
 			return None
 
-	# Origin of the interrupt or terminate
-	interrupted = False
-
 	exceptions = None
 
 	@property
@@ -413,16 +364,12 @@ class Processor(Resource):
 	def terminate(self, by=None):
 		"""
 		# Terminate the Processor using &interrupt and exit.
-		# If &self did not implement &interrupt, a &RuntimeError will be raised.
 		"""
 
 		if self.terminated:
 			return False
 
 		self.interrupt()
-		if not self.interrupted:
-			raise RuntimeError("processor was not interrupted by default termination")
-
 		self.finish_termination()
 		return True
 
@@ -543,6 +490,11 @@ class Sector(Processor):
 	scheduler = None
 	exits = None
 	processors = None
+	_sector_interrupted = False
+
+	@property
+	def interrupted(self):
+		return self._sector_interrupted
 
 	def iterprocessors(self):
 		return itertools.chain.from_iterable(self.processors.values())
@@ -557,7 +509,7 @@ class Sector(Processor):
 		for proc in processors:
 			sprocs[proc.placement()].add(proc)
 
-	def actuate(self):
+	def actuate(self, setattr=setattr, getattr=getattr, WR=weakref.ref):
 		"""
 		# Actuate the Sector by actuating its processors.
 		# There is no guarantee to the order in which the controlled
@@ -570,8 +522,14 @@ class Sector(Processor):
 		"""
 
 		try:
+			wr = WR(self)
 			for proc in list(self.iterprocessors()):
-				proc.subresource(self)
+				# dispatch
+				proc._pexe_contexts = self._pexe_contexts
+				for field in proc._pexe_contexts:
+					setattr(proc, field, getattr(self, field))
+				proc._sector_reference = wr
+
 				proc.actuate()
 				proc._pexe_state = 1
 		except BaseException as exc:
@@ -582,9 +540,8 @@ class Sector(Processor):
 		# Initialize the &scheduler for the &Sector.
 		"""
 		sched = self.scheduler = Scheduler()
-		sched.subresource(self)
-		sched.actuate()
-		sched._pexe_state = 1
+		self.dispatch(sched)
+		del self.processors[Scheduler]
 
 	def eject(self, processor):
 		"""
@@ -617,11 +574,8 @@ class Sector(Processor):
 		# The order of interruption is random, and *should* be insignificant.
 		"""
 
-		if self.interrupted:
+		if self._sector_interrupted:
 			return
-
-		self.interrupted = True
-		self.interruptor = by
 
 		if self.scheduler is not None:
 			self.scheduler.interrupt()
@@ -636,6 +590,7 @@ class Sector(Processor):
 				processor.interrupt() # Class
 
 		# exits are managed by the invoker
+		self._sector_interrupted = True
 
 	def exited(self, processor, set=set):
 		"""
@@ -656,32 +611,23 @@ class Sector(Processor):
 
 		self.exits.add(processor)
 
-	def dispatch(self, processor:Processor):
+	def dispatch(self, processor:Processor, getattr=getattr, setattr=setattr, WR=weakref.ref):
 		"""
 		# Dispatch the given &processor inside the Sector.
-		# Assigns the processor as a subresource of the
-		# instance, affixes it, and actuates it.
 
-		# Returns the result of actuation, the &processor.
+		# Returns the given processor.
 		"""
 
-		processor.subresource(self)
+		processor._pexe_contexts = self._pexe_contexts
+		for field in self._pexe_contexts:
+			setattr(processor, field, getattr(self, field))
+		processor._sector_reference = WR(self)
+
 		self.processors[processor.placement()].add(processor)
 		processor.actuate()
 		processor._pexe_state = 1
 
 		return processor
-
-	def coroutine(self, gf):
-		"""
-		# Dispatches an arbitrary coroutine returning function as a &Coroutine instance.
-		"""
-
-		gc = Coroutine.from_callable(gf)
-		self.processors[Coroutine].add(gc)
-		gc.subresource(self)
-
-		return gc.actuate()
 
 	def _flow(self, series):
 		x = series[0]
@@ -775,6 +721,9 @@ class Scheduler(Processor):
 	scheduled_reference = None
 	x_ops = None
 
+	def placement(self):
+		return self.__class__
+
 	def structure(self):
 		sr = ()
 		p = []
@@ -789,8 +738,8 @@ class Scheduler(Processor):
 
 		self.persistent = True
 
-		controller = self.sector
-		sched = getattr(controller, 'scheduler', None)
+		sector = self.sector
+		sched = getattr(sector, 'scheduler', None)
 
 		if True:
 			# System
@@ -799,13 +748,13 @@ class Scheduler(Processor):
 				self.system.cancel
 			)
 		else:
-			controller = controller.sector
+			sector = sector.sector
 
-			while controller is not None:
-				if controller.scheduler is not None:
-					sched = controller.scheduler
+			while sector is not None:
+				if sector.scheduler is not None:
+					sched = sector.scheduler
 					break
-				controller = controller.sector
+				sector = sector.sector
 			else:
 				raise RuntimeError("no scheduling ancestor")
 
@@ -1022,7 +971,7 @@ class Recurrence(Processor):
 		self.finish_termination()
 
 	def interrupt(self):
-		self.interrupted = True
+		self.recur_target = (lambda: None)
 
 class Context(Processor):
 	"""
@@ -1145,7 +1094,6 @@ class Context(Processor):
 		self.xact_exit = xact_event
 		self.xact_void = xact_event
 		self.xact_dispatch = xact_event
-		self.interrupted = True
 
 class Transaction(Sector):
 	"""

@@ -228,7 +228,6 @@ class Channel(core.Processor):
 		self.f_transfer = self.f_discarding
 		self.f_emit = self.f_discarding
 		self.f_terminate = self.f_discarding
-		self.interrupted = True
 
 	def f_transfer(self, event):
 		"""

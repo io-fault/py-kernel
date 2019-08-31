@@ -83,9 +83,6 @@ class SystemChannel(object):
 	def acquire(self, obj):
 		self.resource = obj
 
-	def subresource(self, obj):
-		self.sector = self.controller = obj
-
 	def process(self, event):
 		pass
 
@@ -104,10 +101,15 @@ class Root(object):
 		# Fires immediately at root level.
 		task()
 
-	def dispatch(self, proc):
-		self.processor = proc
-		proc.subresource(self)
-		proc.actuate()
+	def dispatch(self, processor):
+		self.processor = processor
+
+		processor._pexe_contexts = self._pexe_contexts
+		for field in self._pexe_contexts:
+			setattr(processor, field, getattr(self, field))
+		processor._sector_reference = (lambda: self)
+
+		processor.actuate()
 
 def sector(count=1):
 	"""

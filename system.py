@@ -835,7 +835,6 @@ class Context(core.Context):
 		self.process.terminate(status)
 
 	def interrupt(self):
-		self.interrupted = True
 		self._io_flush = tools.nothing
 		self._io_attach = tools.nothing
 		self._io_cycle = tools.nothing

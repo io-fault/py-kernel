@@ -57,9 +57,6 @@ class Call(core.Processor):
 		# Ineffective.
 		self.start_termination()
 
-	def interrupt(self):
-		self.interrupted = True
-
 class Coroutine(core.Processor):
 	"""
 	# Processor for coroutines.
@@ -120,7 +117,6 @@ class Coroutine(core.Processor):
 
 	def interrupt(self):
 		self.state.throw(KeyboardInterrupt)
-		self.interrupted = True
 
 class Thread(core.Processor):
 	"""
@@ -270,16 +266,11 @@ class Subprocess(core.Context):
 		# Exit status will be reaped, but not reported to &self.
 		"""
 
-		if self.interrupted:
-			return False
-
 		for pid in self.sp_waiting:
 			try:
 				send_signal(pid, 9)
 			except ProcessLookupError:
 				pass
-
-		self.interrupted = True
 
 	@property
 	def sp_only(self):
@@ -383,9 +374,6 @@ class Coprocess(core.Context):
 		# Exit status will be reaped, but not reported to &self.
 		"""
 
-		if self.interrupted:
-			return False
-
 		try:
 			xact = self._cp_root_process.transaction()
 		except:
@@ -393,8 +381,6 @@ class Coprocess(core.Context):
 			pass
 		else:
 			xact.critical(xact.interrupt)
-
-		self.interrupted = True
 
 	def terminate(self):
 		"""
