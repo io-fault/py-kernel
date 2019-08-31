@@ -187,24 +187,28 @@ class Resource(object):
 
 	context = None
 
-	def _unset_controller(self):
+	def _unset_sector(self):
 		return None
-	controller_reference = _unset_controller
-	del _unset_controller
+	_sector_reference = _unset_sector
+	del _unset_sector
 
-	def _dereference_controller(self):
-		return self.controller_reference()
+	def _invert_sector_reference(self):
+		p_sector = self.sector
+		self._sector_reference = (lambda x: p_sector)
 
-	def _set_controller_reference(self, obj, Ref = weakref.ref):
-		self.controller_reference = Ref(obj)
+	def _dereference_sector(self):
+		return self._sector_reference()
 
-	controller = property(
-		fget = _dereference_controller,
-		fset = _set_controller_reference,
-		doc = "Direct ascending resource containing this resource."
+	def _set_sector_reference(self, obj, Ref=weakref.ref):
+		self._sector_reference = Ref(obj)
+
+	sector = controller = property(
+		fget = _dereference_sector,
+		fset = _set_sector_reference,
+		doc = "The managing processor."
 	)
-	del _dereference_controller
-	del _set_controller_reference
+	del _dereference_sector
+	del _set_sector_reference
 
 	def controllerstack(self):
 		"""
@@ -219,18 +223,6 @@ class Resource(object):
 			obj = obj.controller
 
 		return stack
-
-	@property
-	def sector(self, isinstance=isinstance):
-		"""
-		# Identify the &Sector holding the &Resource by scanning the &controller stack.
-		"""
-
-		c = self.controller
-		while c and not isinstance(c, Sector):
-			c = c.controller
-
-		return c
 
 	def __repr__(self):
 		c = self.__class__
@@ -249,7 +241,7 @@ class Resource(object):
 		self._pexe_contexts = ascent._pexe_contexts
 		for field in ascent._pexe_contexts:
 			setattr(self, field, getattr(ascent, field))
-		self.controller_reference = Ref(ascent)
+		self._sector_reference = Ref(ascent)
 
 	def relocate(self, ascent):
 		"""
