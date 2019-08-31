@@ -811,7 +811,7 @@ class Context(core.Context):
 		"""
 		# The scheduler processor associated with the system context.
 		"""
-		only, = self.controller.processors[core.Scheduler]
+		only, = self.sector.processors[core.Scheduler]
 		return only
 
 	def xact_exit(self, xact:core.Transaction):
@@ -831,7 +831,7 @@ class Context(core.Context):
 		"""
 
 		status = getattr(final.xact_context, 'exe_status', None)
-		self.controller.interrupt()
+		self.sector.interrupt()
 		self.process.terminate(status)
 
 	def interrupt(self):
@@ -871,7 +871,7 @@ class Context(core.Context):
 	def actuate(self):
 		# Allows the roots to perform scheduling.
 		self.provide('system')
-		assert self.controller.system is self
+		assert self.sector.system is self
 
 	def connect_process_exit(self, xact_context, callback, *processes):
 		p = self.process
@@ -896,14 +896,14 @@ class Context(core.Context):
 		xact.system = self
 		xactctx.system = self
 		self.executables[xactctx.exe_identifier] = xact
-		self.controller.dispatch(xact)
+		self.sector.dispatch(xact)
 
 	def report(self, target):
 		"""
 		# Send an overview of the logical process state to the given target.
 		"""
 
-		target("\n".join(text.format('process-transaction', self.controller)))
+		target("\n".join(text.format('process-transaction', self.sector)))
 		target("\n")
 
 	def defer(self, measure, task, maximum=6000, seconds=timetypes.Measure.of(second=2)):

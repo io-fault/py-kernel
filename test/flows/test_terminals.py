@@ -22,7 +22,7 @@ def test_Terminal(test):
 	ctx = testlib.Executable()
 	exit = testlib.ExitController()
 	t = library.Terminal(callback)
-	t.controller = exit
+	t.sector = exit
 	t.executable = ctx
 	t.actuate()
 
@@ -49,11 +49,11 @@ def test_Collection(test):
 	exit = testlib.ExitController()
 
 	c = library.Collection.dict()
-	c.controller = exit
+	c.sector = exit
 	c.executable = ctx
 
 	f = library.Channel()
-	f.controller = exit
+	f.sector = exit
 	f.context = ctx
 	f.actuate()
 	f.f_connect(c)
@@ -72,11 +72,11 @@ def test_Collection(test):
 	test/c.c_storage == {1:"value1",2:"override",3:"value3","string-key":1}
 
 	c = library.Collection.set()
-	c.controller = exit
+	c.sector = exit
 	c.context = ctx
 
 	f = library.Channel()
-	f.controller = exit
+	f.sector = exit
 	f.context = ctx
 	f.actuate()
 	f.f_connect(c)

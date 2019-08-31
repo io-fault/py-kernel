@@ -30,7 +30,7 @@ class Timeout(core.Processor):
 		self.fto_wait_time = remainder
 
 	def actuate(self):
-		self.controller.scheduler.defer(self.fto_wait_time, self.fto_execute)
+		self.sector.scheduler.defer(self.fto_wait_time, self.fto_execute)
 
 	def terminate(self, by=None):
 		"""
@@ -38,7 +38,7 @@ class Timeout(core.Processor):
 		"""
 		if not super().terminate(by=by):
 			return False
-		self.controller.scheduler.cancel(self.fto_execute)
+		self.sector.scheduler.cancel(self.fto_execute)
 		self.exit()
 
 	def fto_execute(self):

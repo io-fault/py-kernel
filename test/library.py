@@ -41,10 +41,10 @@ class Executable(object):
 
 	def faulted(self, resource):
 		self.faults.append(resource)
-		faultor = resource.controller
+		faultor = resource.sector
 		faultor.interrupt(resource)
-		if faultor.controller:
-			faultor.controller.exited(faultor)
+		if faultor.sector:
+			faultor.sector.exited(faultor)
 
 	def __call__(self, times=1):
 		# Drain task queue n-times.
@@ -84,7 +84,7 @@ class SystemChannel(object):
 		self.resource = obj
 
 	def subresource(self, obj):
-		self.controller = obj
+		self.sector = self.controller = obj
 
 	def process(self, event):
 		pass
@@ -98,7 +98,7 @@ class Root(object):
 	def exited(self, procs):
 		self.exits.append(procs)
 
-	controller = None
+	sector = controller = None
 
 	def enqueue(self, task):
 		# Fires immediately at root level.
@@ -121,7 +121,7 @@ def sector(count=1):
 		sect.enqueue = ctx.enqueue
 		sect._pexe_contexts = ('enqueue', 'executable',)
 		x = ExitController()
-		sect.controller = x
-		sect.CONTROLLER = x
+		sect.sector = sect.controller = x
+		sect.SECTOR = sect.CONTROLLER = x
 		sect.actuate()
 		yield sect

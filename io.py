@@ -42,7 +42,7 @@ class Transfer(core.Context):
 		assert self._io_start is None
 
 		self._io_start = weakref.ref(series[0])
-		dispatch = self.controller.dispatch
+		dispatch = self.sector.dispatch
 
 		end = Terminal(self._io_transfer_terminated)
 		for x in series:
@@ -134,7 +134,7 @@ class Invocations(core.Processor):
 		return self.i_router(self)
 
 	def i_close(self):
-		self.controller.xact_context.io_transmit_close()
+		self.sector.xact_context.io_transmit_close()
 
 	def _m_transition(self):
 		# Must be called within same processor.
@@ -301,11 +301,11 @@ class Transport(core.Context):
 		self._tp_channels[state] = io
 		top = self._tp_stack[-1]
 		self._tp_stack.append(state)
-		dispatch = self.controller.dispatch
+		dispatch = self.sector.dispatch
 		top[0].f_inject(io[0])
 		top[1].f_inject(io[1])
-		top[0].controller.dispatch(io[0])
-		top[1].controller.dispatch(io[1])
+		top[0].sector.dispatch(io[0])
+		top[1].sector.dispatch(io[1])
 
 	def tp_protocol_terminated(self, state):
 		"""
@@ -372,7 +372,7 @@ class Interface(core.Context):
 	def _if_dispatch(self, kports):
 		acquire = self.system.acquire_listening_sockets
 		create = core.Transaction.create
-		dispatch = self.controller.dispatch
+		dispatch = self.sector.dispatch
 		fdispatch = flows.Dispatch
 
 		for listen in acquire(kports):
@@ -394,7 +394,7 @@ class Interface(core.Context):
 
 	@property
 	def if_sockets(self):
-		return self.controller.subtransactions
+		return self.sector.subtransactions
 
 	def terminate(self):
 		if not self.functioning:
@@ -419,7 +419,7 @@ class Connections(core.Context):
 		"""
 		# Moving to Sockets. Routing will be handled with flows.
 		"""
-		xdispatch = self.controller.dispatch
+		xdispatch = self.sector.dispatch
 		idispatch = self.cxn_dispatch
 
 		source, events = packet

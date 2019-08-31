@@ -18,9 +18,9 @@ def test_Transformation(test):
 		i = i + 1
 		return event+1
 	t = flows.Transformation(f)
-	t.controller = ec
+	t.sector = ec
 	c = flows.Collection.list()
-	c.controller = ec
+	c.sector = ec
 	t.executable = ctx
 	c.executable = ctx
 	t.enqueue = ctx.enqueue

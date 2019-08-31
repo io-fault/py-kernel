@@ -80,7 +80,7 @@ class Coroutine(core.Processor):
 
 	def _co_complete(self):
 		super().terminate()
-		self.controller.exited(self)
+		self.sector.exited(self)
 
 	def container(self):
 		"""

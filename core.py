@@ -216,11 +216,11 @@ class Resource(object):
 		"""
 
 		stack = []
-		obj = self.controller
+		obj = self.sector
 
 		while obj is not None:
 			add(obj)
-			obj = obj.controller
+			obj = obj.sector
 
 		return stack
 
@@ -253,7 +253,7 @@ class Resource(object):
 		# support the acquire method.
 		"""
 
-		controller = self.controller
+		controller = self.sector
 		ascent.acquire(self)
 		controller.eject(self)
 
@@ -367,8 +367,8 @@ class Processor(Resource):
 
 	@property
 	def interrupted(self) -> typing.Union[bool]:
-		if self.controller:
-			return self.controller.interrupted
+		if self.sector:
+			return self.sector.interrupted
 		else:
 			# No controller.
 			return None
@@ -478,7 +478,7 @@ class Processor(Resource):
 		# has completed.
 		"""
 		self._pexe_state = -1
-		return self.controller.exited(self)
+		return self.sector.exited(self)
 
 	def structure(self):
 		"""
@@ -789,7 +789,7 @@ class Scheduler(Processor):
 
 		self.persistent = True
 
-		controller = self.controller
+		controller = self.sector
 		sched = getattr(controller, 'scheduler', None)
 
 		if True:
@@ -799,13 +799,13 @@ class Scheduler(Processor):
 				self.system.cancel
 			)
 		else:
-			controller = controller.controller
+			controller = controller.sector
 
 			while controller is not None:
 				if controller.scheduler is not None:
 					sched = controller.scheduler
 					break
-				controller = controller.controller
+				controller = controller.sector
 			else:
 				raise RuntimeError("no scheduling ancestor")
 
@@ -859,7 +859,7 @@ class Scheduler(Processor):
 		"""
 
 		r = Recurrence(callback)
-		self.controller.dispatch(r)
+		self.sector.dispatch(r)
 		return r
 
 	def transition(self):
@@ -1016,7 +1016,7 @@ class Recurrence(Processor):
 			if not self.interrupted and not self.terminated:
 				self.terminate()
 		else:
-			self.controller.scheduler.defer(next_delay, self._recur_occur)
+			self.sector.scheduler.defer(next_delay, self._recur_occur)
 
 	def terminate(self):
 		self.finish_termination()
@@ -1052,7 +1052,7 @@ class Context(Processor):
 		"""
 		assert identifier is not None
 
-		ctl = self.controller
+		ctl = self.sector
 		if identifier not in ctl._pexe_contexts:
 			ctl._pexe_contexts = ctl._pexe_contexts + (identifier,)
 			setattr(ctl, identifier, self)
@@ -1061,7 +1061,7 @@ class Context(Processor):
 		"""
 		# Whether the Transaction has any processors aside from the Context.
 		"""
-		sector = self.controller
+		sector = self.sector
 		ip = sector.iterprocessors()
 		ctx = next(ip)
 
@@ -1077,7 +1077,7 @@ class Context(Processor):
 		# Check for processors other than &self, if there are none, exit the transaction.
 		"""
 
-		sector = self.controller
+		sector = self.sector
 		sector.reap()
 
 		ip = iter(sector.iterprocessors())
@@ -1094,10 +1094,10 @@ class Context(Processor):
 		# The complete context stack of the &Transaction excluding &self.
 		# First entry is nearest to &self; last is furthest ascent.
 		"""
-		s = self.controller
+		s = self.sector
 
 		while s is not None:
-			s = s.controller
+			s = s.sector
 			try:
 				yield s.xact_context
 			except AttributeError:
@@ -1105,13 +1105,13 @@ class Context(Processor):
 
 	@property
 	def xact_subxacts(self):
-		return self.controller.processors[Transaction]
+		return self.sector.processors[Transaction]
 
 	def xact_dispatch(self, processor:Processor):
 		"""
 		# Dispatch the given &processor into the &Transaction.
 		"""
-		xact = self.controller
+		xact = self.sector
 		xact.dispatch(processor)
 		return self
 
@@ -1256,11 +1256,11 @@ class Executable(Context):
 
 	def actuate(self):
 		self.provide('executable')
-		self.controller.scheduling()
+		self.sector.scheduling()
 
 	def terminate(self):
 		self.start_termination()
-		i = self.controller.iterprocessors()
+		i = self.sector.iterprocessors()
 		next(i)
 		for x in i:
 			x.terminate()
@@ -1304,7 +1304,7 @@ class Executable(Context):
 			if not sector.terminated:
 				# It wasn't interrupted and it wasn't terminated,
 				# so it should be safe to signal its exit.
-				sector.controller.exited(sector)
+				sector.sector.exited(sector)
 
 	def structure(self):
 		p = [
@@ -1342,7 +1342,7 @@ class Sequenced(Context):
 			idx -= 1
 			subxact = self.seq_contexts[idx]
 		if idx >= 0:
-			subxact.controller.terminate()
+			subxact.sector.terminate()
 
 	def xact_void(self, final):
 		self.finish_termination()
@@ -1351,4 +1351,4 @@ class Sequenced(Context):
 		if not self.functioning:
 			return
 		self.start_termination()
-		self.seq_contexts[-1].controller.terminate()
+		self.seq_contexts[-1].sector.terminate()
