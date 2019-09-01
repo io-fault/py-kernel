@@ -543,14 +543,6 @@ class Sector(Processor):
 		self.dispatch(sched)
 		del self.processors[Scheduler]
 
-	def eject(self, processor):
-		"""
-		# Remove the processor from the Sector without performing termination.
-		# Used by &Resource.relocate.
-		"""
-
-		self.processors[processor.__class__].discard(processor)
-
 	_sector_terminated = Processor.exit
 
 	def terminate(self, by=None):
