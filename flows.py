@@ -437,6 +437,9 @@ class Monitor(Terminal):
 		self.tm_archive(area)
 		suffix = self.tm_transfers
 
+		if not suffix or pit.decrease(suffix[-1][-1]).select('second') >= 1:
+			suffix.append((0, pit))
+
 		latest = suffix[-1][-1]
 		t_total = latest.__class__(latest - self.tm_reference)
 
