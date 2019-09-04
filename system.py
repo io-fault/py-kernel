@@ -519,12 +519,6 @@ class KChannel(flows.Channel):
 	"""
 	k_status = None
 
-	def f_clear(self, *args):
-		r = super().f_clear(*args)
-		if self.f_obstructed:
-			pass
-		return r
-
 	def __init__(self, channel=None):
 		self.channel = channel
 		self.acquire = channel.acquire
@@ -648,6 +642,10 @@ class KAllocate(KChannel):
 
 	ki_allocate, ki_resource_size = (None, None)
 
+	def f_clear(self, obstruction):
+		if super().f_clear(obstruction) and self.channel.resource is None:
+			self.k_transition()
+
 	def k_transition(self):
 		"""
 		# Transition in the next buffer provided that the Flow was not obstructed.
@@ -680,7 +678,7 @@ class KInput(KAllocate):
 	# Receive octets from the system I/O channel.
 	"""
 
-	ki_allocate, ki_resource_size = (bytearray, 1024*4)
+	ki_allocate, ki_resource_size = (bytearray, 1024*4*2)
 
 class KLimit(KInput):
 	"""
