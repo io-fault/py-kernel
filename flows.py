@@ -389,8 +389,8 @@ class Monitor(Terminal):
 		self.tm_clockread = sysclock.elapsed
 
 		self.tm_measure = (lambda x: sum(map(len, x)))
-		self.tm_transfers = []
 		self.tm_reference = self.tm_clockread()
+		self.tm_transfers = [(0, self.tm_reference)]
 		self.tm_aggregate = (0, self.tm_reference.__class__(0)) # units, time before &t_reference
 
 	def f_transfer(self, event):
