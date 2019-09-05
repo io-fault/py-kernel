@@ -11,6 +11,7 @@ import itertools
 import traceback
 import heapq
 
+from ..context import weak
 from ..time import types as timetypes
 from ..time import sysclock
 
@@ -755,10 +756,6 @@ class Scheduler(Processor):
 				sched.cancel,
 			)
 
-	@staticmethod
-	def execute_weak_method(weakmethod):
-		return weakmethod()()
-
 	def cancel(self, *events):
 		"""
 		# Cancel the scheduled events.
@@ -814,11 +811,9 @@ class Scheduler(Processor):
 			# Do nothing if not inside the functioning window.
 			return
 
-		period = self.period
-		get = self.get
 		snapshot = self._snapshot()
 
-		tasks = get(snapshot)
+		tasks = self.get(snapshot)
 		for task_objects in tasks:
 			try:
 				# Resolve weak reference.
@@ -829,7 +824,7 @@ class Scheduler(Processor):
 			except BaseException as scheduled_task_exception:
 				raise
 		else:
-			p = period(snapshot)
+			p = self.period(snapshot)
 
 			try:
 				if p is not None:
@@ -851,11 +846,11 @@ class Scheduler(Processor):
 		# Update the scheduled transition callback.
 		"""
 
-		nr = weakref.WeakMethod(self.transition)
+		nr = weak.Method(self.transition)
 		if self.scheduled_reference is not None:
 			self.x_ops[1](self.scheduled_reference)
 
-		sr = self.scheduled_reference = functools.partial(self.execute_weak_method, nr)
+		sr = self.scheduled_reference = nr.zero
 		self.x_ops[0](self.period(snapshot), sr)
 
 	def period(self, current):
