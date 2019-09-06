@@ -8,8 +8,10 @@ import functools
 import typing
 import errno
 import signal
+import heapq
 
 from . import core
+from ..context import weak
 from ..system import execution
 
 class Call(core.Processor):
@@ -393,3 +395,176 @@ class Coprocess(core.Context):
 		self.start_termination()
 		xact = self._cp_root_process.transaction()
 		self._cp_root_process.enqueue(xact.terminate)
+
+class Recurrence(core.Processor):
+	"""
+	# Timer maintenance for recurring tasks.
+
+	# Usually used for short term recurrences such as animations and status updates.
+	# Recurrences work by deferring the execution of the configured target after
+	# each occurrence. This overhead means that &Recurrence is not well suited for
+	# high frequency executions, but useful in cases where it is important
+	# to avoid overlapping calls.
+	"""
+
+	def __init__(self, target, frequency):
+		self.re_target = target
+		self.re_frequency = frequency
+		self._wm = weak.Method(self.occur).zero
+
+	def actuate(self):
+		"""
+		# Enqueue the initial execution of the recurrence.
+		"""
+
+		self.system._recur(self.re_frequency, self._wm)
+		self.critical(self.occur)
+
+	def occur(self, overflow=None):
+		"""
+		# Invoke a recurrence and use its return to schedule its next iteration.
+		"""
+		self.trap(self.re_target)
+
+	def terminate(self):
+		self.interrupt()
+		self.finish_termination()
+
+	def interrupt(self):
+		self.occur = (lambda x: None)
+		self.system._cancel(self._wm)
+
+class Scheduler(core.Context):
+	"""
+	# Timestamp based transaction scheduling using the system's Real Time clock.
+	"""
+
+	def __init__(self, clock=None, DefaultDict=collections.defaultdict):
+		self._sched_clock = clock
+		self._sched_heap = []
+		self._sched_xacts = DefaultDict(set)
+
+	def actuate(self):
+		if self._sched_clock is None:
+			self._sched_clock = self.system.time
+
+	def structure(self):
+		p = [
+			('scheduled-events', sum(map(len, self._sched_xacts.values()))),
+		]
+		sr = ()
+		return (p, sr)
+
+	def _terminal(self):
+		# occur method after interrupt and terminate.
+		pass
+
+	def terminate(self):
+		if not self.functioning:
+			return
+		self.start_termination()
+
+		for x in self.sector.subtransactions:
+			x.terminate()
+
+		if not self._sched_heap:
+			self.xact_exit_if_empty()
+
+	def xact_void(self, final):
+		if self.terminating and not self._sched_heap:
+			self.interrupt()
+			self.finish_termination()
+
+	def interrupt(self):
+		# cancel the transition callback
+		self.occur = self._terminal
+		self.system.cancel(self)
+
+	def occur(self):
+		"""
+		# Execute the next task given that the period has elapsed.
+		# If the period has not elapsed, reschedule &transition in order to achieve
+		# finer granularity.
+		"""
+
+		snapshot = self._sched_clock()
+
+		events = self._sched_get(snapshot)
+		for overflow, xact in events:
+			self.xact_dispatch(xact)
+		else:
+			# Re-schedule if there are more.
+			p = self._sched_period(snapshot)
+			if p is not None:
+				self.system.defer(p, self)
+
+	def sched_cancel(self, pit, *xacts):
+		"""
+		# Cancel the given transactions that were scheduled for execution at the given &pit.
+
+		# Aside from the time and transaction, &Scheduler has no index for identifying
+		# scheduled events. When such a feature is necessary, an index must be managed
+		# independently or a subclass must be created.
+		"""
+		s = self._sched_xacts[pit]
+		s.difference_update(xacts)
+
+	def sched_insert(self, pit, *xacts):
+		"""
+		# Schedule the &xacts to be executed at the specified Point In Time, &pit.
+		"""
+
+		self._sched_put(pit, xacts)
+
+		if self._sched_heap[0] == pit:
+			self.system.cancel(self)
+			self.system.defer(self._sched_period(self._sched_clock()), self)
+
+	def sched_update(self, items):
+		current = None
+		if self._sched_heap:
+			current = self._sched_heap[0]
+
+		for pit, xact in items:
+			self._sched_put(pit, (xact,))
+
+		if self._sched_heap[0] != current:
+			if current is not None:
+				self.system.cancel(self)
+			self.system.defer(self._sched_period(self._sched_clock()), self)
+
+	def _sched_period(self, current):
+		# The period before the next event should occur.
+		try:
+			return current.measure(self._sched_heap[0])
+		except IndexError:
+			return None
+
+	def _sched_put(self, pit, xacts, push=heapq.heappush) -> int:
+		# Schedules the given events for execution.
+		push(self._sched_heap, pit)
+		self._sched_xacts[pit].update(xacts)
+
+	def _sched_get(self, current, pop=heapq.heappop, push=heapq.heappush):
+		# Return all events whose sheduled delay has elapsed according to the clock's
+		# snapshot, &current.
+		events = []
+
+		while self._sched_heap:
+			# repeat some work in case of concurrent pop
+			item = pop(self._sched_heap)
+			overflow = item.__class__(current - item)
+
+			# the set of callbacks have passed their time.
+			if overflow < 0:
+				# not ready; put it back
+				push(self._sched_heap, item)
+				break
+			else:
+				# If an identical item has already been popped,
+				# an empty set can be returned in order to perform a no-op.
+				scheduled = self._sched_xacts.pop(item, ())
+				for x in scheduled:
+					events.append((overflow, x))
+
+		return events

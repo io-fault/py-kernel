@@ -405,20 +405,19 @@ class Processor(object):
 		self.exit = (lambda: None) # Inhibit normal exit signals
 		self.executable.faulted(self)
 
-	def _fault_trap(self, trapped_task):
+	def trap(self, task):
 		try:
-			trapped_task() # Executed relative to &Sector instance.
+			task() # Executed relative to &Sector instance.
 		except BaseException as exc:
 			self.fault(exc)
 
-	def critical(self, task, partial=functools.partial, trap=_fault_trap):
+	def critical(self, task, partial=functools.partial, trap=trap):
 		"""
 		# Enqueue a task associated with the sector so that exceptions cause the sector to
 		# fault. This is the appropriate way for &Processor instances controlled by a sector
 		# to sequence processing.
 		"""
 		self.enqueue(partial(trap, self, task))
-	del _fault_trap
 
 	def exit(self):
 		"""
@@ -478,17 +477,11 @@ class Sector(Processor):
 		# A divided set of abstract processors currently running within a sector.
 		# The sets are divided by their type inside a &collections.defaultdict.
 
-	# /scheduler/
-		# The Sector local schduler instance for managing recurrences and alarms
-		# configured by subresources. The exit of the Sector causes scheduled
-		# events to be dismissed.
-
 	# /exits/
 		# Set of Processors that are currently exiting.
 		# &None if nothing is currently exiting.
 	"""
 
-	scheduler = None
 	exits = None
 	processors = None
 	_sector_interrupted = False
@@ -536,14 +529,6 @@ class Sector(Processor):
 		except BaseException as exc:
 			self.fault(exc)
 
-	def scheduling(self):
-		"""
-		# Initialize the &scheduler for the &Sector.
-		"""
-		sched = self.scheduler = Scheduler()
-		self.dispatch(sched)
-		del self.processors[Scheduler]
-
 	_sector_terminated = Processor.exit
 
 	def terminate(self, by=None):
@@ -569,9 +554,6 @@ class Sector(Processor):
 
 		if self._sector_interrupted:
 			return
-
-		if self.scheduler is not None:
-			self.scheduler.interrupt()
 
 		# Sectors set if they've been interrupted, so the
 		# following general case will be no-ops.
@@ -666,15 +648,6 @@ class Sector(Processor):
 		# reap/reaped is not used in cases of interrupts.
 		if not self.processors and not self.interrupted:
 			# no processors remain; exit Sector
-
-			if self.scheduler is not None:
-				# After termination has been completed, the scheduler can be stopped.
-				#
-				# The termination process is an arbitrary period of time
-				# that may rely on the scheduler, so it is important
-				# that this is performed here.
-				self.scheduler.interrupt()
-
 			self._sector_terminated()
 
 	def placement(self):
@@ -691,274 +664,6 @@ class Sector(Processor):
 			return if_proc.sector_placement()
 		else:
 			return self.__class__
-
-class Scheduler(Processor):
-	"""
-	# Time delayed execution of arbitrary callables.
-
-	# Manages the set of alarms and &Recurrence's used by a &Sector.
-	# Normally, only one Scheduler exists per and each Scheduler
-	# instance chains from an ancestor creating a tree of heap queues.
-
-	# [ Engineering ]
-	# The &update method needs to be corrected to avoid the &scheduled_reference
-	# stopgap. Currently, the weakmethod is used to allow the storage of the
-	# scheduled event in case a cancellation is needed. Cancellation works
-	# using a set of events and &Scheduler needs each transition to be unique
-	# in order to perform cancellation at all.
-
-	# The entire management of scheduled &transition events needs to be
-	# rewritten along with some tweaks to chronometry's scheduler.
-	"""
-
-	scheduled_reference = None
-	x_ops = None
-
-	def placement(self):
-		return self.__class__
-
-	def structure(self):
-		sr = ()
-		p = []
-		return (p, sr)
-
-	def actuate(self, DefaultDict=collections.defaultdict, TaskQueue=collections.deque):
-		self._snapshot = sysclock.now # XXX: Inherit from System context.
-		self._heap = []
-		# RPiT to (Event) Id's Mapping
-		self._tasks = DefaultDict(TaskQueue)
-		self._cancellations = set()
-
-		self.persistent = True
-
-		sector = self.sector
-		sched = getattr(sector, 'scheduler', None)
-
-		if True:
-			# System
-			self.x_ops = (
-				self.system.defer,
-				self.system.cancel
-			)
-		else:
-			sector = sector.sector
-
-			while sector is not None:
-				if sector.scheduler is not None:
-					sched = sector.scheduler
-					break
-				sector = sector.sector
-			else:
-				raise RuntimeError("no scheduling ancestor")
-
-			self.x_ops = (
-				sched.defer,
-				sched.cancel,
-			)
-
-	def cancel(self, *events):
-		"""
-		# Cancel the scheduled events.
-		"""
-		# Update the set of cancellations immediately.
-		# This set is used as a filter by Defer cycles.
-		self._cancellations.update(events)
-
-	def schedule(self, pit:timetypes.Timestamp, *tasks, now=sysclock.now):
-		"""
-		# Schedule the &tasks to be executed at the specified Point In Time, &pit.
-		"""
-
-		snapshot = self._snapshot()
-		self.put(snapshot, snapshot.measure(pit), *tasks)
-
-	def defer(self, measure, *tasks):
-		"""
-		# Defer the execution of the given &tasks by the given &measure.
-		"""
-
-		snapshot = self._snapshot()
-		p = self.period(snapshot)
-
-		self.put(snapshot, measure, *tasks)
-
-		if p is None:
-			self.update(snapshot)
-		else:
-			np = self.period(snapshot)
-			if np < p:
-				self.update(snapshot)
-
-	def recurrence(self, callback):
-		"""
-		# Allocate a &Recurrence and dispatch it in the same &Sector as the &Scheduler
-		# instance. The target will be executed immediately allowing it to identify
-		# the appropriate initial delay.
-		"""
-
-		r = Recurrence(callback)
-		self.sector.dispatch(r)
-		return r
-
-	def transition(self):
-		"""
-		# Execute the next task given that the period has elapsed.
-		# If the period has not elapsed, reschedule &transition in order to achieve
-		# finer granularity.
-		"""
-
-		if not self.functioning:
-			# Do nothing if not inside the functioning window.
-			return
-
-		snapshot = self._snapshot()
-
-		tasks = self.get(snapshot)
-		for task_objects in tasks:
-			try:
-				# Resolve weak reference.
-				measure, scheduled_task = task_objects
-
-				if scheduled_task is not None:
-					scheduled_task()
-			except BaseException as scheduled_task_exception:
-				raise
-		else:
-			p = self.period(snapshot)
-
-			try:
-				if p is not None:
-					# re-schedule the transition
-					self.update(snapshot)
-				else:
-					# falls back to class attribute; None
-					del self.scheduled_reference
-			except BaseException as scheduling_exception:
-				raise
-
-	def interrupt(self):
-		# cancel the transition callback
-		if self.scheduled_reference is not None:
-			self.x_ops[1](self.scheduled_reference)
-
-	def update(self, snapshot):
-		"""
-		# Update the scheduled transition callback.
-		"""
-
-		nr = weak.Method(self.transition)
-		if self.scheduled_reference is not None:
-			self.x_ops[1](self.scheduled_reference)
-
-		sr = self.scheduled_reference = nr.zero
-		self.x_ops[0](self.period(snapshot), sr)
-
-	def period(self, current):
-		"""
-		# The period before the next event should occur.
-		"""
-		try:
-			smallest = self._heap[0]
-			return smallest.__class__(smallest - current)
-		except IndexError:
-			return None
-
-	def put(self, current, measure, *tasks, push=heapq.heappush) -> int:
-		"""
-		# Schedules the given events for execution.
-
-		# [ Parameters ]
-
-		# /current/
-			# Snapshot of the scheduler's clock.
-		# /measure/
-			# Time to wait before executing the &tasks.
-		# /tasks/
-			# The tasks to perform at the given &measure relative to &current.
-		"""
-
-		pit = measure.__class__(measure + current)
-		push(self._heap, pit)
-		self._tasks[pit].extend(tasks)
-
-	def get(self, current, pop=heapq.heappop, push=heapq.heappush):
-		"""
-		# Return all events whose sheduled delay has elapsed according to the clock's
-		# snapshot, &current.
-		"""
-		events = []
-
-		while self._heap:
-			# repeat some work in case of concurrent pop
-			item = pop(self._heap)
-			overflow = item.__class__(current - item)
-
-			# the set of callbacks have passed their time.
-			if overflow < 0:
-				# not ready; put it back
-				push(self._heap, item)
-				break
-			else:
-				# If an identical item has already been popped,
-				# an empty set can be returned in order to perform a no-op.
-				eventq = self._tasks.pop(item, ())
-				while eventq:
-					x = eventq.popleft()
-					if x in self._cancellations:
-						# filter any cancellations
-						# schedule is already popped, so remove event and cancel*
-						self._cancellations.discard(x)
-					else:
-						events.append((overflow, x))
-
-		return events
-
-class Recurrence(Processor):
-	"""
-	# Timer maintenance for recurring tasks.
-
-	# Usually used for short term recurrences such as animations and human status updates.
-	# Recurrences work by deferring the execution of the configured target after
-	# each occurrence. This overhead means that &Recurrence is not well suited for
-	# high frequency executions, but useful in cases where it is important
-	# to avoid overlapping calls.
-	"""
-
-	def __init__(self, target):
-		self.recur_target = target
-		self._recur_inhibit = False
-
-	def actuate(self):
-		"""
-		# Enqueue the initial execution of the recurrence.
-		"""
-
-		self.critical(self._recur_occur)
-
-	def recur_execute(self):
-		if self.terminated or self.interrupted:
-			return None
-
-		return self.recur_target()
-
-	def _recur_occur(self):
-		"""
-		# Invoke a recurrence and use its return to schedule its next iteration.
-		"""
-
-		next_delay = self.recur_execute()
-
-		if next_delay is None:
-			if not self.interrupted and not self.terminated:
-				self.terminate()
-		else:
-			self.sector.scheduler.defer(next_delay, self._recur_occur)
-
-	def terminate(self):
-		self.finish_termination()
-
-	def interrupt(self):
-		self.recur_target = (lambda: None)
 
 class Context(Processor):
 	"""
@@ -1191,7 +896,6 @@ class Executable(Context):
 
 	def actuate(self):
 		self.provide('executable')
-		self.sector.scheduling()
 
 	def terminate(self):
 		self.start_termination()

@@ -26,8 +26,10 @@ import typing
 import signal # masking SIGINT/SIGTERM in threads.
 import operator
 import time
+import heapq
 
 from ..context import tools
+from ..context import weak
 
 from ..system import kernel
 from ..system import network
@@ -804,14 +806,6 @@ class Context(core.Context):
 	# to the local system.
 	"""
 
-	@property
-	def scheduler(self):
-		"""
-		# The scheduler processor associated with the system context.
-		"""
-		only, = self.sector.processors[core.Scheduler]
-		return only
-
 	def xact_exit(self, xact:core.Transaction):
 		ctx = xact.xact_context
 		if ctx.exe_faults:
@@ -850,6 +844,119 @@ class Context(core.Context):
 		self._process_ref = weakref.ref(process)
 		self.executables = weakref.WeakValueDictionary()
 		self.attachments = []
+		# Scheduler
+		self._defer_heap = []
+		self._defer_tasks = collections.defaultdict(weakref.WeakSet)
+		self._defer_cancelled = weakref.WeakSet()
+
+	time = staticmethod(sysclock.now)
+	uptime = staticmethod(sysclock.elapsed)
+
+	_defer_reference = None
+
+	def _defer_execute(self):
+		"""
+		# Execute all tasks whose wait period has elapsed according to the system's clock.
+		"""
+
+		if self.terminated or self.interrupted:
+			# Do nothing if not inside the functioning window.
+			return
+
+		snapshot = self.uptime()
+
+		events = self._defer_get(snapshot)
+		for overflow, processor in events:
+			if self in self._defer_cancelled:
+				self._defer_cancelled.discard(self)
+			else:
+				try:
+					processor.occur()
+				except BaseException as scheduled_task_exception:
+					raise
+		else:
+			p = self._defer_period(snapshot)
+
+			try:
+				del self._defer_reference
+				if p is not None:
+					# re-schedule the transition
+					self._defer_update(snapshot)
+			except BaseException as scheduling_exception:
+				raise
+
+	def defer(self, measure, *processors):
+		"""
+		# Defer the execution of the (id)`occur` methods on the given &processors
+		# by the given &measure.
+		"""
+
+		snapshot = self.uptime()
+		p = self._defer_period(snapshot)
+
+		self._defer_put(snapshot, measure, processors)
+
+		if p is None:
+			self._defer_update(snapshot)
+		else:
+			np = self._defer_period(snapshot)
+			if np < p:
+				self._defer_update(snapshot)
+
+	def cancel(self, processor):
+		# Currently, this is somewhat automatic (weakset).
+		self._defer_cancelled.add(processor)
+
+	def _defer_update(self, snapshot):
+		# Update the scheduled transition callback.
+		nr = weak.Method(self._defer_execute)
+		if self._defer_reference is not None:
+			self._cancel(self._defer_reference)
+
+		sr = self._defer_reference = nr.zero
+		self._defer(self._defer_period(snapshot), sr)
+
+	def _defer_period(self, current):
+		# The period before the next event should occur.
+		try:
+			smallest = self._defer_heap[0]
+			return smallest.__class__(smallest - current)
+		except IndexError:
+			return None
+
+	def _defer_put(self, current, measure, processors, push=heapq.heappush) -> int:
+		# Schedules the given events for execution.
+		pit = measure.__class__(measure + current)
+		push(self._defer_heap, pit)
+		self._defer_tasks[pit].update(processors)
+
+	def _defer_get(self, current, pop=heapq.heappop, push=heapq.heappush):
+		# Return all events whose sheduled delay has elapsed beyond &current.
+		events = []
+
+		while self._defer_heap:
+			# repeat some work in case of concurrent pop
+			item = pop(self._defer_heap)
+			overflow = item.__class__(current - item)
+
+			# the set of callbacks have passed their time.
+			if overflow < 0:
+				# not ready; put it back
+				push(self._defer_heap, item)
+				break
+			else:
+				# If an identical item has already been popped,
+				# an empty set can be returned in order to perform a no-op.
+				eventq = self._defer_tasks.pop(item, ())
+				for x in eventq:
+					if x in self._defer_cancelled:
+						# filter any cancellations
+						# schedule is already popped, so remove event and cancel*
+						self._defer_cancelled.discard(x)
+					else:
+						events.append((overflow, x))
+
+		return events
 
 	def structure(self):
 		proc = self.process
@@ -903,7 +1010,35 @@ class Context(core.Context):
 		target("\n".join(text.format('process-transaction', self.sector)))
 		target("\n")
 
-	def defer(self, measure, task, maximum=6000, seconds=timetypes.Measure.of(second=2)):
+	@staticmethod
+	def _time_unit(measure, maximum=6000,
+			unit=timetypes.Measure.of(second=1),
+			uunit=timetypes.Measure.of(microsecond=1),
+		):
+		nsecs = measure.select('second')
+
+		if measure == (nsecs * unit):
+			quantity = min(measure.select('second'), maximum)
+			unit = 's'
+		elif measure < uunit:
+			# less than a microsecond
+			unit = 'n'
+			quantity = measure
+		elif measure < unit:
+			# less than a second
+			unit = 'u'
+			quantity = measure.select('microsecond')
+		else:
+			# over a second, but not a whole number.
+			unit = 'm'
+			quantity = min(measure.select('millisecond'), 0xFFFFFFFF)
+
+		return (quantity, unit)
+
+	def _recur(self, frequency, task):
+		return self.process.kernel.recur(task, *self._time_unit(frequency))
+
+	def _defer(self, measure, task):
 		"""
 		# Schedule the task for execution after the period of time &measure elapses.
 
@@ -912,27 +1047,9 @@ class Context(core.Context):
 		# and decidedly inexact, so resubmission is used with a finer grain.
 		"""
 
-		# select the granularity based on the measure
+		return self.process.kernel.alarm(task, *self._time_unit(measure))
 
-		if measure > seconds:
-			# greater than two seconds
-			quantity = min(measure.select('second'), maximum)
-			quantity -= 1
-			unit = 's'
-		elif measure < 10000:
-			# measures are in nanoseconds
-			unit = 'n'
-			quantity = measure
-		elif measure < 1000000:
-			unit = 'u'
-			quantity = measure.select('microsecond')
-		else:
-			unit = 'm'
-			quantity = min(measure.select('millisecond'), 0xFFFFFFFF)
-
-		return self.process.kernel.alarm(task, quantity, unit)
-
-	def cancel(self, task):
+	def _cancel(self, task):
 		"""
 		# Cancel a scheduled task.
 		"""
@@ -1555,7 +1672,7 @@ class Process(object):
 					#args = (event[1], execution.reap(event[1]),)
 					args = (event[1],)
 					remove_entry = True
-				elif event[0] == 'alarm':
+				elif event[0] in {'alarm', 'recur'}:
 					k.enqueue(event[1])
 					continue
 				else:

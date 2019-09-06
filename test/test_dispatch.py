@@ -183,6 +183,84 @@ def test_Subprocess_only_status(test):
 	ctx(2)
 	test/sp.sp_only == None
 
+def test_Scheduler_operations(test):
+	from ...time import types as time
+	signals = []
+
+	class SystemContext(object):
+		def defer(self, *args):
+			signals.append(('defer',) + args)
+		def cancel(self, x):
+			signals.append(('cancel', x))
+
+	ctx, S = testlib.sector()
+
+	curtime = time.Timestamp.of(iso="2001-01-01 03:45:00")
+
+	def clock():
+		nonlocal curtime
+		return curtime
+	def elapse(**kw):
+		nonlocal curtime
+		curtime = curtime.elapse(**kw)
+
+	class Effect(core.Context):
+		@classmethod
+		def new(Class):
+			return core.Transaction.create(Class())
+		def actuate(self):
+			signals.append(('dispatched', self))
+
+	sched = core.Transaction.create(module.Scheduler(clock))
+	S.dispatch(sched)
+	sched = sched.xact_context
+	sched.system = SystemContext()
+
+	sched.occur()
+	test/signals == [] # Nothing scheduled, no change.
+
+	event = Effect.new()
+	sched.sched_insert(curtime.elapse(minute=10), event)
+	test/signals[1] == ('defer', time.Measure.of(minute=10), sched)
+
+	elapse(minute=10)
+	sched.occur()
+	test/signals[-1] == ('dispatched', event.xact_context)
+
+	event_a = Effect.new()
+	event_b = Effect.new()
+	sched.sched_update([
+		(curtime.elapse(minute=6), event_b),
+		(curtime.elapse(minute=5), event_a),
+	])
+
+	# Watch re-submitted defers.
+	test/signals[-1] == ('defer', time.Measure.of(minute=5), sched)
+	expect = list(signals)
+
+	sched.occur()
+	expect.append(('defer', time.Measure.of(minute=5), sched))
+	test/signals == expect
+
+	elapse(minute=2)
+	sched.occur()
+	expect.append(('defer', time.Measure.of(minute=3), sched))
+	test/signals == expect
+
+	elapse(minute=2)
+	sched.occur()
+	expect.append(('defer', time.Measure.of(minute=1), sched))
+	test/signals == expect
+
+	elapse(minute=2)
+	sched.occur()
+	test/signals[-1] == ('dispatched', event_b.xact_context)
+	test/signals[-2] == ('dispatched', event_a.xact_context)
+
+	sched.sector.terminate()
+	ctx(1)
+	test/sched.terminated == True
+
 if __name__ == '__main__':
 	import sys; from ...test import library as libtest
 	libtest.execute(sys.modules['__main__'])
