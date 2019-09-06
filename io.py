@@ -209,14 +209,14 @@ class Transport(core.Context):
 		self.tp_output = None
 
 	@classmethod
-	def from_endpoint(Class, io):
+	def from_endpoint(Class, io, identifier='endpoint'):
 		"""
 		# Create and initialize an instance with the first transport layer.
 		"""
 		tp = Class()
 		state, pair = io
-		tp._tp_channels[state] = pair
-		tp._tp_stack.append(state)
+		tp._tp_channels[(identifier, state)] = pair
+		tp._tp_stack.append((identifier, state))
 		return tp
 
 	@classmethod
