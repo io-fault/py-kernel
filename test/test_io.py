@@ -43,14 +43,14 @@ def test_Invocations_actuate(test):
 
 def test_Invocations_allocate(test):
 	"""
-	# - &module.Invocations.m_allocate
+	# - &module.Invocations.i_allocate
 	"""
 	target = []
 	cat = flows.Catenation()
 	inv = module.Invocations(cat, target.extend)
 	inv.actuate()
 
-	test/list(inv.m_allocate())[0][0] == 1
+	test/list(inv.i_allocate())[0][0] == 1
 
 def test_Invocations_accept(test):
 	"""
@@ -67,7 +67,7 @@ def test_Invocations_accept(test):
 	ctx(1)
 
 	test/l[0] == inv
-	accepts, connects = inv.inv_accept()
+	accepts, connects = inv.i_accept()
 	test/connects[0] == (1, 'parameter', None)
 
 def test_Transport_tp_connect(test):
@@ -92,7 +92,7 @@ def test_Transport_tp_connect(test):
 		nonlocal i
 		div = i._io_start().f_downstream.f_downstream
 
-		events = inv.m_correlate()
+		events = inv.i_correlate()
 		inv.i_catenate.f_transfer(events, upstream=div)
 
 	protocol = ('protocol', None), (flows.Channel(), flows.Channel())

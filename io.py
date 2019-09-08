@@ -133,13 +133,13 @@ class Invocations(core.Processor):
 	def i_close(self):
 		self.sector.xact_context.io_transmit_close()
 
-	def _m_transition(self):
+	def _i_transition(self):
 		# Must be called within same processor.
 		xq = self._protocol_xact_queue
 		self._protocol_xact_queue = []
 		return xq
 
-	def inv_accept(self, partial=functools.partial):
+	def i_accept(self, partial=functools.partial):
 		"""
 		# Accept a sequence of requests from a client configured remote endpoint.
 		# Routes the initiation parameter with callbacks to connect input and output.
@@ -147,7 +147,7 @@ class Invocations(core.Processor):
 		# Used by routers employed by servers to get protocol transactions.
 		"""
 
-		events = self._m_transition()
+		events = self._i_transition()
 		self._protocol_xact_id += len(events)
 
 		ireserve, iconnect = self._catapi
@@ -161,7 +161,7 @@ class Invocations(core.Processor):
 
 		return (rl, events)
 
-	def m_correlate(self):
+	def i_correlate(self):
 		"""
 		# Received a set of responses. Join with requests, and
 		# execute the receiver provided by the enqueueing operation.
@@ -170,9 +170,9 @@ class Invocations(core.Processor):
 		"""
 
 		# Difference between m_accept being that outgoing channels are not reserved.
-		return self._m_transition()
+		return self._i_transition()
 
-	def m_allocate(self, quantity=1, partial=functools.partial):
+	def i_allocate(self, quantity=1, partial=functools.partial):
 		"""
 		# Allocate a channel for submitting a request.
 
