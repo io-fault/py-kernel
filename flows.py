@@ -580,13 +580,21 @@ class Collection(Channel):
 		self.c_operation = operation
 
 	@classmethod
-	def list(Class):
+	def appended_list(Class):
 		"""
-		# Construct a &Collection instance that appends all events into a &list
-		# instance.
+		# Construct a &Collection instance that appends all events into a &list.
 		"""
 		l = []
 		return Class(l, l.append)
+	list = appended_list
+
+	@classmethod
+	def extended_list(Class):
+		"""
+		# Construct a &Collection instance that extends all events into a &list.
+		"""
+		l = []
+		return Class(l, l.extend)
 
 	@classmethod
 	def dict(Class, initial=None):
