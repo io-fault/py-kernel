@@ -110,7 +110,7 @@ class Delta(tuple):
 	def __str__(self):
 		xfer = self[0]
 		send = isinstance(xfer, int)
-		s = {True: '↑ ', False: '↓ '}[send]
+		s = {True: '\u2191 ', False: '\u2193 '}[send]
 
 		if xfer is not None:
 			s += 'transfer: ' + repr(bytes(xfer[:120]))
@@ -1566,7 +1566,7 @@ class Process(object):
 
 	def _init_system_events(self):
 		self.system_event_connections = {}
-		self.system_event_connect(('signal', 'terminal.query'), None, self.report)
+		self.system_event_connect(('signal', 'terminal/query'), None, self.report)
 
 	def _init_fabric(self):
 		self.fabric = Fabric(self)
