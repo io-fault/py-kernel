@@ -143,7 +143,9 @@ class Thread(core.Processor):
 
 	def actuate(self):
 		"""
-		# Execute the dedicated thread for the transformer.
+		# Create the thread and execute the target.
+
+		# Exceptions raised by the thread will cause the processor to fault.
 		"""
 
 		self.system.execute(self, self.trap)
