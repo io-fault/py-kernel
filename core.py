@@ -250,7 +250,7 @@ class Processor(object):
 
 	def controllerstack(self):
 		"""
-		# Return the stack of controllers of the given &Resource. Excludes initial resource.
+		# Return the full sector stacks of the processor.
 		"""
 
 		stack = []
@@ -270,20 +270,6 @@ class Processor(object):
 		return '<%s.%s at %s>' %(
 			mn, qn, hex(id(self))
 		)
-
-	def structure(self):
-		"""
-		# Returns a pair, a list of properties and list of subresources.
-		# Each list contains pairs designating the name of the property
-		# or resource and the object itself.
-
-		# The structure method is used for introspective purposes and each
-		# implementation in the class hierarchy will be called (&sequence) in order
-		# to acquire a reasonable representation of the Resource's contents.
-
-		# Implementations are used by &.library.format and &.library.sequence.
-		"""
-		pass
 
 	_pexe_state = 0 # defaults to "object initialized"
 	_pexe_states = (
