@@ -1,5 +1,5 @@
 """
-# Executive processors.
+# Executive processors containing a primitive execution unit.
 """
 import os
 import types
