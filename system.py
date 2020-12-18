@@ -878,7 +878,7 @@ class Context(core.Context):
 			p = self._defer_period(snapshot)
 
 			try:
-				del self._defer_reference
+				self._defer_reference = None
 				if p is not None:
 					# re-schedule the transition
 					self._defer_update(snapshot)
