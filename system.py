@@ -1779,7 +1779,7 @@ def set_root_process(process):
 	xact, enqueue = __process_index__[process]
 
 	callterm = functools.partial(enqueue, xact.terminate)
-	def termsignal(signo, frame=None, setstatus=kernel.exit_by_signal):
+	def termsignal(signo, frame=None, setstatus=kernel.signalexit):
 		setstatus(signal.SIGTERM)
 		callterm()
 
