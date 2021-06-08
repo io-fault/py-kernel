@@ -18,7 +18,7 @@ from . import core
 class Event(object):
 	"""
 	# Signal objects used to communicate flow control operations
-	# for subflow management. These objects are used by &Catenation and &Distribution
+	# for subflow management. These objects are used by &Catenation and &Division
 	# to index operations.
 	"""
 	__slots__ = ()

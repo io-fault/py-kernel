@@ -192,11 +192,11 @@ class Subprocess(core.Context):
 		# Instantiation from an &invocation executed with &invocation.spawn.
 		# The process' standard I/O must be explicitly designated using
 		# the &stdin, &stdout, and &stderr parameters.
-		# Process will be reaped with &execution.reap.
+		# Process will be reaped with &..system.execution.reap.
 
 		# [ Parameters ]
 		# /invocation/
-			# The &execution.KInvocation instance to spawn.
+			# The &..system.execution.KInvocation instance to spawn.
 		# /stdin/
 			# The file descriptor to map as standard input.
 		# /stdout/
