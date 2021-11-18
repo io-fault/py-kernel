@@ -34,7 +34,6 @@ from ..context import weak
 from ..system import kernel
 from ..system import network
 from ..system import io
-from ..system import events
 from ..system import process
 from ..system import thread
 from ..system import memory
@@ -1047,7 +1046,7 @@ class Context(core.Context):
 		# and decidedly inexact, so resubmission is used with a finer grain.
 		"""
 
-		return self.process.kernel.alarm(task, *self._time_unit(measure))
+		return self.process.kernel.defer(task, *self._time_unit(measure))
 
 	def _cancel(self, task):
 		"""
@@ -1558,7 +1557,7 @@ class Process(object):
 		self._init_io()
 
 	def _init_kernel(self):
-		self.kernel = events.Interface()
+		self.kernel = kernel.Events()
 
 	def _init_exit(self):
 		self._exit_stack = contextlib.ExitStack()
@@ -1672,7 +1671,7 @@ class Process(object):
 					#args = (event[1], execution.reap(event[1]),)
 					args = (event[1],)
 					remove_entry = True
-				elif event[0] in {'alarm', 'recur'}:
+				elif event[0] in {'defer', 'alarm', 'recur'}:
 					k.enqueue(event[1])
 					continue
 				else:
@@ -1806,7 +1805,7 @@ def control(errctl=default_error_trap, **kw):
 	"""
 	global main_thread_task_queue
 
-	main_thread_task_queue = events.Interface()
+	main_thread_task_queue = kernel.Events()
 	process.Fork.substitute(protect, errctl, **kw)
 
 def protect(error_control, timeout=8):
