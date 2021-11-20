@@ -1557,7 +1557,7 @@ class Process(object):
 		self._init_io()
 
 	def _init_kernel(self):
-		self.kernel = kernel.Events()
+		self.kernel = kernel.Scheduler()
 
 	def _init_exit(self):
 		self._exit_stack = contextlib.ExitStack()
@@ -1640,17 +1640,17 @@ class Process(object):
 		time_snapshot = sysclock.now
 		ix = self.iomatrix
 		io = ix.activity
-		k = self.kernel
+		ks = self.kernel
 		sec = self.system_event_connections
 
 		errctl = (lambda c,v: self.error(c, v, title='Task',))
 
-		while not k.closed:
+		while not ks.closed:
 			self.cycle_count += 1
 			self.cycle_start_time = time_snapshot()
 			self.cycle_start_time_decay = 1 # Incremented by main thread.
 
-			self.executed_task_count += k.execute(errctl)
+			self.executed_task_count += ks.execute(errctl)
 
 			# This appears undesirable, but the alternative
 			# is to run force for each process local I/O event.
@@ -1658,7 +1658,7 @@ class Process(object):
 			# the queue is not terribly inaccurate.
 			io()
 
-			events = k.wait()
+			events = ks.wait()
 
 			# process unix signals and child exit events
 			for event in events:
@@ -1672,7 +1672,7 @@ class Process(object):
 					args = (event[1],)
 					remove_entry = True
 				elif event[0] in {'defer', 'alarm', 'recur'}:
-					k.enqueue(event[1])
+					ks.enqueue(event[1])
 					continue
 				else:
 					args = ()
@@ -1683,7 +1683,7 @@ class Process(object):
 						# process events only occur once
 						del sec[event]
 
-					k.enqueue(partial(callback, *args))
+					ks.enqueue(partial(callback, *args))
 
 			# for event
 		# while True
@@ -1805,21 +1805,21 @@ def control(errctl=default_error_trap, **kw):
 	"""
 	global main_thread_task_queue
 
-	main_thread_task_queue = kernel.Events()
+	main_thread_task_queue = kernel.Scheduler()
 	process.Fork.substitute(protect, errctl, **kw)
 
 def protect(error_control, timeout=8):
 	global main_thread_task_queue
 
 	try:
-		k = main_thread_task_queue
+		ks = main_thread_task_queue
 
-		while not k.closed:
-			k.execute(error_control)
-			k.wait(timeout)
+		while not ks.closed:
+			ks.execute(error_control)
+			ks.wait(timeout)
 
 		if main_thread_interrupt is None:
-			k.execute(default_error_trap)
+			ks.execute(default_error_trap)
 	finally:
 		main_thread_task_queue = None
 
