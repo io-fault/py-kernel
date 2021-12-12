@@ -419,7 +419,7 @@ class Recurrence(core.Processor):
 		# Enqueue the initial execution of the recurrence.
 		"""
 
-		self.system._recur(self.re_frequency, self._wm)
+		self._link = self.system._recur(self.re_frequency, self._wm)
 		self.critical(self.occur)
 
 	def occur(self, overflow=None):
@@ -434,7 +434,7 @@ class Recurrence(core.Processor):
 
 	def interrupt(self):
 		self.occur = (lambda x: None)
-		self.system._cancel(self._wm)
+		self.system._cancel(self._link)
 
 class Scheduler(core.Context):
 	"""

@@ -853,7 +853,7 @@ class Context(core.Context):
 
 	_defer_reference = None
 
-	def _defer_execute(self):
+	def _defer_execute(self, link=None):
 		"""
 		# Execute all tasks whose wait period has elapsed according to the system's clock.
 		"""
@@ -912,8 +912,7 @@ class Context(core.Context):
 		if self._defer_reference is not None:
 			self._cancel(self._defer_reference)
 
-		sr = self._defer_reference = nr.zero
-		self._defer(self._defer_period(snapshot), sr)
+		self._defer_reference = self._recur(self._defer_period(snapshot), nr.zero, cyclic=False)
 
 	def _defer_period(self, current):
 		# The period before the next event should occur.
@@ -976,19 +975,21 @@ class Context(core.Context):
 		self.provide('system')
 		assert self.sector.system is self
 
-	def connect_process_exit(self, xact_context, callback, *processes):
-		p = self.process
-		k = p.kernel
-		track = k.track
-		event_connect = p.system_event_connect
+	def connect_process_signal(self, xact_context, callback, signal):
+		ev = kernel.Event.process_signal(process.signal_codes[signal])
+		ln = kernel.Link(ev, callback)
+		return self.process.kernel.dispatch(ln)
 
+	def connect_process_exit(self, xact_context, callback, *processes):
+		atexit = kernel.Event.process_exit
 		for pid in processes:
+			def exitcb(link=None, process_exit_cb=callback, pid=pid):
+				return process_exit_cb(pid)
+
 			try:
-				track(pid)
+				self.process.kernel.dispatch(kernel.Link(atexit(pid), exitcb))
 			except:
-				xact_context.critical(functools.partial(callback, pid))
-			else:
-				event_connect(('process', pid), xact_context, callback)
+				xact_context.critical(exitcb)
 
 	def allocate(self, xactctx):
 		"""
@@ -1009,35 +1010,7 @@ class Context(core.Context):
 		target("\n".join(text.format('process-transaction', self.sector)))
 		target("\n")
 
-	@staticmethod
-	def _time_unit(measure, maximum=6000,
-			unit=timetypes.Measure.of(second=1),
-			uunit=timetypes.Measure.of(microsecond=1),
-		):
-		nsecs = measure.select('second')
-
-		if measure == (nsecs * unit):
-			quantity = min(measure.select('second'), maximum)
-			unit = 's'
-		elif measure < uunit:
-			# less than a microsecond
-			unit = 'n'
-			quantity = measure
-		elif measure < unit:
-			# less than a second
-			unit = 'u'
-			quantity = measure.select('microsecond')
-		else:
-			# over a second, but not a whole number.
-			unit = 'm'
-			quantity = min(measure.select('millisecond'), 0xFFFFFFFF)
-
-		return (quantity, unit)
-
-	def _recur(self, frequency, task):
-		return self.process.kernel.recur(task, *self._time_unit(frequency))
-
-	def _defer(self, measure, task):
+	def _recur(self, frequency, task, cyclic=True):
 		"""
 		# Schedule the task for execution after the period of time &measure elapses.
 
@@ -1045,8 +1018,9 @@ class Context(core.Context):
 		# remaining. When large duration defers are placed, the seconds unit are used
 		# and decidedly inexact, so resubmission is used with a finer grain.
 		"""
-
-		return self.process.kernel.defer(task, *self._time_unit(measure))
+		ev = kernel.Event.time(frequency)
+		ln = kernel.Link(ev, (lambda x: task()))
+		return self.process.kernel.dispatch(ln, cyclic=cyclic)
 
 	def _cancel(self, task):
 		"""
@@ -1434,11 +1408,6 @@ class Process(object):
 	# Usually only one &Process is active per-process, but it can be reasonable to launch multiple
 	# in order to perform operations that would otherwise expect its own space.
 
-	# [ System Events ]
-
-	# The &system_event_connect and &system_event_disconnect methods
-	# are the mechanisms used to respond to child process exits signals.
-
 	# [ Properties ]
 
 	# /fabric/
@@ -1564,8 +1533,9 @@ class Process(object):
 		self._exit_stack.__enter__()
 
 	def _init_system_events(self):
-		self.system_event_connections = {}
-		self.system_event_connect(('signal', 'terminal/query'), None, self.report)
+		ev = kernel.Event.process_signal(process.signal_codes['terminal/query'])
+		ln = kernel.Link(ev, self.report)
+		self.kernel.dispatch(ln)
 
 	def _init_fabric(self):
 		self.fabric = Fabric(self)
@@ -1582,7 +1552,7 @@ class Process(object):
 		"""
 
 		# Pending tasks will be discarded during dealloc.
-		self.kernel.close()
+		self.kernel.void()
 		self.kernel = None
 		self._init_kernel()
 
@@ -1627,7 +1597,6 @@ class Process(object):
 			if self.kernel.loaded:
 				# Clear queue and warn if not empty after this.
 				self.kernel.execute(self.error)
-				self.kernel.execute(self.error)
 		except BaseException as critical_loop_exception:
 			self.error(self.loop, critical_loop_exception, title="Process Task Queue Caller")
 
@@ -1641,7 +1610,6 @@ class Process(object):
 		ix = self.iomatrix
 		io = ix.activity
 		ks = self.kernel
-		sec = self.system_event_connections
 
 		errctl = (lambda c,v: self.error(c, v, title='Task',))
 
@@ -1651,61 +1619,8 @@ class Process(object):
 			self.cycle_start_time_decay = 1 # Incremented by main thread.
 
 			self.executed_task_count += ks.execute(errctl)
-
-			# This appears undesirable, but the alternative
-			# is to run force for each process local I/O event.
-			# Presuming that some I/O has occurred while processing
-			# the queue is not terribly inaccurate.
 			io()
-
-			events = ks.wait()
-
-			# process unix signals and child exit events
-			for event in events:
-				remove_entry = False
-
-				if event[0] == 'process':
-					# Defer read until system event connect.
-					# Might allow SIGCHLD support on linux.
-					event = ('process', event[1])
-					#args = (event[1], execution.reap(event[1]),)
-					args = (event[1],)
-					remove_entry = True
-				elif event[0] in {'defer', 'alarm', 'recur'}:
-					ks.enqueue(event[1])
-					continue
-				else:
-					args = ()
-
-				if event in sec:
-					callback = sec[event][1] # system_event_connections
-					if remove_entry:
-						# process events only occur once
-						del sec[event]
-
-					ks.enqueue(partial(callback, *args))
-
-			# for event
-		# while True
-
-	def system_event_connect(self, event, resource, callback):
-		"""
-		# Connect the given callback to system event, &event.
-		# System events are given string identifiers.
-		"""
-
-		self.system_event_connections[event] = (resource, callback)
-
-	def system_event_disconnect(self, event):
-		"""
-		# Disconnect the given callback from the system event.
-		"""
-
-		if event not in self.system_event_connections:
-			return False
-
-		del self.system_event_connections[event]
-		return True
+			ks.wait()
 
 main_thread_task_queue = None
 main_thread_interrupt = None
