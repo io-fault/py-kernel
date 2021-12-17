@@ -1563,7 +1563,7 @@ class Process(object):
 
 		self.iomatrix.void()
 
-	def report(self):
+	def report(self, link=None):
 		"""
 		# Report a snapshot of the process' state to the given &target.
 		"""
