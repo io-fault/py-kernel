@@ -1350,7 +1350,7 @@ class Fabric(object):
 	def critical(self, controller, context, callable, *args):
 		"""
 		# Create a dedicated thread that is identified as a critical resource where exceptions
-		# trigger &process.Panic exceptions in the main thread.
+		# trigger &process.Critical exceptions in the main thread.
 
 		# The additional &context parameter is an arbitrary object describing the resource;
 		# often the object whose method is considered critical.
@@ -1741,4 +1741,4 @@ def protect(error_control, timeout=8):
 	if main_thread_exit_status >= 0:
 		raise process.Exit(main_thread_exit_status)
 	else:
-		raise main_thread_interrupt or process.Panic("negative exit status set without exception")
+		raise main_thread_interrupt or process.Critical("negative exit status set without exception")
