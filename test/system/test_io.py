@@ -1,10 +1,17 @@
 import os
+import _thread
 from ... import system
 
-def test_adapter_properties(test):
-	a = system.Adapter.create("endpoint", "transformer")
-	test/a.endpoint == "endpoint"
-	test/a.transformer == "transformer"
+class EMatrix(system.Matrix):
+	def _err(self, *args):
+		self.errlist.append(args)
+
+	@staticmethod
+	def _exe(ignored, target, *args):
+		return _thread.start_new_thread(target, args)
+
+	def __init__(self):
+		super().__init__(self._err, (lambda x: x()), self._exe)
 
 def test_delta(test):
 	d = system.Delta.construct()
@@ -65,103 +72,73 @@ def test_delta(test):
 	test.isinstance(str(d), str)
 	test/d.endpoint == None
 
-def new():
-	l = []
-	def add(x, l = l):
-		l.append(x)
-	a = system.Adapter(add, system.Delta.construct)
-	return l, a
-
-def test_matrix_repr(test):
-	l, a = new()
-	test.isinstance(repr(system.Matrix(a)), str)
-
 def test_matrix_empty(test):
-	l, a = new()
-	ix = system.Matrix(a)
-	'system' in test/ix.routes
+	ix = EMatrix()
 	test/len(ix.arrays) == 0
-
-def test_matrix_routes(test):
-	l, a = new()
-	ix = system.Matrix(a)
-	ix.route(foo = 'bar')
-	test/ix.routes['foo'] == 'bar'
+	test.isinstance(repr(ix), str)
 
 def test_matrix_termination(test):
-	def null(x):
-		pass
-	ix = system.Matrix((null, null))
+	ix = EMatrix()
 
 	r, w = os.pipe()
-	ix.acquire(None, [
+	ix.acquire([
 		system.io.alloc_input(r),
 		system.io.alloc_output(w),
 	])
 	ix.terminate()
 
 def test_idle_array_terminates(test):
+	"""
+	# Validate inactive termination.
+	"""
 	import time
 
-	# we use the adapter's callbacks to increment our counter and to trip j.force()
-	loops = 0
-	def incloops(x):
-		nonlocal loops
-		loops += 1
-		#test/isinstance(x, io.Array) == True
-		test/list(x.transfer()) == []
-		x.force()
-
-	def testevents(events):
-		test/events == None
-
-	adapter = (testevents, incloops)
-
-	ix = system.Matrix(adapter)
+	loop = 0
+	ix = EMatrix()
 	try:
-		ix._get() # kicks off the array's thread
+		ix._alloc()
+		test/len(ix.arrays) == 1
 
-		# we use j.force to rapidly trip the countdown.
-		# there are no channels, so we should be able to trigger it quickly
-		ix.force()
-		while loops < 128:
-			# encourage switch
-			time.sleep(0.00001)
-			if len(list(ix._iterarrays())) == 0:
-				break
+		while ix.arrays:
+			ix.force()
+			time.sleep(0.00000001)
 
-		test/len(list(ix._iterarrays())) == 0
+			if loop > 256:
+				test.fail("I/O array did not exit within the expected cycles")
+			else:
+				loop += 1
+
+		test/len(list(ix.arrays)) == 0
 	finally:
 		ix.terminate()
 
 def test_active_array_continues(test):
+	"""
+	# Validate active maintenance.
+	"""
 	import time
-
-	# in the previous test, we validate that the thread terminates an idle array.
-
-	# in this test, we want to validate the inverse, an active array
-	# is never terminated
 
 	loops = 0
 	j = None
-	def incloops(x):
+	def incloops(self, x):
 		nonlocal loops
 		loops += 1
-		#test/isinstance(x, io.Array) == True
-		x.force()
+		self.force()
 
-	def testevents(events):
+	def testevents(self, err, events):
 		test/events == None
 
-	adapter = (testevents, incloops)
+	class TMatrix(EMatrix):
+		io_collect = incloops
+		io_deliver = testevents
 
-	ix = system.Matrix(adapter)
+	ix = TMatrix()
 	try:
-		ix._get() # kicks off the array's thread
+		ix._alloc()
 		r, w = os.pipe()
 		r = system.io.alloc_input(r)
 		w = system.io.alloc_output(w)
-		ix.acquire(None, [r, w])
+		ix.acquire([r, w])
 
 		# we use j.force to rapidly trip the countdown.
 		# there are channels, so we should never break;
@@ -169,13 +146,13 @@ def test_active_array_continues(test):
 		ix.force()
 		while loops < 256:
 			# encourage switch
-			if not list(ix._iterarrays()):
+			if not list(ix.arrays):
 				break
-		test/list(ix._iterarrays()) != []
+		test/list(ix.arrays) != []
 
 		ix.terminate()
 
-		while list(ix._iterarrays()):
+		while list(ix.arrays):
 			time.sleep(0.000001)
 		test/w.terminated == True
 		test/r.terminated == True
@@ -183,13 +160,12 @@ def test_active_array_continues(test):
 		ix.terminate()
 
 def test_matrix_transfer(test):
-	l, a = new()
-	ix = system.Matrix(a)
+	ix = EMatrix()
 	try:
 		r, w = os.pipe()
 		r = system.io.alloc_input(r)
 		w = system.io.alloc_output(w)
-		ix.acquire(None, [r, w])
+		ix.acquire([r, w])
 
 		buf = bytearray(60)
 		r.acquire(buf)
@@ -203,12 +179,12 @@ def test_matrix_transfer(test):
 
 		# trigger the array recovery code
 		for x in range(8):
-			ix.force(a)
+			ix.force()
 
 		r, w = os.pipe()
 		r = system.io.alloc_input(r)
 		w = system.io.alloc_output(w)
-		ix.acquire(None, [r, w])
+		ix.acquire([r, w])
 
 		# Couple cycles should trigger the exit_at_zero reset.
 		ix.force()
@@ -216,7 +192,7 @@ def test_matrix_transfer(test):
 		r.terminate()
 		w.terminate()
 
-		while not list(ix._iterarrays()):
+		while not list(ix.arrays):
 			ix.force()
 		test/bytes(buf) == b'4' * 60
 	finally:
@@ -225,14 +201,13 @@ def test_matrix_transfer(test):
 def test_alloc_single_matrix(test):
 	# single channel allocations have a distinct branch
 	import time
-	l, a = new()
-	ix = system.Matrix(a)
+	ix = EMatrix()
 	try:
 		r = os.open('/dev/zero', os.O_RDONLY)
 		r2 = os.open('/dev/zero', os.O_RDONLY)
 		r = system.io.alloc_input(r)
 		r2 = system.io.alloc_input(r2)
-		ix.acquire(None, [r, r2])
+		ix.acquire([r, r2])
 
 		r.acquire(bytearray(b'\xFF'*10))
 		r2.acquire(bytearray(b'\xFF'*10))
@@ -252,8 +227,7 @@ def test_matrix_overflow(test):
 	"""
 	# Test the effect of the limit attribute.
 	"""
-	l, a = new()
-	ix = system.Matrix(a)
+	ix = EMatrix()
 	ix.channels_per_array = 0
 	try:
 		tset = []
@@ -262,17 +236,16 @@ def test_matrix_overflow(test):
 			tset.append(system.io.alloc_input(r))
 			tset.append(system.io.alloc_output(w))
 
-		ix.acquire(None, tset)
+		ix.acquire(tset)
 
 		# checking for per array limits
 		# ix.acquire allows the entire overflow to spill into the new array.
-		test/len(list(ix._iterarrays())) == 2
+		test/len(list(ix.arrays)) == 2
 	finally:
 		ix.terminate()
 
 def test_matrix_void(test):
-	l, a = new()
-	ix = system.Matrix(a)
+	ix = EMatrix()
 	# empty, safe to run.
 	ix.void()
 	# XXX: needs to be tested in a fork

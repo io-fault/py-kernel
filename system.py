@@ -3,13 +3,8 @@
 
 # [ Properties ]
 
-# /io_adapter/
-	# The &Adapter instance used by &.system.Process to manage I/O events.
 # /__process_index__/
 	# Indirect association of &Proces and &Context
-# /__io_index__/
-	# Indirect association of Logical Process objects and traffic Interchanges.
-	# Interchange holds references back to the process.
 """
 
 import os
@@ -17,12 +12,9 @@ import sys
 import functools
 import collections
 import contextlib
-import inspect
 import weakref
-import queue
 import traceback
 import itertools
-import typing
 import signal # masking SIGINT/SIGTERM in threads.
 import operator
 import time
@@ -47,55 +39,6 @@ from . import flows
 from . import text
 
 __process_index__ = dict()
-__io_index__ = dict()
-
-# This class primarily exists for documentation purposes.
-class Adapter(tuple):
-	"""
-	# A pair defining how transfers should be processed by a &Matrix.
-
-	# Matrix Adapters convert Array Transfer Events into events suitable for processing by
-	# the application.
-	"""
-	__slots__ = ()
-
-	@property
-	def endpoint(self):
-		"""
-		# The endpoint is a callable that receives the transformed transfers processed by
-		# &transformer.
-		"""
-		return self[0]
-
-	@property
-	def transformer(self):
-		"""
-		# The transformer is a callable that processes a Array that is currently in a
-		# cycle. The results are passed onto the &endpoint *after* the cycle exits.
-		"""
-		return self[1]
-
-	@classmethod
-	def create(Class, endpoint, transformer):
-		r =  Class(endpoint, transformer)
-		hash(r) # must be hashable
-		return r
-
-	def __new__(Class, endpoint, transformer):
-		return tuple.__new__(Class, (endpoint, transformer))
-
-def synchronize_io_events(arg, partial=functools.partial):
-	"""
-	# Send the event queue to the main task queue.
-	# Enqueue's &deliver_io_events with the queue constructed by &separate_io_events.
-	"""
-
-	array, queue = arg
-	if not queue:
-		return # Nothing to do.
-
-	# array.link is a &Process
-	array.link.enqueue(partial(deliver_io_events, array, queue))
 
 class Delta(tuple):
 	"""
@@ -175,148 +118,134 @@ class Delta(tuple):
 
 		return Class((channel.transfer(), demand, term))
 
-def separate_io_events(
-		array,
-		Queue=list,
-		snapshot=Delta.snapshot,
-		iter=iter,
-		MemoryError=MemoryError,
-		sleep=time.sleep,
-	):
-	"""
-	# Process the array's transfer and construct a sequence of I/O events.
-
-	# This is executed inside a thread managed by the interchange and *cannot* deliver
-	# the events to Transformers. &synchronize_io_events is used to deliver the queue
-	# for processing in the main task queue.
-	"""
-
-	# In a thread *outside* of the task queue, so is inappropriate
-	# to run process() methods on transformers.
-	# Build the transfer set for processing in the task queue.
-
-	q = Queue()
-	add = q.append
-	i = iter(array.transfer())
-
-	# currently this while loop is pointless
-	# however, it is the frame that should house retry attempts in the face of memory errors.
-	complete = False
-
-	while not complete:
-		try:
-			for x in i:
-				add((x.link, snapshot(x)))
-			else:
-				complete = True
-		except MemoryError:
-			# sleep and try again
-			# THIS BLOCKS I/O FOR THE Array instance.
-			while True:
-				try:
-					sleep(1)
-					add((x.link, snapshot(x)))
-					break
-				except MemoryError:
-					pass
-
-	return (array, q)
-
-io_adapter = Adapter(synchronize_io_events, separate_io_events)
-
 class Matrix(object):
 	"""
-	# A partitioned set of IO Arrays.
+	# Collection of &io.Array instances connecting transfers to &KChannel instances.
 	"""
-	channels_per_array = 1024 * 32
+	from ..system.io import Array
+	channels_per_array = 1024 * 16
 
-	def __init__(self, adapter, execute=None):
-		self.routes = {'system': io}
-		self.adapter = adapter
-		self.arrays = {}
-
-		# execute is managed differently as the adapter *should not*
-		# be written to depending on the method of thread execution.
-		if execute is None:
-			# default to a threading based instance,
-			# but allow overrides
-			import threading # only import threading if need be
-
-			def execute(callable, *args, T = threading.Thread):
-				t = T(target = callable, args = args)
-				t.start()
-				return t
-
-		self._execute = execute
-
-	def _setup(self, id=None, route='system'):
-		# Create the Array instance and start its loop in a new thread.
-		j = self.routes[route].Array()
-		j.link = id
-		self.arrays[id].add(j)
-		t = self._execute(self._array_loop, id, j)
-		return (t, j)
-
-	def _get(self, id=None, route='system', get0=operator.itemgetter(0)):
-		s = self.arrays.setdefault(id, set())
-		# otherwise adapter by volume and return the "lowest"
-		# XXX: This is a poor way to load balance arrays.
-		r = ()
-		while not r:
-			r = sorted([(x.volume, x) for x in s if x.terminated == False], key = get0)
-			if not r:
-				self._setup(id = id)
-			else:
-				return r[0][1]
-
-	def _iterarrays(self, chain=itertools.chain.from_iterable):
-		return chain(self.arrays.values()) # get a snapshot.
-
-	def __repr__(self):
-		return "{1}.{0}()".format(self.__class__.__name__, __name__)
-
-	def route(self, **routes):
+	@staticmethod
+	def io_collect(
+			transfers,
+			Queue=list,
+			snapshot=Delta.snapshot,
+			MemoryError=MemoryError,
+			sleep=time.sleep,
+		):
 		"""
-		# Add a new implementation to the Matrix.
+		# Process the array's transfer and construct a sequence of I/O events.
+
+		# This is executed inside a thread managed by the interchange and *cannot* deliver
+		# the events to Transformers. &synchronize_io_events is used to deliver the queue
+		# for processing in the main task queue.
 		"""
-		self.routes.update(routes)
 
-	def void(self):
+		# In a thread *outside* of the task queue, so is inappropriate
+		# to run process() methods on transformers.
+		# Build the transfer set for processing in the task queue.
+
+		q = Queue()
+		add = q.append
+
+		# currently this while loop is pointless
+		# however, it is the frame that should house retry attempts in the face of memory errors.
+		complete = False
+
+		while not complete:
+			try:
+				for x in transfers:
+					add((x.link, snapshot(x)))
+				else:
+					complete = True
+			except MemoryError:
+				# sleep and try again
+				# THIS BLOCKS I/O FOR THE Array instance.
+				while True:
+					try:
+						sleep(1)
+						add((x.link, snapshot(x)))
+						break
+					except MemoryError:
+						pass
+
+		return q
+
+	@staticmethod
+	def io_deliver(error, events):
 		"""
-		# Violently destroy all channels and Arrays in the Matrix.
-
-		# All arrays allocated by the Matrix will be terminated.
-
-		# ! WARNING:
-			# This method should *only* be ran *after* forking and *inside the child process*.
+		# Send the individual &events originally prepared by
+		# &io_collect to their associated &KInput or &KOutput flows.
 		"""
-		for x in self._iterarrays():
-			x.void()
-		self.arrays.clear()
 
-	def terminate(self):
+		complete = False
+		ievents = iter(events)
+		while not complete:
+			kp = link = delta = flow = None
+			try:
+				for event in ievents:
+					link, delta = event
+
+					kp = link
+					if kp is None:
+						# Ignore event for None links.
+						continue
+
+					# *MUST* rely on exhaust events here. If we peek ahead of the
+					# event callback, it may run a double acquire().
+					xfer, demand, term = delta
+
+					if xfer is not None:
+						# send transfer regardless of termination
+						# data may be transferred while the termination
+						# condition is present, so its important it gets sent
+						# prior to running the KernelPort's termination.
+						kp.f_emit((xfer,))
+
+					if demand is not None:
+						kp.k_transition() # Accept the next memory transfer.
+
+					if term and not (kp.terminated or kp.interrupted):
+						kp.f_terminated()
+
+					link = None
+				else:
+					complete = True # Done processing events.
+			except BaseException as exception:
+				try:
+					if link is None:
+						# failed to unpack the kp and delta from event
+						# generally this shouldn't happen and usually refers
+						# to a programming error.
+						error(event, exception)
+					else:
+						kp.fault(exception)
+				except BaseException as exc:
+					# Record exception of cleanup failure.
+					# TODO: Note as cleanup failure.
+					error(event, exc)
+
+	@staticmethod
+	def io_delta(array):
 		"""
-		# Terminate all arrays managed by the interchange.
-
-		# This method should be ran during process termination where graceful shutdown is
-		# desired.
+		# Inline I/O handler for schduler based transfers.
 		"""
-		for x in list(self._iterarrays()):
-			x.terminate()
+		with array:
+			# Interpret events.
+			events = collect(iter(array.transfer()))
+		deliver(events)
 
-	# Method ran in threads. The thread's existence is dependent on Array.terminated.
-	def _array_loop(self, id, j, limit=16):
-		# This loop runs the transformers and endpoint adapter callbacks until
+	@staticmethod
+	def io_loop(arrays, array, collect, deliver, synchronize, /,
+			limit=16, iter=iter, partial=functools.partial
+		):
+		# This loop runs the event interpreter and synchronization call until
 		# the countdown reaches zero. If the countdown reaches zero and
 		# there are no Channels in the Array, the array will terminate.
 		# If there are Channels in the array, the countdown resets.
 
-		# Cache the endpoint and the transformers.
-		# This should already be setup by the user before allocating channels.
+		j = array
 		Terminated = io.TransitionViolation
-		ep, xf = self.adapter
-		key = id
-		localset = self.arrays[key]
 		exit_at_zero = limit
 
 		try:
@@ -331,41 +260,40 @@ class Matrix(object):
 						# run an i/o cycle; if no events are there to be received, it will
 						# block for a short time before falling through.
 						with j:
-							# run the adapter's transformer against the array returning
-							# events that are suitable for the adapter's endpoint.
-							events = xf(j)
+							# Interpret events.
+							events = collect(iter(j.transfer()))
 
-						# run the adapter's endpoint.
-						ep(events)
+						# Deliver events.
+						synchronize(partial(deliver, events))
 
-						# immediately delete events. It may be a while before it gets
-						# replaced by the next cycle and we don't want to hold on to
-						# those references for arbitrary periods of time.
+						# Immediately drop references in order to avoid
+						# holding past transfers during the next wait period.
 						del events
 
 						# Zero volume? Might be an unused array.
 						if j.volume == 0:
 							if j.terminated:
-								# exotermination.
+								# Externally terminated; force loop exit.
 								exit_at_zero = 0
-								if j in localset:
-									localset.remove(j)
+								if j in arrays:
+									arrays.remove(j)
 							else:
 								# decrement count while the volume is zero.
 								exit_at_zero -= 1
 
 				except Terminated:
+					# Operation on terminated array.
 					pass
 
-				# Empty.
+				# Empty or externally terminated.
 				# Remove from set and restart countdown (lockless, so 2 phases)
 				# Otherwise, terminate it.
-				if j in localset:
+				if j in arrays:
 
 					# This is how we avoid cases where termination is
 					# triggered during a xact() that manages to refer to the
 					# array we're considering termination on.
-					localset.remove(j)
+					arrays.remove(j)
 
 					# After the array is removed from the set, it's no longer
 					# available for use by xact()'s. And while xact()'s can take
@@ -381,10 +309,10 @@ class Matrix(object):
 				else:
 
 					# Already removed from the visible set about 18 seconds ago.
-					# Maybe a no-op given exotermination (Matrix.terminate())
+					# Maybe a no-op given external termination (Matrix.terminate())
 					j.terminate()
 		finally:
-			# exiting. the array was terminated so this will be the final
+			# Exiting. The array was terminated so this will be the final
 			# cycle however, termination may have already been processed, so
 			# this could raise the TerminatedError.
 
@@ -393,10 +321,10 @@ class Matrix(object):
 				with j:
 					# run the adapter's transformer against the array returning
 					# events that are suitable for the adapter's endpoint.
-					events = xf(j)
+					events = collect(iter(j.transfer()))
 
 				# run the adapter's endpoint.
-				ep(events)
+				synchronize(partial(deliver, events))
 				# immediately delete events. It may be a while before it gets
 				# replaced by the next cycle and we don't want to hold on to
 				# those references for arbitrary periods of time.
@@ -405,38 +333,68 @@ class Matrix(object):
 				#  covers a race case with termination.
 				pass
 
-			# remove the array from the localset if it hasn't been removed yet.
-			if j in localset:
-				localset.remove(j)
+			# remove the array from the arrays if it hasn't been removed yet.
+			if j in arrays:
+				arrays.remove(j)
 
-	def force(self, id=None):
+	def __init__(self, errors, synchronize, execute):
+		self.arrays = set()
+		self.synchronize = synchronize
+		self._execute = functools.partial(execute, None, self.io_loop)
+		self._transfer = functools.partial(self.io_deliver, errors)
+
+	def _alloc(self):
+		# Create the Array instance and start its loop in a new thread.
+		new = self.Array()
+		self.arrays.add(new)
+		t = self._execute(self.arrays, new, self.io_collect, self._transfer, self.synchronize)
+		new.link = None
+		return (t, new)
+
+	def _get(self, get0=operator.itemgetter(0)):
+		# otherwise adapter by volume and return the "lowest"
+		# XXX: This is a poor way to load balance arrays.
+		r = ()
+		while not r:
+			r = sorted([(x.volume, x) for x in self.arrays if x.terminated == False], key = get0)
+			if not r:
+				self._alloc()
+			else:
+				return r[0][1]
+
+	def void(self):
+		"""
+		# Violently destroy all channels and Arrays in the Matrix.
+
+		# All arrays allocated by the Matrix will be terminated.
+
+		# ! WARNING:
+			# This method should *only* be ran *after* forking and *inside the child process*.
+		"""
+		for x in self.arrays:
+			x.void()
+		self.arrays.clear()
+
+	def force(self):
 		"""
 		# Execute the Array.force method on the set designated
 		# of Array instances designated by &id.
-
-		# [ Parameters ]
-		# /id/
-			# The identifier for the set of Array instances.
 		"""
-		j = self.arrays.get(id, ())
-		for x in j:
+		for x in self.arrays:
 			x.force()
 
-	def activity(self):
+	def terminate(self):
 		"""
-		# Signal the arrays that there was traffic activity that should be
-		# attended to.
-
-		# Must be after a set of resources have been acquired by Channels.
+		# Terminate all arrays managed by the interchange.
 		"""
-		for x in self._iterarrays():
-			x.force()
+		for x in self.arrays:
+			x.terminate()
 
-	def acquire(self, id, channels, len=len):
+	def acquire(self, channels, len=len):
 		"""
 		# Acquire a set of channels accounting for volume limits.
 		"""
-		array = self._get(id = id)
+		array = self._get()
 
 		nt = len(channels)
 		nv = array.volume + nt # new volume
@@ -448,75 +406,17 @@ class Matrix(object):
 			ja(x) # array.acquire(channel)
 
 		if overflow > 0:
-			self._setup(id = id)
-
-			array = self._get(id = id)
+			self._alloc()
+			array = self._get()
 			ja = array.acquire
 
 			for x in channels[position:]:
 				ja(x) # array.acquire(channel)
-
-# This is executed by the main task queue of a &Process instance.
-# It ends up being a sub-queue for I/O events and has similar logic for managing
-# exceptions.
-
-def deliver_io_events(array, events, iter=iter):
-	"""
-	# Send the individual &events originally prepared by
-	# &separate_io_events to their associated &KInput or &KOutput flows.
-	"""
-
-	complete = False
-	ievents = iter(events)
-	while not complete:
-		kp = link = delta = flow = None
-		try:
-			for event in ievents:
-				link, delta = event
-
-				kp = link
-				if kp is None:
-					# Ignore event for None links.
-					continue
-
-				# *MUST* rely on exhaust events here. If we peek ahead of the
-				# event callback, it may run a double acquire().
-				xfer, demand, term = delta
-
-				if xfer is not None:
-					# send transfer regardless of termination
-					# data may be transferred while the termination
-					# condition is present, so its important it gets sent
-					# prior to running the KernelPort's termination.
-					kp.f_emit((xfer,))
-
-				if demand is not None:
-					kp.k_transition() # Accept the next memory transfer.
-
-				if term and not (kp.terminated or kp.interrupted):
-					kp.f_terminated()
-
-				link = None
-			else:
-				complete = True # Done processing events.
-		except BaseException as exception:
-			try:
-				if link is None:
-					# failed to unpack the kp and delta from event
-					# generally this shouldn't happen and usually refers
-					# to a programming error.
-					array.link.error((array, event), exception)
-				else:
-					kp.fault(exception)
-			except BaseException as exc:
-				# Record exception of cleanup failure.
-				# TODO: Note as cleanup failure.
-				array.link.error((array, event), exc)
+		self.force()
 
 class KChannel(flows.Channel):
 	"""
 	# Channel moving data in or out of the operating system's kernel.
-	# The &KInput and &KOutput implementations providing for the necessary specializations.
 	"""
 	k_status = None
 
@@ -801,8 +701,8 @@ class KOutput(KChannel):
 
 class Context(core.Context):
 	"""
-	# System Context implementation for supplying Processing Graphs with access
-	# to the local system.
+	# System Transaction Context implementation providing
+	# Abstract Processors with access to the local system.
 	"""
 
 	def xact_exit(self, xact:core.Transaction):
@@ -829,6 +729,10 @@ class Context(core.Context):
 		self._io_flush = tools.nothing
 		self._io_attach = tools.nothing
 		self._io_cycle = tools.nothing
+
+	def sigterm(self, link):
+		kernel.signalexit(signal.SIGTERM)
+		self.terminate()
 
 	def terminate(self):
 		self.start_termination()
@@ -1041,13 +945,13 @@ class Context(core.Context):
 		# Signal the &Process that I/O occurred for this context.
 		"""
 
-		self.process.iomatrix.force(id=self)
+		self.process.iomatrix.force()
 
 	# Primary access to processor resources: task queue, work thread, and threads.
 	def _io_attach(self, *channels):
 		# Enqueue flush once to clear new channels.
 		if not self.attachments:
-			self.enqueue(self._io_flush)
+			self.process.enqueue(self._io_flush)
 		self.attachments.extend(channels)
 
 	def _io_flush(self):
@@ -1056,9 +960,8 @@ class Context(core.Context):
 		self.attachments = []
 
 		ix = self.process.iomatrix
-		ix.acquire(self, new_channels)
-		ix.force(id=self)
-		del ix
+		ix.acquire(new_channels)
+		ix.force()
 
 	def execute(self, controller, function, *parameters):
 		"""
@@ -1227,7 +1130,7 @@ class Context(core.Context):
 
 		return KInput(io.alloc_input(fd))
 
-	def daemon(self, invocation, close=os.close) -> typing.Tuple[int, int]:
+	def daemon(self, invocation, close=os.close) -> tuple[int, int]:
 		"""
 		# Execute the &..system.execution.KInvocation instance with stdin and stdout closed.
 
@@ -1433,24 +1336,13 @@ class Process(object):
 
 		return __process_index__[self][0]
 
-	def task_queue_reference(self):
-		"""
-		# Return the weak reference to &enqueue.
-		"""
-		bmethod = __process_index__[self][1]
-		return weakref.proxy(bmethod)
-
 	@property
-	def iomatrix(self):
-		"""
-		# The &Matrix instance managing the I/O file descriptors used
-		# by the &Process.
-		"""
-		return __io_index__[self]
+	def kernel(self):
+		return process.scheduler
 
 	def actuate_root_transaction(self):
 		xact = self.transaction()
-		tqr = self.task_queue_reference()
+		tqr = (lambda x: process.scheduler.enqueue(x))
 		xact.enqueue = tqr
 		xact._pexe_contexts = ('enqueue',)
 		xact.actuate()
@@ -1474,10 +1366,7 @@ class Process(object):
 		"""
 
 		process.fork_child_cleanup.add(self.void)
-
-		self.kernel.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
-		self.fabric.spawn(None, self.main, ()) # Main task queue thread.
-
+		self.enqueue(*[functools.partial(process.critical, None, x) for x in tasks])
 		return self
 
 	def terminate(self, status=None):
@@ -1487,11 +1376,9 @@ class Process(object):
 		self._exit_stack.__exit__(None, None, None)
 
 		del __process_index__[self]
-		del __io_index__[self]
 
-		if self.kernel is not None:
-			self.kernel.enqueue(functools.partial(self._exit_cb, status))
-			self.kernel.close()
+		if not self.kernel.closed:
+			self.enqueue(functools.partial(self._exit_cb, status))
 		else:
 			self._exit_cb(status)
 
@@ -1508,42 +1395,28 @@ class Process(object):
 
 		self._exit_cb = exit
 		self.identifier = identifier
+		self.fabric = Fabric(self)
+		self._logfile = sys.stderr
+		self._setup()
 
-		self._init_kernel()
-		self.enqueue = self.kernel.enqueue
-
+	def _setup(self):
 		# track number of loops
 		self.cycle_count = 0 # count of task cycles
 		self.executed_task_count = 0
 		self.cycle_start_time = None
 		self.cycle_start_time_decay = None
 
-		self._logfile = sys.stderr
-
+		self.enqueue = self.kernel.enqueue
 		self._init_exit()
-		self._init_fabric()
-		self._init_system_events()
 		self._init_io()
-
-	def _init_kernel(self):
-		self.kernel = kernel.Scheduler()
 
 	def _init_exit(self):
 		self._exit_stack = contextlib.ExitStack()
 		self._exit_stack.__enter__()
 
-	def _init_system_events(self):
-		ev = kernel.Event.process_signal(process.signal_codes['terminal/query'])
-		ln = kernel.Link(ev, self.report)
-		self.kernel.dispatch(ln)
-
-	def _init_fabric(self):
-		self.fabric = Fabric(self)
-
-	def _init_io(self, Matrix=Matrix):
-		execute = functools.partial(self.fabric.critical, self, io_adapter)
-		ix = Matrix(io_adapter, execute = execute)
-		__io_index__[self] = ix
+	def _init_io(self):
+		exe = functools.partial(self.fabric.critical, self)
+		self.iomatrix = Matrix(self.error, self.enqueue, exe)
 
 	def void(self):
 		"""
@@ -1551,31 +1424,14 @@ class Process(object):
 		# physical process fork.
 		"""
 
-		# Pending tasks will be discarded during dealloc.
-		self.kernel.void()
-		self.kernel = None
-		self._init_kernel()
-
-		# normally called in fork
-		self._init_exit()
-		self._init_fabric()
-		self._init_system_events()
-
+		self.fabric.void()
 		self.iomatrix.void()
-
-	def report(self, link=None):
-		"""
-		# Report a snapshot of the process' state to the given &target.
-		"""
-
-		self.log("[%s]\n" %(sysclock.now().select('iso'),))
-		xact = __process_index__[self][0]
-		xact.xact_context.report(self.log)
+		self._setup()
 
 	def __repr__(self):
 		return "{0}(identifier = {1!r})".format(self.__class__.__name__, self.identifier)
 
-	def error(self, context, exception, title="Unspecified Execution Area"):
+	def error(self, context, exception, /, title="Unspecified Execution Area"):
 		"""
 		# Handler for untrapped exceptions.
 		"""
@@ -1586,41 +1442,8 @@ class Process(object):
 
 		self.log("[!#: ERROR: exception raised from %s: %r]\n%s" %(title, context, formatting))
 
-	def main(self):
-		"""
-		# The main task loop executed by a dedicated thread created by &boot.
-		"""
-
-		try:
-			self.loop()
-
-			if self.kernel.loaded:
-				# Clear queue and warn if not empty after this.
-				self.kernel.execute(self.error)
-		except BaseException as critical_loop_exception:
-			self.error(self.loop, critical_loop_exception, title="Process Task Queue Caller")
-
-	def loop(self, partial=functools.partial, BaseException=BaseException):
-		"""
-		# Internal loop that processes the task queue. Executed by &boot in a thread
-		# managed by &fabric.
-		"""
-
-		time_snapshot = sysclock.now
-		ix = self.iomatrix
-		io = ix.activity
-		ks = self.kernel
-
-		errctl = (lambda c,v: self.error(c, v, title='Task',))
-
-		while not ks.closed:
-			self.cycle_count += 1
-			self.cycle_start_time = time_snapshot()
-			self.cycle_start_time_decay = 1 # Incremented by main thread.
-
-			self.executed_task_count += ks.execute(errctl)
-			io()
-			ks.wait()
+	def titled_error(self, title):
+		return functools.partial(self.error, title=title)
 
 main_thread_task_queue = None
 main_thread_interrupt = None
@@ -1657,17 +1480,17 @@ def spawn(exit, identifier, executables, critical=process.critical, partial=func
 	# The &identifier is usually `'root'` for the primary logical process.
 	"""
 
-	process = Process(exit, identifier)
-	system = Context(process)
+	proc = Process(exit, identifier)
+	system = Context(proc)
 	xact = core.Transaction.create(system)
-	enqueue = process.enqueue
-	__process_index__[process] = (xact, enqueue)
-	process.enqueue(partial(critical, None, process.actuate_root_transaction))
+	enqueue = proc.enqueue
+	__process_index__[proc] = (xact, lambda x: process.scheduler.enqueue(x))
+	proc.enqueue(partial(critical, None, proc.actuate_root_transaction))
 
 	for x in executables:
-		process.enqueue(partial(system.allocate, x))
+		proc.enqueue(partial(system.allocate, x))
 
-	return process
+	return proc
 
 def dispatch(invocation, application:core.Context, identifier=None, exit=exit) -> Process:
 	"""
@@ -1685,21 +1508,33 @@ def dispatch(invocation, application:core.Context, identifier=None, exit=exit) -
 
 	return process
 
+def reports(link):
+	for process, xact in __process_index__.items():
+		process.log("[%s]\n" %(sysclock.now().select('iso'),))
+		xact[0].xact_context.report(process.log)
+
 def set_root_process(process):
 	"""
 	# Connect the system process termination signal to root transaction terminate.
 	"""
+	from ..system.process import scheduler, signal_codes
 	from ..system import kernel
-	xact, enqueue = __process_index__[process]
+	sigterm = __process_index__[process][0].xact_context
 
-	callterm = functools.partial(enqueue, xact.terminate)
-	def termsignal(signo, frame=None, setstatus=kernel.signalexit):
-		setstatus(signal.SIGTERM)
-		callterm()
+	sig = signal_codes['process/terminate']
+	signal.signal(sig, signal.SIG_IGN) # Blocked on linux by Event.
+	ev = kernel.Event.process_signal(sig)
+	term = kernel.Link(ev, sigterm)
 
-	signal.signal(signal.SIGTERM, termsignal)
+	sig = signal_codes['terminal/query']
+	signal.signal(sig, signal.SIG_IGN) # Blocked on linux by Event.
+	ev = kernel.Event.process_signal(sig)
+	info = kernel.Link(ev, reports)
 
-def default_error_trap(call, error):
+	scheduler.dispatch(term)
+	scheduler.dispatch(info)
+
+def default_error_trap(link, call, error):
 	global main_thread_interrupt
 
 	import traceback
@@ -1728,13 +1563,16 @@ def protect(error_control, timeout=8):
 
 	try:
 		ks = main_thread_task_queue
+		ev = process.kernel.Event.meta_exception(None)
+		ks.dispatch(process.kernel.Link(ev, error_control))
+		del ev
 
 		while not ks.closed:
-			ks.execute(error_control)
+			ks.execute()
 			ks.wait(timeout)
 
 		if main_thread_interrupt is None:
-			ks.execute(default_error_trap)
+			ks.execute()
 	finally:
 		main_thread_task_queue = None
 
