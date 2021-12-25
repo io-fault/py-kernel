@@ -14,7 +14,7 @@ class EMatrix(system.Matrix):
 		super().__init__(self._err, (lambda x: x()), self._exe)
 
 def test_delta(test):
-	d = system.Delta.construct()
+	d = system.Matrix.Delta.construct()
 	test/d.endpoint == None
 	test/d.terminal == False
 	test/d.demand == None
@@ -53,7 +53,7 @@ def test_delta(test):
 	T.terminated = True
 	T.acquire(b'---')
 	T.mslice = slice(0,3)
-	d = system.Delta.snapshot(T)
+	d = system.Matrix.Delta.snapshot(T)
 	test/d.terminal == True
 	test/d.payload == b'---'
 	test/d.demand == None
@@ -65,7 +65,7 @@ def test_delta(test):
 	T.acquire(b'...')
 	T.exhausted = True
 	T.mslice = slice(0,3)
-	d = system.Delta.snapshot(T)
+	d = system.Matrix.Delta.snapshot(T)
 	test/d.terminal == False
 	test/d.payload == b'...'
 	test/d.demand == T.acquire

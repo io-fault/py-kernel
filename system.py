@@ -40,90 +40,87 @@ from . import text
 
 __process_index__ = dict()
 
-class Delta(tuple):
-	"""
-	# Tuple subclass holding a Channel transfer snapshot.
-
-	# ! WARNING:
-		# This class is not stable.
-	"""
-	__slots__ = ()
-
-	def __str__(self):
-		xfer = self[0]
-		send = isinstance(xfer, int)
-		s = {True: '\u2191 ', False: '\u2193 '}[send]
-
-		if xfer is not None:
-			s += 'transfer: ' + repr(bytes(xfer[:120]))
-
-		if self.terminal:
-			s += '..TERMINATED\n'
-		else:
-			if self.demand is not None:
-				s += '...EXHAUSTED RESOURCE'
-		return s
-
-	def __repr__(self):
-		return "{0}.{1}.construct(payload = {2!r}, demand = {3!r}, terminated = {4!r})".format(
-			__name__, self.__class__.__name__, *self
-		)
-
-	@property
-	def payload(self):
-		"""
-		# Units sent.
-		"""
-		return self[0]
-
-	@property
-	def demand(self):
-		"""
-		# The acquire method of the channel if exhausted. &None if not exhausted.
-		"""
-		return self[1]
-
-	@property
-	def terminal(self):
-		"""
-		# Whether or not this is the last event from the Channel.
-		"""
-		return self[2] is not None
-
-	@property
-	def endpoint(self):
-		if self[2] is not None:
-			return self[2][-1]
-		return None
-
-	@classmethod
-	def construct(Class, payload = None, demand = None, terminated = None):
-		return Class((payload, demand, terminated))
-
-	@classmethod
-	def snapshot(Class, channel):
-		demand = None
-		term = None
-
-		if channel.terminated:
-			# XXX: investigate cases where port can be None.
-			p = channel.port
-			if p is not None and p.error_code == 0:
-				term = True
-			else:
-				term = (p, channel.endpoint())
-		else:
-			if channel.exhausted is True:
-				demand = channel.acquire
-
-		return Class((channel.transfer(), demand, term))
-
 class Matrix(object):
 	"""
 	# Collection of &io.Array instances connecting transfers to &KChannel instances.
 	"""
 	from ..system.io import Array
 	channels_per_array = 1024 * 16
+
+	class Delta(tuple):
+		"""
+		# Transfer events snapshot delivered to I/O tasks.
+		"""
+		__slots__ = ()
+
+		def __str__(self):
+			xfer = self[0]
+			send = isinstance(xfer, int)
+			s = {True: '\u2191 ', False: '\u2193 '}[send]
+
+			if xfer is not None:
+				s += 'transfer: ' + repr(bytes(xfer[:120]))
+
+			if self.terminal:
+				s += '..TERMINATED\n'
+			else:
+				if self.demand is not None:
+					s += '...EXHAUSTED RESOURCE'
+			return s
+
+		def __repr__(self):
+			return "{0}.{1}.construct(payload = {2!r}, demand = {3!r}, terminated = {4!r})".format(
+				__name__, self.__class__.__name__, *self
+			)
+
+		@property
+		def payload(self):
+			"""
+			# Units sent.
+			"""
+			return self[0]
+
+		@property
+		def demand(self):
+			"""
+			# The acquire method of the channel if exhausted. &None if not exhausted.
+			"""
+			return self[1]
+
+		@property
+		def terminal(self):
+			"""
+			# Whether or not this is the last event from the Channel.
+			"""
+			return self[2] is not None
+
+		@property
+		def endpoint(self):
+			if self[2] is not None:
+				return self[2][-1]
+			return None
+
+		@classmethod
+		def construct(Class, payload = None, demand = None, terminated = None):
+			return Class((payload, demand, terminated))
+
+		@classmethod
+		def snapshot(Class, channel):
+			demand = None
+			term = None
+
+			if channel.terminated:
+				# XXX: investigate cases where port can be None.
+				p = channel.port
+				if p is not None and p.error_code == 0:
+					term = True
+				else:
+					term = (p, channel.endpoint())
+			else:
+				if channel.exhausted is True:
+					demand = channel.acquire
+
+			return Class((channel.transfer(), demand, term))
 
 	@staticmethod
 	def io_collect(
