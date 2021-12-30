@@ -335,7 +335,7 @@ class Transport(core.Context):
 
 class Interface(core.Context):
 	"""
-	# Application context managing a logical interfaces.
+	# Application context managing logical interfaces.
 	"""
 	_if_initial = None
 
@@ -348,8 +348,8 @@ class Interface(core.Context):
 			self._if_dispatch(self._if_initial)
 			del self._if_initial
 
-	def if_transition(self, ports, chain=itertools.chain.from_iterable):
-		eps = map(self.system.allocate_transport, chain(ports))
+	def if_transition(self, ports):
+		eps = map(self.system.allocate_transport, ports)
 		return self.if_target((self, self.if_prepare(self, eps)))
 
 	def if_install(self, kports):
@@ -367,19 +367,21 @@ class Interface(core.Context):
 			self._if_dispatch(kports)
 
 	def _if_dispatch(self, kports):
-		acquire = self.system.acquire_listening_sockets
+		"""
+		# Allocate and dispatch accept flows for the given &kports.
+		"""
+		lsd = self.system.accept_sockets
 		create = core.Transaction.create
 		dispatch = self.sector.dispatch
 		fdispatch = flows.Dispatch
 
-		for listen in acquire(kports):
-			x, flow = listen
-
+		for kp in kports:
 			t = Transfer()
+			fdis = fdispatch(self.if_transition)
 			xact = create(t)
 			dispatch(xact)
-			t.io_flow([flow, fdispatch(self.if_transition)])
-			flow.f_transfer(None)
+			ka = lsd(kp)
+			t.io_flow([ka, fdis])
 
 	def xact_exit(self, transport):
 		pass

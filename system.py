@@ -1,10 +1,5 @@
 """
-# Engine for running Processing Graphs on the local system.
-
-# [ Properties ]
-
-# /__process_index__/
-	# Indirect association of &Proces and &Context
+# System abstractions and processors for managing a processing tree.
 """
 
 import os
@@ -564,12 +559,35 @@ class KAllocate(KChannel):
 		if self.channel.resource is None:
 			self.k_transition()
 
-class KAccept(KAllocate):
+class KAccept(flows.Channel):
 	"""
-	# Receive integer arrays from the system I/O channel.
+	# Manage the event connection to a listening socket and process
+	# read events by accepting and transmitting the socket file descriptors.
 	"""
 
-	ki_allocate, ki_resource_size = (kernel.Ports.allocate, 24)
+	Allocate = kernel.Ports.allocate
+
+	def __init__(self, kport, accept=kernel.accept_ports):
+		self.ka_port = kport
+		self.ka_event = kernel.Event.io_receive(None, self.ka_port)
+		self.ka_accept = accept
+
+	def actuate(self):
+		self.system.kdispatch(self.ka_event, self.f_transfer)
+
+	def f_transfer(self, event):
+		kpv = self.Allocate(2)
+		self.ka_accept(self.ka_port, kpv)
+		self.f_emit(kpv)
+
+	def interrupt(self):
+		self.system.kcancel(self.ka_event)
+		os.close(self.ka_port)
+		self.ka_port = -1
+
+	def f_terminate(self):
+		self.interrupt()
+		super().f_terminate()
 
 class KInput(KAllocate):
 	"""
@@ -739,6 +757,14 @@ class Context(core.Context):
 	@property
 	def process(self):
 		return self._process_ref()
+
+	def kdispatch(self, event, task):
+		ln = kernel.Link(event, task)
+		self.process.kernel.dispatch(ln)
+		return ln
+
+	def kcancel(self, event):
+		self.process.kernel.cancel(self.ka_event)
 
 	def __init__(self, process):
 		self._process_ref = weakref.ref(process)
@@ -1090,26 +1116,11 @@ class Context(core.Context):
 			t = io.alloc_service(network.service(x))
 			yield (x, KAccept(t))
 
-	def acquire_listening_sockets(self, kports):
+	def accept_sockets(self, kp):
 		"""
-		# Acquire the channels necessary for the set of &kports, file descriptors,
-		# and construct a pair of &KernelPort instances to represent them inside a &Flow.
-
-		# [ Parameters ]
-
-		# /kports/
-			# An iterable consisting of file descriptors referring to sockets.
-
-		# [ Returns ]
-
-		# /&Type/
-			# Iterable of pairs. First item of each pair being the interface's local endpoint,
-			# and the second being the &KernelPort instance.
+		# Construct a Channel processor that emite accepted listening sockets.
 		"""
-
-		for kp in kports:
-			socket_channel = io.alloc_service(kp)
-			yield (socket_channel.endpoint(), KAccept(socket_channel))
+		return KAccept(kp)
 
 	def connect_output(self, fd):
 		"""
